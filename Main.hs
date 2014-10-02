@@ -1,5 +1,6 @@
 import Expression.Expression
-import Expression.Parser
+import Expression.Parse
 
 main = do
     putStrLn "TermiteSAT"
+

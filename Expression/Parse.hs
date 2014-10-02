@@ -1,6 +1,6 @@
 {-# LANGUAGE GADTs, RecordWildCards, DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
 
-module Expression.Parser (
+module Expression.Parse (
     Decl(..),
     Decls(..),
     Rels(..),
@@ -32,8 +32,13 @@ import Data.EitherR
 import Control.Arrow
 import Debug.Trace
 
-import SAT.Types
-import qualified HAST.HAST as HAST
+import qualified Expression.HAST as HAST
+
+data Void
+
+type AST = HAST.AST VarInfo Void Void VarInfo
+
+data Section = StateVar | ContVar | UContVar
 
 data VarInfo = VarInfo {
     name    :: String,
@@ -216,7 +221,7 @@ constructSymTab = foldM func (Map.empty)
         Just _  -> Left key
 
 doDecls :: [Decl] -> [Decl] -> [Decl] -> Either String SymTab
-doDecls sd ld od = fmapL ("Variable already exists: " ++) $ constructSymTab $ concat [concatMap (go StateSection) sd, concatMap (go LabelSection) ld, concatMap (go OutcomeSection) od]
+doDecls sd ld od = fmapL ("Variable already exists: " ++) $ constructSymTab $ concat [concatMap (go StateVar) sd, concatMap (go ContVar) ld, concatMap (go UContVar) od]
     where
     go sect (Decl vars vtype) = concatMap go' vars
         where
@@ -249,17 +254,17 @@ getBits :: Slice -> Int -> Int
 getBits Nothing x       = x
 getBits (Just (l, u)) x = (shift (-l) x) .&. (2 ^ (u - l + 1) - 1)
 
-mkVar (VarInfo nm sz StateSection slc)      = HAST.NVar (StateVar nm sz)
-mkVar (VarInfo nm sz LabelSection slc)      = HAST.NVar (LabelVar nm sz)
-mkVar (VarInfo nm sz OutcomeSection slc)    = HAST.NVar (OutVar nm sz)
+---mkVar (VarInfo nm sz StateSection slc)      = HAST.NVar (VarInfo nm StateVar nm sz)
+---mkVar (VarInfo nm sz LabelSection slc)      = HAST.NVar (LabelVar nm sz)
+---mkVar (VarInfo nm sz OutcomeSection slc)    = HAST.NVar (OutVar nm sz)
 
-predToHAST :: ValExpr (Either VarInfo Int) -> ValExpr (Either VarInfo Int) -> SATAST
+predToHAST :: ValExpr (Either VarInfo Int) -> ValExpr (Either VarInfo Int) -> AST
 predToHAST (Lit (Right a)) (Lit (Right b))   = if (a == b) then HAST.T else HAST.F
-predToHAST (Lit (Left a)) (Lit (Right b))    = HAST.EqConst (mkVar a) b
-predToHAST (Lit (Right a)) (Lit (Left b))    = HAST.EqConst (mkVar b) a
-predToHAST (Lit (Left a)) (Lit (Left b))     = HAST.EqVar (mkVar a) (mkVar b)
+predToHAST (Lit (Left a)) (Lit (Right b))    = HAST.EqConst (HAST.NVar a) b
+predToHAST (Lit (Right a)) (Lit (Left b))    = HAST.EqConst (HAST.NVar b) a
+predToHAST (Lit (Left a)) (Lit (Left b))     = HAST.EqVar (HAST.NVar a) (HAST.NVar b)
 
-binExprToHAST :: BinExpr (Either VarInfo Int) -> SATAST
+binExprToHAST :: BinExpr (Either VarInfo Int) -> AST
 binExprToHAST TrueE             = HAST.T
 binExprToHAST FalseE            = HAST.F
 binExprToHAST (Not e)           = HAST.Not (binExprToHAST e)
@@ -268,14 +273,14 @@ binExprToHAST (Bin Or a b)      = HAST.Or (binExprToHAST a) (binExprToHAST b)
 binExprToHAST (Pred Eq a b)     = predToHAST a b
 binExprToHAST (Pred Neq a b)    = HAST.Not (predToHAST a b)
 
-ctrlExprToHAST :: CtrlExpr String (Either VarInfo Int) -> [(String, ([SATIndex] -> SATAST))]
+ctrlExprToHAST :: CtrlExpr String (Either VarInfo Int) -> [(String, (VarInfo -> AST))]
 ctrlExprToHAST (Assign var val) = [(var, valExprToHAST val)]
 ctrlExprToHAST (Conj cs)        = concatMap ctrlExprToHAST cs
 ctrlExprToHAST (Signal var val) = error "Signal not implemented"
 ctrlExprToHAST (CaseC cs)       = error "CaseC not implemented"
 
-valExprToHAST :: ValExpr (Either VarInfo Int) -> ([SATIndex] -> SATAST)
-valExprToHAST (Lit (Left a))    = (\x -> HAST.EqVar (HAST.FVar x) (mkVar a))
+valExprToHAST :: ValExpr (Either VarInfo Int) -> (VarInfo -> AST)
+valExprToHAST (Lit (Left a))    = (\x -> HAST.EqVar (HAST.FVar x) (HAST.NVar a))
 valExprToHAST (Lit (Right a))   = (\x -> HAST.EqConst (HAST.FVar x) a)
 valExprToHAST (CaseV cases)     = f
     where
