@@ -1,3 +1,5 @@
+{-# LANGUAGE RecordWildCards #-}
+
 import System.Environment
 import System.Console.GetOpt
 import Control.Monad
@@ -37,5 +39,9 @@ main = do
 
     case config of
         Nothing     -> error "Invalid Config"
-        Just config -> putStrLn (show config)
+        Just config -> do
+            f <- readFile (tslFile config)
+            case parser f of
+                Left err    -> error err
+                Right spec  -> putStrLn (show spec)
 

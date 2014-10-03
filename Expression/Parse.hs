@@ -12,7 +12,8 @@ module Expression.Parse (
     ctrlExprToHAST,
     parseDecls,
     parseRels,
-    whiteSpace
+    whiteSpace,
+    parser
     ) where
 
 import Control.Applicative
@@ -23,7 +24,7 @@ import qualified Text.Parsec.Token as T
 import Text.Parsec.Language
 import Data.Functor
 import Data.Foldable hiding (concat, concatMap)
-import Data.Traversable
+import Data.Traversable hiding (mapM)
 import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.Bits
@@ -103,6 +104,28 @@ data BinExpr v where
     Pred   :: PredType -> ValExpr v -> ValExpr v  -> BinExpr v
     deriving (Show, Functor, Foldable, Traversable)
 
+---data ParsedSpec = ParsedSpec {
+---    init         :: AST, 
+---    goal         :: AST, 
+---    fair         :: AST, 
+---    cont         :: AST, 
+---    slRel        :: AST, 
+---    trans        :: AST
+---    }
+
+parser fn = do
+    (Spec Decls{..} Rels{..}) <- fmapL show $ parse top "" fn
+    let theMap = case (doDecls stateDecls labelDecls outcomeDecls) of
+                    Left s -> error s
+                    Right m -> m
+    Rels{..} <- Rels <$> resolve theMap init
+                     <*> mapM (resolve theMap) goal
+                     <*> mapM (resolve theMap) fair
+                     <*> resolve theMap cont
+                     <*> resolve theMap slRel
+                     <*> resolve theMap trans
+
+    Right $ 7
 
 --The lexer
 reservedNames = ["case", "true", "false", "else", "abs", "conc", "uint", "bool"]
