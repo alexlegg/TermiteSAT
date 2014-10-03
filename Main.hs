@@ -1,5 +1,6 @@
 import System.Environment
 import System.Console.GetOpt
+import Control.Monad
 import Control.Monad.IO.Class
 
 import Expression.Expression
@@ -25,10 +26,16 @@ addOption (Bound k) c       = c {bound = (read k)}
 
 main = do
     args <- liftIO getArgs
-    let config = addOption (InputFile (last args)) defaultConfig
-    config <- case getOpt Permute options args of
-        (o, n, [])  -> return $ foldr addOption config o
-        _           -> error "Invalid Options"
 
-    putStrLn (show config)
+    let config = if length args == 0
+        then Nothing
+        else Just $ addOption (InputFile (last args)) defaultConfig
+
+    config <- case getOpt Permute options args of
+        (o, n, [])  -> return $ (foldr (liftM . addOption) config o)
+        _           -> return $ Nothing
+
+    case config of
+        Nothing     -> error "Invalid Config"
+        Just config -> putStrLn (show config)
 
