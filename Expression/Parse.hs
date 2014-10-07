@@ -2,17 +2,8 @@
 
 module Expression.Parse (
     Decl(..),
-    Decls(..),
-    Rels(..),
-    Spec(..),
     Type(..),
-    doDecls,
-    resolve,
-    binExprToHAST,
-    ctrlExprToHAST,
-    parseDecls,
-    parseRels,
-    whiteSpace,
+    ParsedSpec(..),
     parser
     ) where
 
@@ -65,12 +56,12 @@ data Decls = Decls {
 }
 
 data Rels a = Rels {
-    init         :: BinExpr a,
-    goal         :: [BinExpr a],
+    initR        :: BinExpr a,
+    goalR        :: [BinExpr a],
     fair         :: [BinExpr a],
     cont         :: BinExpr a,
     slRel        :: BinExpr a,
-    trans        :: CtrlExpr String a
+    transR       :: CtrlExpr String a
 }
 
 type Slice = Maybe (Int, Int)
@@ -104,28 +95,32 @@ data BinExpr v where
     Pred   :: PredType -> ValExpr v -> ValExpr v  -> BinExpr v
     deriving (Show, Functor, Foldable, Traversable)
 
----data ParsedSpec = ParsedSpec {
----    init         :: AST, 
----    goal         :: AST, 
----    fair         :: AST, 
----    cont         :: AST, 
----    slRel        :: AST, 
----    trans        :: AST
----    }
+data ParsedSpec = ParsedSpec {
+    init         :: AST, 
+    goal         :: AST, 
+    ucont        :: AST, 
+    trans        :: [(String, (VarInfo -> AST))],
+    allvars      :: [Decl]
+    }
 
-parser fn = do
-    (Spec Decls{..} Rels{..}) <- fmapL show $ parse top "" fn
+parser fn f = do
+    (Spec Decls{..} Rels{..}) <- fmapL show $ parse top fn f
     let theMap = case (doDecls stateDecls labelDecls outcomeDecls) of
                     Left s -> error s
                     Right m -> m
-    Rels{..} <- Rels <$> resolve theMap init
-                     <*> mapM (resolve theMap) goal
+    Rels{..} <- Rels <$> resolve theMap initR
+                     <*> mapM (resolve theMap) goalR
                      <*> mapM (resolve theMap) fair
                      <*> resolve theMap cont
                      <*> resolve theMap slRel
-                     <*> resolve theMap trans
+                     <*> resolve theMap transR
 
-    Right $ 7
+    Right ParsedSpec { init    = binExprToHAST initR
+                              , goal    = head (map binExprToHAST goalR)
+                              , ucont   = head (map binExprToHAST fair)
+                              , trans   = ctrlExprToHAST transR
+                              , allvars = stateDecls ++ labelDecls ++ outcomeDecls
+                              }
 
 --The lexer
 reservedNames = ["case", "true", "false", "else", "abs", "conc", "uint", "bool"]

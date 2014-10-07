@@ -4,9 +4,11 @@ import System.Environment
 import System.Console.GetOpt
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Error
 
 import Expression.Expression
 import Expression.Parse
+import Synthesise.Synthesise
 
 data Option = InputFile String
             | Bound String
@@ -27,21 +29,34 @@ addOption (InputFile fn) c  = c {tslFile = fn}
 addOption (Bound k) c       = c {bound = (read k)}
 
 main = do
+    config <- getConfig
+
+    res <- case config of
+        Left e -> return $ Left e
+        Right config -> do
+            f <- readFile (tslFile config)
+            return $ run (tslFile config) f
+
+    case res of
+        Left s  -> putStrLn s
+        Right r -> putStrLn (show r)
+
+getConfig :: IO (Either String Config)
+getConfig = do
     args <- liftIO getArgs
 
     let config = if length args == 0
-        then Nothing
-        else Just $ addOption (InputFile (last args)) defaultConfig
+        then Left "No filename given"
+        else Right $ addOption (InputFile (last args)) defaultConfig
 
-    config <- case getOpt Permute options args of
+    case getOpt Permute options args of
         (o, n, [])  -> return $ (foldr (liftM . addOption) config o)
-        _           -> return $ Nothing
+        _           -> return $ Left "Bad options"
+    
 
-    case config of
-        Nothing     -> error "Invalid Config"
-        Just config -> do
-            f <- readFile (tslFile config)
-            case parser f of
-                Left err    -> error err
-                Right spec  -> putStrLn (show spec)
+run fn f = do
+    spec <- parser fn f
+    synthesise spec
+
+
 
