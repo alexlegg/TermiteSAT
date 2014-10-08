@@ -5,10 +5,17 @@ module Synthesise.Synthesise (
 
 import Expression.Parse
 import Expression.Compile
+import Expression.Expression
+import Debug.Trace
+import Control.Monad.State
+import qualified Data.Map as Map
 
+initState = ExprManager { maxIndex = 3, exprMap = Map.empty }
+
+synthesise :: ParsedSpec -> Either String Bool
 synthesise spec = do
     let ParsedSpec{..} = spec
 
-    let c = compile init
+    (c, m) <- runStateT (compile init) initState 
 
-    Right True
+    trace (show c) $ Right True

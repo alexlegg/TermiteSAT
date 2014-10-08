@@ -25,19 +25,8 @@ import Control.Arrow
 import Debug.Trace
 
 import qualified Expression.HAST as HAST
+import Expression.Expression
 
-data Void
-
-type AST = HAST.AST VarInfo Void Void VarInfo
-
-data Section = StateVar | ContVar | UContVar
-
-data VarInfo = VarInfo {
-    name    :: String,
-    sz      :: Int,
-    section :: Section,
-    slice   :: Slice
-}
 
 data Type where
     BoolType ::             Type
@@ -63,8 +52,6 @@ data Rels a = Rels {
     slRel        :: BinExpr a,
     transR       :: CtrlExpr String a
 }
-
-type Slice = Maybe (Int, Int)
 
 data Spec = Spec {
     decls :: Decls,
