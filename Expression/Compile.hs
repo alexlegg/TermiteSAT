@@ -5,6 +5,7 @@ module Expression.Compile (
 import Control.Monad.State
 import Expression.Expression
 import Data.EitherR
+import Data.Bits (testBit)
 import qualified Expression.HAST as HAST
 import qualified Data.Map as Map
 
@@ -23,7 +24,28 @@ compileVar (HAST.FVar f) = do
         bit     = 0,
         rank    = 1
         }
-    return $ ELit Pos v
+    return [v]
+
+compileVar (HAST.EVar _) = do
+    lift $ Left "EVar not implemented"
+
+compileVar (HAST.NVar v) = do
+    let bits = case slice v of
+                Nothing     -> [0..((sz v)-1)]
+                Just (s, e) -> [s..e]
+    return $ map (makeVar v 0) bits
+
+makeVar vi rank bit = ExprVar {
+    varname = name vi,
+    varsect = section vi,
+    bit     = bit,
+    rank    = rank
+    }
+    
+makeSignsFromValue :: Int -> Int -> [Sign]
+makeSignsFromValue v sz = map f [0..(sz-1)]
+    where
+        f b = if testBit v b then Pos else Neg
 
 -- |The 'compile' function takes an AST and converts it to an Expression inside the Expressions State Monad
 compile :: AST -> ExpressionST Expression
@@ -68,13 +90,18 @@ compile (HAST.Case xs) = do
 
 compile (HAST.Var x) = do
     x' <- compileVar x
-    addExpression x' []
+    --addExpression x' []
+    lift $ Left "Var not implemented"
 
 compile (HAST.EqVar a b) = do
     lift $ Left "EqVar not implemented"
 
 compile (HAST.EqConst a b) = do
-    lift $ Left "EqConst not implemented"
+    a' <- compileVar a
+    let signs = makeSignsFromValue b (length a')
+    let mkLit (s, v) = ELit s v
+    lits <- mapM ((`addExpression` []) . mkLit) (zip signs a')
+    addExpression EConjunct lits
 
 compile (HAST.Exists _ _) = do
     lift $ Left "Exists not implemented"
