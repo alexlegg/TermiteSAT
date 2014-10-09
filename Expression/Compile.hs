@@ -94,7 +94,14 @@ compile (HAST.Var x) = do
     lift $ Left "Var not implemented"
 
 compile (HAST.EqVar a b) = do
-    lift $ Left "EqVar not implemented"
+    a' <- compileVar a
+    b' <- compileVar b
+    when (length a' /= length b') $ lift $ Left "Attempted equality of unequally sized vars"
+    as <- mapM ((`addExpression` []) . (ELit Pos)) a'
+    bs <- mapM ((`addExpression` []) . (ELit Pos)) b'
+    let cs = [[a, b] | a <- as, b <- bs]
+    eqs <- mapM (addExpression EEquals) cs
+    addExpression EConjunct eqs
 
 compile (HAST.EqConst a b) = do
     a' <- compileVar a
