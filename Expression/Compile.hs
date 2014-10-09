@@ -3,11 +3,13 @@ module Expression.Compile (
     ) where
 
 import Control.Monad.State
-import Expression.Expression
 import Data.EitherR
 import Data.Bits (testBit)
-import qualified Expression.HAST as HAST
+import Data.List
 import qualified Data.Map as Map
+
+import qualified Expression.HAST as HAST
+import Expression.Expression
 
 addExpression :: ExprType -> [Expression] -> ExpressionST Expression
 addExpression e c = do
@@ -46,6 +48,15 @@ makeSignsFromValue :: Int -> Int -> [Sign]
 makeSignsFromValue v sz = map f [0..(sz-1)]
     where
         f b = if testBit v b then Pos else Neg
+
+makeConditions xs = do
+    mapM f (inits xs)
+    where
+        f xs' = do
+            let x = last xs'
+            let xs = init xs
+            prev <- mapM (\a -> addExpression ENot [a]) xs
+            addExpression EConjunct (x : prev)
 
 -- |The 'compile' function takes an AST and converts it to an Expression inside the Expressions State Monad
 compile :: AST -> ExpressionST Expression
@@ -86,7 +97,12 @@ compile (HAST.XNor a b) = do
     lift $ Left "XNor not implemented"
 
 compile (HAST.Case xs) = do
-    lift $ Left "Case not implemented"
+    let (cs, es) = unzip xs
+    cs' <- mapM compile cs
+    es' <- mapM compile es
+    conds <- makeConditions cs'
+    cases <- mapM (\(a, b) -> addExpression EConjunct [a, b]) (zip conds es')
+    addExpression EDisjunct cases
 
 compile (HAST.Var x) = do
     x' <- compileVar x
