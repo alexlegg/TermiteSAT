@@ -11,7 +11,7 @@ author:              Alex Legg
 maintainer:          alexander.legg@nicta.com.au
 -- copyright:           
 -- category:            
-build-type:          Simple
+build-type:          Custom
 extra-source-files:  README.md
 cabal-version:       >=1.10
 
