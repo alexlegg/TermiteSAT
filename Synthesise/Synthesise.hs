@@ -9,6 +9,7 @@ import Expression.Expression
 import Debug.Trace
 import Control.Monad.State
 import qualified Data.Map as Map
+import SatSolver.SatSolver
 
 initState = ExprManager { maxIndex = 3, exprMap = Map.empty }
 
