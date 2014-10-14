@@ -8,15 +8,18 @@ import Expression.Compile
 import Expression.Expression
 import Debug.Trace
 import Control.Monad.State
+import Control.Monad.Trans.Either
 import qualified Data.Map as Map
 import SatSolver.SatSolver
 
 initState = ExprManager { maxIndex = 3, exprMap = Map.empty }
 
-synthesise :: ParsedSpec -> Either String Bool
+synthesise :: ParsedSpec -> EitherT String IO Bool
 synthesise spec = do
     let ParsedSpec{..} = spec
 
-    (c, m) <- runStateT (compile init) initState 
+    (c, m) <- hoistEither $ runStateT (compile init) initState 
 
-    trace (show c) $ Right True
+    liftIO $ satSolve 2 [[1], [-2]]
+
+    hoistEither $ Right True

@@ -4,6 +4,7 @@ import System.Environment
 import System.Console.GetOpt
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Monad.Trans.Class
 import Control.Error
 
 import Expression.Expression
@@ -35,7 +36,7 @@ main = do
         Left e -> return $ Left e
         Right config -> do
             f <- readFile (tslFile config)
-            return $ run (tslFile config) f
+            runEitherT (run (tslFile config) f)
 
     case res of
         Left s  -> putStrLn s
@@ -55,8 +56,5 @@ getConfig = do
     
 
 run fn f = do
-    spec <- parser fn f
+    spec <- hoistEither $ parser fn f
     synthesise spec
-
-
-
