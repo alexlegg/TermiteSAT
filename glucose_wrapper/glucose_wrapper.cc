@@ -17,9 +17,9 @@ extern "C" {
     void addClause_addLit(glucose_solver *s, int lit)
     {
         if (lit > 0) {
-            s->clause.push(mkLit(abs(lit)));
+            s->clause.push(mkLit(abs(lit), false));
         } else {
-            s->clause.push(mkLit(abs(lit)));
+            s->clause.push(mkLit(abs(lit), true));
         }
     }
 
@@ -32,11 +32,31 @@ extern "C" {
 
     void addVar(glucose_solver *s)
     {
-        s->newVar();
+        Var v = s->newVar();
     }
 
     bool solve(glucose_solver *s)
     {
         return s->solve();
+    }
+
+    int *model(glucose_solver *s)
+    {
+        int *model = (int *)malloc(sizeof(int) * (1 + s->model.size()));
+        int mi = 0;
+
+        for (int i = 1; i < s->model.size(); ++i)
+        {
+            if (s->model[i] == l_True) {
+                model[mi] = i;
+                mi++;
+            } else if (s->model[i] == l_False) {
+                model[mi] = -i;
+                mi++;
+            }
+        }
+        model[mi] = 0;
+
+        return model;
     }
 }

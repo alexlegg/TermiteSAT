@@ -10,5 +10,6 @@ bool            addClause(glucose_solver *s);
 void            addVar(glucose_solver *s);
 
 bool            solve(glucose_solver *s);
+int             *model(glucose_solver *s);
 
 #endif

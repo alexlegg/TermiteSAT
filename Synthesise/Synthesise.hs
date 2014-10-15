@@ -7,6 +7,7 @@ import Expression.Parse
 import Expression.Compile
 import Expression.Expression
 import Debug.Trace
+import Data.Maybe
 import Control.Monad.State
 import Control.Monad.Trans.Either
 import qualified Data.Map as Map
@@ -20,6 +21,20 @@ synthesise spec = do
 
     (c, m) <- hoistEither $ runStateT (compile init) initState 
 
-    liftIO $ satSolve 2 [[1], [-2]]
+    res <- liftIO $ satSolve 5 [
+        [-3, 1],
+        [-3, -2],
+        [3, -1, 2],
+        [-4, -1],
+        [-4, 2],
+        [4, 1, -2],
+        [-5, 3, 4],
+        [5, -3],
+        [5, -4],
+        [5]
+        ]
+
+    liftIO $ putStrLn (show (satisfiable res))
+    liftIO $ putStrLn (show (fromJust $ model res))
 
     hoistEither $ Right True
