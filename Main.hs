@@ -36,7 +36,7 @@ main = do
         Left e -> return $ Left e
         Right config -> do
             f <- readFile (tslFile config)
-            runEitherT (run (tslFile config) f)
+            runEitherT (run config f)
 
     case res of
         Left s  -> putStrLn s
@@ -55,6 +55,6 @@ getConfig = do
         _           -> return $ Left "Bad options"
     
 
-run fn f = do
-    spec <- hoistEither $ parser fn f
-    synthesise spec
+run config f = do
+    spec <- hoistEither $ parser (tslFile config) f
+    synthesise (bound config) spec

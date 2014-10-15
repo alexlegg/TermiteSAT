@@ -1,5 +1,6 @@
 module Expression.Compile (
-    compile
+    compile,
+    compileTrans
     ) where
 
 import Control.Monad.State
@@ -20,13 +21,7 @@ addExpression e c = do
     return $ expr
 
 compileVar (HAST.FVar f) = do
-    let v = ExprVar {
-        varname = name f,
-        varsect = section f,
-        bit     = 0,
-        rank    = 1
-        }
-    return [v]
+    return $ map (makeVar f 0) [0..((sz f)-1)]
 
 compileVar (HAST.EVar _) = do
     lift $ Left "EVar not implemented"
@@ -50,13 +45,13 @@ makeSignsFromValue v sz = map f [0..(sz-1)]
         f b = if testBit v b then Pos else Neg
 
 makeConditions xs = do
-    mapM f (inits xs)
+    mapM f (tail (inits xs))
     where
         f xs' = do
-            let x = last xs'
-            let xs = init xs
-            prev <- mapM (\a -> addExpression ENot [a]) xs
-            addExpression EConjunct (x : prev)
+            let y = last xs'
+            let ys = init xs'
+            prev <- mapM (\a -> addExpression ENot [a]) ys
+            addExpression EConjunct (y : prev)
 
 -- |The 'compile' function takes an AST and converts it to an Expression inside the Expressions State Monad
 compile :: AST -> ExpressionST Expression
@@ -112,7 +107,7 @@ compile (HAST.Var x) = do
 compile (HAST.EqVar a b) = do
     a' <- compileVar a
     b' <- compileVar b
-    when (length a' /= length b') $ lift $ Left "Attempted equality of unequally sized vars"
+    when (length a' /= length b') $ lift $ Left ("Attempted equality of unequally sized vars (" ++ show a' ++ " & " ++ show b' ++ ")")
     as <- mapM ((`addExpression` []) . (ELit Pos)) a'
     bs <- mapM ((`addExpression` []) . (ELit Pos)) b'
     let cs = [[a, b] | a <- as, b <- bs]
@@ -137,3 +132,18 @@ compile (HAST.Let _ _) = do
 
 compile (HAST.LetLit _) = do
     lift $ Left "LetLit not implemented"
+
+compileTrans :: [(String, (VarInfo -> AST))] -> ExpressionST Expression
+compileTrans trans = do
+    es <- mapM compileTrans' trans
+    addExpression EConjunct es
+
+compileTrans' (vname, f) = do
+    let vi = VarInfo {
+        name    = vname,
+        sz      = 0,
+        section = StateVar,
+        slice   = Nothing
+        }
+
+    compile (f vi)

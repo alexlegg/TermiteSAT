@@ -86,7 +86,7 @@ data ParsedSpec = ParsedSpec {
     init         :: AST, 
     goal         :: AST, 
     ucont        :: AST, 
-    trans        :: [(String, (VarInfo -> AST))],
+    trans        :: [AST],
     allvars      :: [Decl]
     }
 
@@ -102,12 +102,27 @@ parser fn f = do
                      <*> resolve theMap slRel
                      <*> resolve theMap transR
 
+    let transS = ctrlExprToHAST transR
+    let trans = map (resolveTransLHS theMap) transS
+
     Right ParsedSpec { init    = binExprToHAST initR
-                              , goal    = head (map binExprToHAST goalR)
-                              , ucont   = head (map binExprToHAST fair)
-                              , trans   = ctrlExprToHAST transR
-                              , allvars = stateDecls ++ labelDecls ++ outcomeDecls
-                              }
+                     , goal    = head (map binExprToHAST goalR)
+                     , ucont   = head (map binExprToHAST fair)
+                     , trans   = trans
+                     , allvars = stateDecls ++ labelDecls ++ outcomeDecls
+                     }
+
+resolveTransLHS st (s, f) = f v
+    where
+        v = VarInfo {
+            name = s,
+            sz = sz,
+            section = sect,
+            slice = Nothing }
+        (sect, sz) = case Map.lookup s st of
+            Nothing                 -> error "LHS of transition relation not in sym tab"
+            Just (Left (se, sz))    -> (se, sz)
+            Just (Right sz)         -> error ("LHS of transition relation right: " ++ show sz)
 
 --The lexer
 reservedNames = ["case", "true", "false", "else", "abs", "conc", "uint", "bool"]
