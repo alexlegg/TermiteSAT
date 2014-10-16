@@ -118,7 +118,8 @@ resolveTransLHS st (s, f) = f v
             name = s,
             sz = sz,
             section = sect,
-            slice = Nothing }
+            slice = Nothing,
+            virank = 0 }
         (sect, sz) = case Map.lookup s st of
             Nothing                 -> error "LHS of transition relation not in sym tab"
             Just (Left (se, sz))    -> (se, sz)
@@ -229,7 +230,7 @@ func :: SymTab -> Either (String, Slice) Int -> Either String (Either VarInfo In
 func mp lit = case lit of 
     Left (str, slice) -> case Map.lookup str mp of
         Nothing                     -> Left  $ "Var doesn't exist: " ++ str
-        Just (Left (sect, sz)) -> Right $ Left $ VarInfo str sz sect slice
+        Just (Left (sect, sz)) -> Right $ Left $ VarInfo str sz sect slice 1
         Just (Right c)              -> Right $ Right $ getBits slice c
     Right x -> Right $ Right x
 

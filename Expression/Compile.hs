@@ -1,9 +1,9 @@
 module Expression.Compile (
-    compile,
-    compileTrans
+    compile
     ) where
 
 import Control.Monad.State
+import Control.Monad.Trans.Either
 import Data.EitherR
 import Data.Bits (testBit)
 import Data.List
@@ -12,7 +12,7 @@ import qualified Data.Map as Map
 import qualified Expression.HAST as HAST
 import Expression.Expression
 
-addExpression :: ExprType -> [Expression] -> ExpressionST Expression
+addExpression :: Monad m => ExprType -> [Expression] -> ExpressionT m Expression
 addExpression e c = do
     i <- gets maxIndex
     m <- get
@@ -21,22 +21,22 @@ addExpression e c = do
     return $ expr
 
 compileVar (HAST.FVar f) = do
-    return $ map (makeVar f 0) [0..((sz f)-1)]
+    return $ map (makeVar f) [0..((sz f)-1)]
 
 compileVar (HAST.EVar _) = do
-    lift $ Left "EVar not implemented"
+    throwError "EVar not implemented"
 
 compileVar (HAST.NVar v) = do
     let bits = case slice v of
                 Nothing     -> [0..((sz v)-1)]
                 Just (s, e) -> [s..e]
-    return $ map (makeVar v 0) bits
+    return $ map (makeVar v) bits
 
-makeVar vi rank bit = ExprVar {
+makeVar vi bit = ExprVar {
     varname = name vi,
     varsect = section vi,
     bit     = bit,
-    rank    = rank
+    rank    = virank vi
     }
     
 makeSignsFromValue :: Int -> Int -> [Sign]
@@ -54,7 +54,7 @@ makeConditions xs = do
             addExpression EConjunct (y : prev)
 
 -- |The 'compile' function takes an AST and converts it to an Expression inside the Expressions State Monad
-compile :: AST -> ExpressionST Expression
+compile :: Monad m => AST -> ExpressionT m Expression
 
 compile HAST.T = do
     return $ Expression 1 ETrue []
@@ -86,10 +86,10 @@ compile (HAST.Disj xs) = do
     addExpression EDisjunct xs'
 
 compile (HAST.XOr a b) = do
-    lift $ Left "XOr not implemented"
+    throwError "XOr not implemented"
 
 compile (HAST.XNor a b) = do
-    lift $ Left "XNor not implemented"
+    throwError "XNor not implemented"
 
 compile (HAST.Case xs) = do
     let (cs, es) = unzip xs
@@ -102,12 +102,12 @@ compile (HAST.Case xs) = do
 compile (HAST.Var x) = do
     x' <- compileVar x
     --addExpression x' []
-    lift $ Left "Var not implemented"
+    throwError "Var not implemented"
 
 compile (HAST.EqVar a b) = do
     a' <- compileVar a
     b' <- compileVar b
-    when (length a' /= length b') $ lift $ Left ("Attempted equality of unequally sized vars (" ++ show a' ++ " & " ++ show b' ++ ")")
+    when (length a' /= length b') $ throwError ("Attempted equality of unequally sized vars (" ++ show a' ++ " & " ++ show b' ++ ")")
     as <- mapM ((`addExpression` []) . (ELit Pos)) a'
     bs <- mapM ((`addExpression` []) . (ELit Pos)) b'
     let cs = [[a, b] | a <- as, b <- bs]
@@ -122,28 +122,13 @@ compile (HAST.EqConst a b) = do
     addExpression EConjunct lits
 
 compile (HAST.Exists _ _) = do
-    lift $ Left "Exists not implemented"
+    throwError "Exists not implemented"
 
 compile (HAST.NExists _ _ _) = do
-    lift $ Left "NExists not implemented"
+    throwError "NExists not implemented"
 
 compile (HAST.Let _ _) = do
-    lift $ Left "Let not implemented"
+    throwError "Let not implemented"
 
 compile (HAST.LetLit _) = do
-    lift $ Left "LetLit not implemented"
-
-compileTrans :: [(String, (VarInfo -> AST))] -> ExpressionST Expression
-compileTrans trans = do
-    es <- mapM compileTrans' trans
-    addExpression EConjunct es
-
-compileTrans' (vname, f) = do
-    let vi = VarInfo {
-        name    = vname,
-        sz      = 0,
-        section = StateVar,
-        slice   = Nothing
-        }
-
-    compile (f vi)
+    throwError "LetLit not implemented"

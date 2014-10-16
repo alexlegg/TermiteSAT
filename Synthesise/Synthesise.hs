@@ -21,7 +21,7 @@ synthesise :: Int -> ParsedSpec -> EitherT String IO Bool
 synthesise k spec = do
     let ParsedSpec{..} = spec
 
-    (s, m) <- hoistEither $ runStateT (compile init) initState 
+    (s, m) <- runStateT (compile init) initState 
 
     res <- liftIO $ satSolve 5 [
         [-3, 1],
@@ -44,13 +44,17 @@ synthesise k spec = do
     hoistEither $ Right True
 
 solveAbstract spec s gt = do
-    hoistEither $ runStateT (findCandidate spec s gt) initState
+    runStateT (findCandidate spec s gt) initState
     return False
 
 findCandidate spec s gt = do
     let ParsedSpec{..} = spec
 
-    mapM_ compile trans
+    t <- mapM_ compile trans
+
+    liftIO $ putStrLn (show t)
+    m <- get
+    liftIO $ putStrLn (show m)
 
     return False
 
