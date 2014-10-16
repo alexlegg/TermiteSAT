@@ -23,25 +23,31 @@ data ExprType = ETrue
               | EEquals
               | ENot
               | ELit Sign ExprVar
-    deriving (Show, Eq)
+    deriving (Show, Eq, Ord)
 
 data ExprVar = ExprVar {
     varname     :: String,
     varsect     :: Section,
     bit         :: Int,
     rank        :: Int
-    } deriving (Eq)
+    } deriving (Eq, Ord)
 
 instance Show ExprVar where
     show v = let ExprVar{..} = v in varname ++ show rank ++ "[" ++ show bit ++ "]"
 
-data Sign = Pos | Neg deriving (Show, Eq)
+data Sign = Pos | Neg deriving (Show, Eq, Ord)
 
 data Expression = Expression {
     index           :: Int,
     operation       :: ExprType,
     children        :: [Int]
-} deriving (Eq)
+}
+
+instance Eq Expression where
+    x == y      = operation x == operation y && children x == children y
+
+instance Ord Expression where
+    x <= y      = operation x <= operation y && children x <= children y
 
 instance Show Expression where
     show e = let Expression{..} = e in
@@ -54,11 +60,12 @@ instance Show Expression where
             EEquals     -> "equal {" ++ intercalate ", " (map show children) ++ "}"
             ENot        -> "not {" ++ intercalate ", " (map show children) ++ "}"
             ELit Pos v  -> show v
-            ELit Neg v  -> "-" ++ show v
+            ELit Neg v  -> '-' : show v
 
 data ExprManager = ExprManager {
     maxIndex        :: Int,
-    exprMap         :: Map.Map Int Expression
+    exprMap         :: Map.Map Int Expression,
+    indexMap        :: Map.Map Expression Int
 } deriving (Eq)
 
 instance Show ExprManager where
@@ -67,7 +74,7 @@ instance Show ExprManager where
         Map.foldl (\a b -> a ++ "\n" ++ show b) "" exprMap
 
 data Section = StateVar | ContVar | UContVar
-    deriving (Show, Eq)
+    deriving (Show, Eq, Ord)
 
 type Slice = Maybe (Int, Int)
 

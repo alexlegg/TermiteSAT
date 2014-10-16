@@ -1,10 +1,13 @@
+{-# LANGUAGE RecordWildCards #-}
 module Expression.Compile (
-    compile
+    compile,
+    conjunct,
+    disjunct
     ) where
 
 import Control.Monad.State
 import Control.Monad.Trans.Either
-import Data.EitherR
+import Data.Maybe
 import Data.Bits (testBit)
 import Data.List
 import qualified Data.Map as Map
@@ -14,11 +17,18 @@ import Expression.Expression
 
 addExpression :: Monad m => ExprType -> [Expression] -> ExpressionT m Expression
 addExpression e c = do
-    i <- gets maxIndex
-    m <- get
-    let expr = Expression i e (map index c)
-    put m {maxIndex = i+1, exprMap = Map.insert i expr (exprMap m)}
-    return $ expr
+    m@ExprManager{..} <- get
+    let expr = Expression maxIndex e (map index c)
+    case Map.lookup expr indexMap of
+        Nothing -> do
+            put m {
+                maxIndex    = maxIndex+1,
+                exprMap     = Map.insert maxIndex expr exprMap,
+                indexMap    = Map.insert expr maxIndex indexMap}
+            return $ expr
+
+        Just i -> do
+            return $ fromJust (Map.lookup i exprMap)
 
 compileVar (HAST.FVar f) = do
     return $ map (makeVar f) [0..((sz f)-1)]
@@ -52,6 +62,22 @@ makeConditions xs = do
             let ys = init xs'
             prev <- mapM (\a -> addExpression ENot [a]) ys
             addExpression EConjunct (y : prev)
+
+-- |The 'conjunct' function takes a list of Expressions and produces one conjunction Expression
+conjunct :: Monad m => [Expression] -> ExpressionT m Expression
+conjunct es = do
+    case length es of
+        0 -> addExpression EFalse []
+        1 -> return (head es)
+        _ -> addExpression EConjunct es
+
+-- |The 'disjunct' function takes a list of Expressions and produces one disjunction Expression
+disjunct :: Monad m => [Expression] -> ExpressionT m Expression
+disjunct es = do
+    case length es of
+        0 -> addExpression ETrue []
+        1 -> return (head es)
+        _ -> addExpression EDisjunct es
 
 -- |The 'compile' function takes an AST and converts it to an Expression inside the Expressions State Monad
 compile :: Monad m => AST -> ExpressionT m Expression
@@ -110,7 +136,7 @@ compile (HAST.EqVar a b) = do
     when (length a' /= length b') $ throwError ("Attempted equality of unequally sized vars (" ++ show a' ++ " & " ++ show b' ++ ")")
     as <- mapM ((`addExpression` []) . (ELit Pos)) a'
     bs <- mapM ((`addExpression` []) . (ELit Pos)) b'
-    let cs = [[a, b] | a <- as, b <- bs]
+    let cs = [[a, b] | (a, b) <- zip as bs]
     eqs <- mapM (addExpression EEquals) cs
     addExpression EConjunct eqs
 

@@ -15,7 +15,7 @@ import Expression.Expression
 import qualified Synthesise.GameTree as GT
 import SatSolver.SatSolver
 
-initState = ExprManager { maxIndex = 3, exprMap = Map.empty }
+initState = ExprManager { maxIndex = 3, exprMap = Map.empty, indexMap = Map.empty }
 
 synthesise :: Int -> ParsedSpec -> EitherT String IO Bool
 synthesise k spec = do
@@ -50,11 +50,12 @@ solveAbstract spec s gt = do
 findCandidate spec s gt = do
     let ParsedSpec{..} = spec
 
-    t <- mapM_ compile trans
+    t' <- mapM compile trans
+    t <- conjunct t'
 
-    liftIO $ putStrLn (show t)
     m <- get
     liftIO $ putStrLn (show m)
+    liftIO $ putStrLn (show t)
 
     return False
 
