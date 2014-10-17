@@ -9,6 +9,9 @@ module Expression.Expression (
 
     , emptyManager
     , addExpression
+    , getChildren
+    , getExpression
+    , traverseExpression
     ) where
 
 import Control.Monad.State
@@ -99,3 +102,18 @@ addExpression e c = do
         Just i -> do
             return $ fromJust (Map.lookup i exprMap)
 
+getExpression :: Monad m => Int -> ExpressionT m (Maybe Expression)
+getExpression i = do
+    ExprManager{..} <- get
+    return $ Map.lookup i exprMap
+
+getChildren :: Monad m => Expression -> ExpressionT m [Expression]
+getChildren e = do
+    es <- mapM getExpression (children e)
+    return (catMaybes es)
+
+traverseExpression :: Monad m => (Expression -> Expression) -> Expression -> ExpressionT m Expression
+traverseExpression f e = do
+    cs <- getChildren e
+    cs' <- mapM (traverseExpression f) cs
+    return $ f (e {children = map index cs'})
