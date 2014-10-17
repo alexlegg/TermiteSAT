@@ -19,7 +19,6 @@ synthesise :: Int -> ParsedSpec -> EitherT String IO Bool
 synthesise k spec = do
     let ParsedSpec{..} = spec
 
-    (s, m) <- runStateT (compile init) emptyManager
 
     res <- liftIO $ satSolve 5 [
         [-3, 1],
@@ -34,7 +33,7 @@ synthesise k spec = do
         [5]
         ]
 
-    solveAbstract spec s (GT.empty k)
+    (s, m) <- runStateT (do {s <- compile init; solveAbstract spec s (GT.empty k)}) emptyManager
 
     liftIO $ putStrLn (show (satisfiable res))
     liftIO $ putStrLn (show (fromJust $ model res))
@@ -42,19 +41,33 @@ synthesise k spec = do
     hoistEither $ Right True
 
 solveAbstract spec s gt = do
-    runStateT (findCandidate spec s gt) emptyManager
+    findCandidate spec s gt
     return False
 
 findCandidate spec s gt = do
     let ParsedSpec{..} = spec
 
+    let r = GT.rank gt
+
+
     t' <- mapM compile trans
     t <- conjunct t'
+    g <- compile goal
+    u <- compile ucont
 
-    next_t <- unrollExpression t
+    ts <- iterateNM (r-1) unrollExpression t
+    gs <- iterateNM (r-1) unrollExpression g
+    us <- iterateNM (r-1) unrollExpression u
 
     m <- get
     liftIO $ putStrLn (show m)
+    liftIO $ putStrLn (show ts)
 
     return False
 
+iterateNM :: Monad m => Int -> (a -> m a) -> a -> m [a]
+iterateNM 0 f x = return [x]
+iterateNM n f x = do
+    fx <- f x
+    xs <- iterateNM (n - 1) f fx
+    return (x : xs)
