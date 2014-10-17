@@ -7,28 +7,16 @@ module Expression.Compile (
 
 import Control.Monad.State
 import Control.Monad.Trans.Either
-import Data.Maybe
 import Data.Bits (testBit)
 import Data.List
 import qualified Data.Map as Map
 
 import qualified Expression.HAST as HAST
+import Expression.AST
 import Expression.Expression
 
-addExpression :: Monad m => ExprType -> [Expression] -> ExpressionT m Expression
-addExpression e c = do
-    m@ExprManager{..} <- get
-    let expr = Expression maxIndex e (map index c)
-    case Map.lookup expr indexMap of
-        Nothing -> do
-            put m {
-                maxIndex    = maxIndex+1,
-                exprMap     = Map.insert maxIndex expr exprMap,
-                indexMap    = Map.insert expr maxIndex indexMap}
-            return $ expr
-
-        Just i -> do
-            return $ fromJust (Map.lookup i exprMap)
+throwError :: Monad m => String -> ExpressionT m a
+throwError = lift . left
 
 compileVar (HAST.FVar f) = do
     return $ map (makeVar f) [0..((sz f)-1)]

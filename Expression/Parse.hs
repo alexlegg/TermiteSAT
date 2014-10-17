@@ -1,5 +1,4 @@
 {-# LANGUAGE GADTs, RecordWildCards, DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
-
 module Expression.Parse (
     Decl(..),
     Type(..),
@@ -25,8 +24,7 @@ import Control.Arrow
 import Debug.Trace
 
 import qualified Expression.HAST as HAST
-import Expression.Expression
-
+import Expression.AST
 
 data Type where
     BoolType ::             Type
@@ -274,10 +272,6 @@ doTypeconsts (EnumType es) = zip es [0..]
 getBits :: Slice -> Int -> Int
 getBits Nothing x       = x
 getBits (Just (l, u)) x = (shift (-l) x) .&. (2 ^ (u - l + 1) - 1)
-
----mkVar (VarInfo nm sz StateSection slc)      = HAST.NVar (VarInfo nm StateVar nm sz)
----mkVar (VarInfo nm sz LabelSection slc)      = HAST.NVar (LabelVar nm sz)
----mkVar (VarInfo nm sz OutcomeSection slc)    = HAST.NVar (OutVar nm sz)
 
 predToHAST :: ValExpr (Either VarInfo Int) -> ValExpr (Either VarInfo Int) -> AST
 predToHAST (Lit (Right a)) (Lit (Right b))   = if (a == b) then HAST.T else HAST.F

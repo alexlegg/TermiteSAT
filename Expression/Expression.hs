@@ -1,20 +1,26 @@
 {-# LANGUAGE RecordWildCards #-}
-module Expression.Expression where
+module Expression.Expression (
+      ExpressionT(..)
+    , ExprType(..)
+    , ExprVar(..)
+    , Expression(..)
+    , Section(..)
+    , Sign(..)
+
+    , emptyManager
+    , addExpression
+    ) where
 
 import Control.Monad.State
 import Control.Monad.Trans.Either
-import Control.Monad.Identity
 import qualified Data.Map as Map
 import Data.List
-import qualified Expression.HAST as HAST
-
-data Void
-type AST = HAST.AST VarInfo Void Void VarInfo
+import Data.Maybe
 
 type ExpressionT m a = StateT ExprManager (EitherT String m) a
 
 throwError :: Monad m => String -> ExpressionT m a
-throwError = lift . hoistEither . Left
+throwError = lift . left
 
 data ExprType = ETrue
               | EFalse
@@ -76,13 +82,20 @@ instance Show ExprManager where
 data Section = StateVar | ContVar | UContVar
     deriving (Show, Eq, Ord)
 
-type Slice = Maybe (Int, Int)
+emptyManager = ExprManager { maxIndex = 3, exprMap = Map.empty, indexMap = Map.empty }
 
-data VarInfo = VarInfo {
-    name    :: String,
-    sz      :: Int,
-    section :: Section,
-    slice   :: Slice,
-    virank  :: Int
-} deriving (Show, Eq)
+addExpression :: Monad m => ExprType -> [Expression] -> ExpressionT m Expression
+addExpression e c = do
+    m@ExprManager{..} <- get
+    let expr = Expression maxIndex e (map index c)
+    case Map.lookup expr indexMap of
+        Nothing -> do
+            put m {
+                maxIndex    = maxIndex+1,
+                exprMap     = Map.insert maxIndex expr exprMap,
+                indexMap    = Map.insert expr maxIndex indexMap}
+            return $ expr
+
+        Just i -> do
+            return $ fromJust (Map.lookup i exprMap)
 
