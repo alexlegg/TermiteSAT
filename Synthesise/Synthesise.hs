@@ -51,9 +51,10 @@ findCandidate spec s gt = do
     t' <- mapM compile trans
     t <- conjunct t'
 
+    next_t <- unrollExpression t
+
     m <- get
----    liftIO $ putStrLn (show m)
-    liftIO $ putStrLn (show t)
+    liftIO $ putStrLn (show m)
 
     return False
 

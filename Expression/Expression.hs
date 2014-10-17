@@ -12,6 +12,9 @@ module Expression.Expression (
     , getChildren
     , getExpression
     , traverseExpression
+    , unrollExpression
+    , conjunct
+    , disjunct
     ) where
 
 import Control.Monad.State
@@ -112,8 +115,30 @@ getChildren e = do
     es <- mapM getExpression (children e)
     return (catMaybes es)
 
-traverseExpression :: Monad m => (Expression -> Expression) -> Expression -> ExpressionT m Expression
+traverseExpression :: Monad m => (ExprType -> ExprType) -> Expression -> ExpressionT m Expression
 traverseExpression f e = do
     cs <- getChildren e
     cs' <- mapM (traverseExpression f) cs
-    return $ f (e {children = map index cs'})
+    addExpression (f (operation e)) cs'
+
+unrollExpression :: Monad m => Expression -> ExpressionT m Expression
+unrollExpression = traverseExpression shiftVar
+
+shiftVar (ELit s v) = ELit s (v {rank = rank v + 1})
+shiftVar x          = x
+
+-- |The 'conjunct' function takes a list of Expressions and produces one conjunction Expression
+conjunct :: Monad m => [Expression] -> ExpressionT m Expression
+conjunct es = do
+    case length es of
+        0 -> addExpression EFalse []
+        1 -> return (head es)
+        _ -> addExpression EConjunct es
+
+-- |The 'disjunct' function takes a list of Expressions and produces one disjunction Expression
+disjunct :: Monad m => [Expression] -> ExpressionT m Expression
+disjunct es = do
+    case length es of
+        0 -> addExpression ETrue []
+        1 -> return (head es)
+        _ -> addExpression EDisjunct es

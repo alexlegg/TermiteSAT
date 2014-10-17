@@ -1,8 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 module Expression.Compile (
-    compile,
-    conjunct,
-    disjunct
+      compile
     ) where
 
 import Control.Monad.State
@@ -50,22 +48,6 @@ makeConditions xs = do
             let ys = init xs'
             prev <- mapM (\a -> addExpression ENot [a]) ys
             addExpression EConjunct (y : prev)
-
--- |The 'conjunct' function takes a list of Expressions and produces one conjunction Expression
-conjunct :: Monad m => [Expression] -> ExpressionT m Expression
-conjunct es = do
-    case length es of
-        0 -> addExpression EFalse []
-        1 -> return (head es)
-        _ -> addExpression EConjunct es
-
--- |The 'disjunct' function takes a list of Expressions and produces one disjunction Expression
-disjunct :: Monad m => [Expression] -> ExpressionT m Expression
-disjunct es = do
-    case length es of
-        0 -> addExpression ETrue []
-        1 -> return (head es)
-        _ -> addExpression EDisjunct es
 
 -- |The 'compile' function takes an AST and converts it to an Expression inside the Expressions State Monad
 compile :: Monad m => AST -> ExpressionT m Expression
