@@ -26,6 +26,16 @@ import Debug.Trace
 import qualified Expression.HAST as HAST
 import Expression.AST
 
+data ParsedSpec = ParsedSpec {
+    init        :: AST, 
+    goal        :: AST, 
+    ucont       :: AST, 
+    trans       :: [AST],
+    stateVars   :: [VarInfo],
+    ucontVars   :: [VarInfo],
+    contVars    :: [VarInfo]
+    }
+
 data Type where
     BoolType ::             Type
     IntType  :: Int      -> Type
@@ -80,14 +90,6 @@ data BinExpr v where
     Pred   :: PredType -> ValExpr v -> ValExpr v  -> BinExpr v
     deriving (Show, Functor, Foldable, Traversable)
 
-data ParsedSpec = ParsedSpec {
-    init         :: AST, 
-    goal         :: AST, 
-    ucont        :: AST, 
-    trans        :: [AST],
-    allvars      :: [Decl]
-    }
-
 parser fn f = do
     (Spec Decls{..} Rels{..}) <- fmapL show $ parse top fn f
     let theMap = case (doDecls stateDecls labelDecls outcomeDecls) of
@@ -100,15 +102,28 @@ parser fn f = do
                      <*> resolve theMap slRel
                      <*> resolve theMap transR
 
-    let transS = ctrlExprToHAST transR
-    let trans = map (resolveTransLHS theMap) transS
-
-    Right ParsedSpec { init    = binExprToHAST initR
-                     , goal    = head (map binExprToHAST goalR)
-                     , ucont   = head (map binExprToHAST fair)
-                     , trans   = trans
-                     , allvars = stateDecls ++ labelDecls ++ outcomeDecls
+    Right ParsedSpec { init         = binExprToHAST initR
+                     , goal         = head (map binExprToHAST goalR)
+                     , ucont        = head (map binExprToHAST fair)
+                     , trans        = map (resolveTransLHS theMap) (ctrlExprToHAST transR)
+                     , stateVars    = concatMap (declToVarInfo StateVar) stateDecls
+                     , ucontVars    = concatMap (declToVarInfo UContVar) outcomeDecls
+                     , contVars     = concatMap (declToVarInfo ContVar) labelDecls
                      }
+
+declToVarInfo sect decl = map mk (vars decl)
+    where 
+        size = case varType decl of
+                BoolType        -> 1
+                IntType sz      -> sz
+                EnumType es     -> length es
+        mk n = VarInfo {
+                  name      = n
+                , sz        = size
+                , section   = sect
+                , slice     = Nothing
+                , virank    = 0
+            }
 
 resolveTransLHS st (s, f) = f v
     where

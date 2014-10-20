@@ -15,12 +15,14 @@ module Expression.Expression (
     , unrollExpression
     , conjunct
     , disjunct
+    , equalsConstant
     ) where
 
 import Control.Monad.State
 import Control.Monad.Trans.Either
 import qualified Data.Map as Map
 import Data.List
+import Data.Bits (testBit)
 import Data.Maybe
 
 type ExpressionT m a = StateT ExprManager (EitherT String m) a
@@ -142,3 +144,15 @@ disjunct es = do
         0 -> addExpression ETrue []
         1 -> return (head es)
         _ -> addExpression EDisjunct es
+
+makeSignsFromValue :: Int -> Int -> [Sign]
+makeSignsFromValue v sz = map f [0..(sz-1)]
+    where
+        f b = if testBit v b then Pos else Neg
+
+equalsConstant :: Monad m => [ExprVar] -> Int -> ExpressionT m Expression
+equalsConstant es const = do
+    let signs = makeSignsFromValue const (length es)
+    let mkLit (s, v) = ELit s v
+    lits <- mapM ((`addExpression` []) . mkLit) (zip signs es)
+    addExpression EConjunct lits

@@ -5,7 +5,6 @@ module Expression.Compile (
 
 import Control.Monad.State
 import Control.Monad.Trans.Either
-import Data.Bits (testBit)
 import Data.List
 import qualified Data.Map as Map
 
@@ -35,11 +34,6 @@ makeVar vi bit = ExprVar {
     rank    = virank vi
     }
     
-makeSignsFromValue :: Int -> Int -> [Sign]
-makeSignsFromValue v sz = map f [0..(sz-1)]
-    where
-        f b = if testBit v b then Pos else Neg
-
 makeConditions xs = do
     mapM f (tail (inits xs))
     where
@@ -112,10 +106,7 @@ compile (HAST.EqVar a b) = do
 
 compile (HAST.EqConst a b) = do
     a' <- compileVar a
-    let signs = makeSignsFromValue b (length a')
-    let mkLit (s, v) = ELit s v
-    lits <- mapM ((`addExpression` []) . mkLit) (zip signs a')
-    addExpression EConjunct lits
+    equalsConstant a' b
 
 compile (HAST.Exists _ _) = do
     throwError "Exists not implemented"

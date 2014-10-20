@@ -55,12 +55,15 @@ findCandidate spec s gt = do
     g <- compile goal
     u <- compile ucont
 
-    ts <- iterateNM (r-1) unrollExpression t
-    gs <- iterateNM (r-1) unrollExpression g
-    us <- iterateNM (r-1) unrollExpression u
+    ts  <- iterateNM (r-1) unrollExpression t
+    gs  <- iterateNM (r-1) unrollExpression g
+    us  <- iterateNM (r-1) unrollExpression u
 
-    m <- get
-    liftIO $ putStrLn (show m)
+    liftIO $ putStrLn (show stateVars)
+
+---    vu  <- 
+---    vcs <- iterateNM (r-1) 
+
     liftIO $ putStrLn (show ts)
 
     return False
