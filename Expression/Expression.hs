@@ -15,7 +15,12 @@ module Expression.Expression (
     , unrollExpression
     , conjunct
     , disjunct
+    , equate
+    , implicate
+    , negation
     , equalsConstant
+    , trueExpr
+    , falseExpr
     ) where
 
 import Control.Monad.State
@@ -156,3 +161,26 @@ equalsConstant es const = do
     let mkLit (s, v) = ELit s v
     lits <- mapM ((`addExpression` []) . mkLit) (zip signs es)
     addExpression EConjunct lits
+
+equate :: Monad m => Expression -> Expression -> ExpressionT m Expression
+equate a b = do
+    addExpression EEquals [a, b]
+
+implicate :: Monad m => Expression -> Expression -> ExpressionT m Expression
+implicate a b = do
+    a' <- addExpression ENot [a]
+    addExpression EDisjunct [a', b]
+
+negation :: Monad m => Expression -> ExpressionT m Expression
+negation x = do
+    addExpression ENot [x]
+
+trueExpr :: Monad m => ExpressionT m Expression
+trueExpr = addExpression ETrue []
+
+falseExpr :: Monad m => ExpressionT m Expression
+falseExpr = addExpression EFalse []
+
+toDimacs :: Moand m => Expression -> ExpressionT m [[Int]]
+toDimacs e = do
+    return []

@@ -15,58 +15,73 @@ import Expression.Expression
 import qualified Synthesise.GameTree as GT
 import SatSolver.SatSolver
 
+data CompiledSpec = CompiledSpec {
+      t       :: [Expression]
+    , g       :: [Expression]
+    , u       :: [Expression]
+    , vc      :: [Expression]
+    , vu      :: [Expression]
+    }
+    
+
 synthesise :: Int -> ParsedSpec -> EitherT String IO Bool
-synthesise k spec = do
+synthesise k spec = evalStateT (synthesise' k spec) emptyManager
+
+synthesise' k spec = do
     let ParsedSpec{..} = spec
-
-
-    res <- liftIO $ satSolve 5 [
-        [-3, 1],
-        [-3, -2],
-        [3, -1, 2],
-        [-4, -1],
-        [-4, 2],
-        [4, 1, -2],
-        [-5, 3, 4],
-        [5, -3],
-        [5, -4],
-        [5]
-        ]
-
-    (s, m) <- runStateT (do {s <- compile init; solveAbstract spec s (GT.empty k)}) emptyManager
-
-    liftIO $ putStrLn (show (satisfiable res))
-    liftIO $ putStrLn (show (fromJust $ model res))
-
-    hoistEither $ Right True
-
-solveAbstract spec s gt = do
-    findCandidate spec s gt
-    return False
-
-findCandidate spec s gt = do
-    let ParsedSpec{..} = spec
-
-    let r = GT.rank gt
-
 
     t' <- mapM compile trans
     t <- conjunct t'
     g <- compile goal
     u <- compile ucont
 
-    ts  <- iterateNM (r-1) unrollExpression t
-    gs  <- iterateNM (r-1) unrollExpression g
-    us  <- iterateNM (r-1) unrollExpression u
+    let xvars = map compileVar stateVars
+    let uvars = map compileVar ucontVars
+    let cvars = map compileVar contVars
 
-    liftIO $ putStrLn (show stateVars)
+    u_idle <- equalsConstant (concat uvars) 0
+    c_idle <- equalsConstant (concat cvars) 0
 
----    vu  <- 
----    vcs <- iterateNM (r-1) 
+    vc <- equate c_idle u
+    vu <- implicate u =<< (negation u_idle)
 
-    liftIO $ putStrLn (show ts)
+    ts  <- iterateNM (k-1) unrollExpression t
+    gs  <- iterateNM (k-1) unrollExpression g
+    us  <- iterateNM (k-1) unrollExpression u
+    vcs <- iterateNM (k-1) unrollExpression vc
+    vus <- iterateNM (k-1) unrollExpression vu
+
+    let cspec = CompiledSpec {
+          t     = ts
+        , g     = gs
+        , u     = us
+        , vc    = vcs
+        , vu    = vus
+        }
+
+    init <- compile init
+    solveAbstract cspec init (GT.empty k)
+
+solveAbstract spec s gt = do
+    findCandidate spec s gt
+    return False
+
+findCandidate spec s gt = do
+    let CompiledSpec{..} = spec
+    let r = GT.rank gt
+
+    d <- driverFml spec (r-1)
 
     return False
+
+driverFml spec rank = do
+    let CompiledSpec{..} = spec
+    prev <- if rank == 0
+        then trueExpr
+        else driverFml spec (rank - 1)
+
+    goal <- disjunct [(g !! rank), prev]
+    conjunct [t !! rank, vc !! rank, vu !! rank, goal]
 
 iterateNM :: Monad m => Int -> (a -> m a) -> a -> m [a]
 iterateNM 0 f x = return [x]

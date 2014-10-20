@@ -1,6 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 module Expression.Compile (
-      compile
+        compile
+      , compileVar
     ) where
 
 import Control.Monad.State
@@ -15,13 +16,20 @@ import Expression.Expression
 throwError :: Monad m => String -> ExpressionT m a
 throwError = lift . left
 
-compileVar (HAST.FVar f) = do
+compileVar :: VarInfo -> [ExprVar]
+compileVar v = map (makeVar v) bits
+    where
+        bits = case slice v of
+                Nothing     -> [0..((sz v)-1)]
+                Just (s, e) -> [s..e]
+
+compileHVar (HAST.FVar f) = do
     return $ map (makeVar f) [0..((sz f)-1)]
 
-compileVar (HAST.EVar _) = do
+compileHVar (HAST.EVar _) = do
     throwError "EVar not implemented"
 
-compileVar (HAST.NVar v) = do
+compileHVar (HAST.NVar v) = do
     let bits = case slice v of
                 Nothing     -> [0..((sz v)-1)]
                 Just (s, e) -> [s..e]
@@ -90,13 +98,13 @@ compile (HAST.Case xs) = do
     addExpression EDisjunct cases
 
 compile (HAST.Var x) = do
-    x' <- compileVar x
+    x' <- compileHVar x
     --addExpression x' []
     throwError "Var not implemented"
 
 compile (HAST.EqVar a b) = do
-    a' <- compileVar a
-    b' <- compileVar b
+    a' <- compileHVar a
+    b' <- compileHVar b
     when (length a' /= length b') $ throwError ("Attempted equality of unequally sized vars (" ++ show a' ++ " & " ++ show b' ++ ")")
     as <- mapM ((`addExpression` []) . (ELit Pos)) a'
     bs <- mapM ((`addExpression` []) . (ELit Pos)) b'
@@ -105,7 +113,7 @@ compile (HAST.EqVar a b) = do
     addExpression EConjunct eqs
 
 compile (HAST.EqConst a b) = do
-    a' <- compileVar a
+    a' <- compileHVar a
     equalsConstant a' b
 
 compile (HAST.Exists _ _) = do
