@@ -5,6 +5,7 @@ module Synthesise.Synthesise (
 
 import Debug.Trace
 import Data.Maybe
+import Data.List
 import Control.Monad.State
 import Control.Monad.Trans.Either
 import qualified Data.Map as Map
@@ -73,10 +74,24 @@ findCandidate spec s gt = do
     d <- driverFml spec (r-1)
 
     dimacs <- toDimacs d
-
     mi <- getMaxIndex
     res <- liftIO $ satSolve mi dimacs
-    liftIO $ putStrLn (show res)
+
+    move <- if satisfiable res
+            then do
+                let m = fromJust (model res)
+                exprs <- mapM (lookupExpression . abs) m
+                let f (m, x) = if isJust x
+                               then case operation (fromJust x) of
+                                    ELit v      -> Just $ (if m > 0 then '+' else '-') : (show v)
+                                    _           -> Nothing
+                               else Nothing
+
+                return $ intercalate " " (catMaybes (map f (zip m exprs)))
+            else
+                return []
+
+    liftIO $ putStrLn (show move)
 
     return False
 

@@ -5,12 +5,11 @@ module Expression.Expression (
     , ExprVar(..)
     , Expression(..)
     , Section(..)
-    , Sign(..)
 
     , emptyManager
     , addExpression
     , getChildren
-    , getExpression
+    , lookupExpression
     , getMaxIndex
     , traverseExpression
     , foldlExpression
@@ -47,7 +46,7 @@ data ExprType = ETrue
               | EDisjunct
               | EEquals
               | ENot
-              | ELit Sign ExprVar
+              | ELit ExprVar
     deriving (Show, Eq, Ord)
 
 data ExprVar = ExprVar {
@@ -60,12 +59,19 @@ data ExprVar = ExprVar {
 instance Show ExprVar where
     show v = let ExprVar{..} = v in varname ++ show rank ++ "[" ++ show bit ++ "]"
 
+data Var = Var Sign Int deriving (Show, Eq, Ord)
+
+var (Var _ v)   = v
+sign (Var s _)  = s
+lit (Var Pos v) = v
+lit (Var Neg v) = -v
+
 data Sign = Pos | Neg deriving (Show, Eq, Ord)
 
 data Expression = Expression {
     index           :: Int,
     operation       :: ExprType,
-    children        :: [Int]
+    children        :: [Var]
 }
 
 instance Eq Expression where
@@ -84,8 +90,7 @@ instance Show Expression where
             EDisjunct   -> "disj {" ++ intercalate ", " (map show children) ++ "}"
             EEquals     -> "equal {" ++ intercalate ", " (map show children) ++ "}"
             ENot        -> "not {" ++ intercalate ", " (map show children) ++ "}"
-            ELit Pos v  -> show v
-            ELit Neg v  -> '-' : show v
+            ELit v      -> show v
 
 data ExprManager = ExprManager {
     maxIndex        :: Int,
@@ -103,10 +108,10 @@ data Section = StateVar | ContVar | UContVar
 
 emptyManager = ExprManager { maxIndex = 3, exprMap = Map.empty, indexMap = Map.empty }
 
-addExpression :: Monad m => ExprType -> [Expression] -> ExpressionT m Expression
+addExpression :: Monad m => ExprType -> [Var] -> ExpressionT m Expression
 addExpression e c = do
     m@ExprManager{..} <- get
-    let expr = Expression maxIndex e (map index c)
+    let expr = Expression maxIndex e c
     case Map.lookup expr indexMap of
         Nothing -> do
             put m {
@@ -118,14 +123,14 @@ addExpression e c = do
         Just i -> do
             return $ fromJust (Map.lookup i exprMap)
 
-getExpression :: Monad m => Int -> ExpressionT m (Maybe Expression)
-getExpression i = do
+lookupExpression :: Monad m => Int -> ExpressionT m (Maybe Expression)
+lookupExpression i = do
     ExprManager{..} <- get
     return $ Map.lookup i exprMap
 
 getChildren :: Monad m => Expression -> ExpressionT m [Expression]
 getChildren e = do
-    es <- mapM getExpression (children e)
+    es <- mapM (lookupExpression . var) (children e)
     return (catMaybes es)
 
 getMaxIndex :: Monad m => ExpressionT m Int
@@ -149,12 +154,12 @@ traverseExpression :: Monad m => (ExprType -> ExprType) -> Expression -> Express
 traverseExpression f e = do
     cs <- getChildren e
     cs' <- mapM (traverseExpression f) cs
-    addExpression (f (operation e)) cs'
+    addExpression (f (operation e)) (map (Var Pos . index) cs')
 
 unrollExpression :: Monad m => Expression -> ExpressionT m Expression
 unrollExpression = traverseExpression shiftVar
 
-shiftVar (ELit s v) = ELit s (v {rank = rank v + 1})
+shiftVar (ELit v)   = ELit (v {rank = rank v + 1})
 shiftVar x          = x
 
 -- |The 'conjunct' function takes a list of Expressions and produces one conjunction Expression
@@ -163,7 +168,7 @@ conjunct es = do
     case length es of
         0 -> addExpression EFalse []
         1 -> return (head es)
-        _ -> addExpression EConjunct es
+        _ -> addExpression EConjunct (map (Var Pos . index) es)
 
 -- |The 'disjunct' function takes a list of Expressions and produces one disjunction Expression
 disjunct :: Monad m => [Expression] -> ExpressionT m Expression
@@ -171,7 +176,7 @@ disjunct es = do
     case length es of
         0 -> addExpression ETrue []
         1 -> return (head es)
-        _ -> addExpression EDisjunct es
+        _ -> addExpression EDisjunct (map (Var Pos . index) es)
 
 makeSignsFromValue :: Int -> Int -> [Sign]
 makeSignsFromValue v sz = map f [0..(sz-1)]
@@ -181,22 +186,20 @@ makeSignsFromValue v sz = map f [0..(sz-1)]
 equalsConstant :: Monad m => [ExprVar] -> Int -> ExpressionT m Expression
 equalsConstant es const = do
     let signs = makeSignsFromValue const (length es)
-    let mkLit (s, v) = ELit s v
-    lits <- mapM ((`addExpression` []) . mkLit) (zip signs es)
-    addExpression EConjunct lits
+    lits <- mapM ((`addExpression` []) . ELit) es
+    addExpression EConjunct (zipWith Var signs (map index lits))
 
 equate :: Monad m => Expression -> Expression -> ExpressionT m Expression
 equate a b = do
-    addExpression EEquals [a, b]
+    addExpression EEquals [Var Neg (index a), Var Pos (index b)]
 
 implicate :: Monad m => Expression -> Expression -> ExpressionT m Expression
 implicate a b = do
-    a' <- addExpression ENot [a]
-    addExpression EDisjunct [a', b]
+    addExpression EDisjunct [Var Neg (index a), Var Pos (index b)]
 
 negation :: Monad m => Expression -> ExpressionT m Expression
 negation x = do
-    addExpression ENot [x]
+    addExpression ENot [Var Pos (index x)]
 
 trueExpr :: Monad m => ExpressionT m Expression
 trueExpr = addExpression ETrue []
@@ -212,12 +215,14 @@ toDimacs e = do
 exprToDimacs e = case (operation e) of
     ETrue       -> [[1]]
     EFalse      -> [[-2]]
-    EConjunct   -> (i : (map negate cs)) : (map (\c -> [-i, c]) cs)
-    EDisjunct   -> (-i : cs) : (map (\c -> [i, -c]) cs)
-    EEquals     -> [[-i, -a, b], [-i, a, -b], [i, a, b], [i, -a, -b]]
-    ENot        -> [[-i, -x], [i, x]]
-    ELit _ _    -> []
+    EConjunct   -> (i : (map (negate . lit) cs)) : (map (\c -> [-i, (lit c)]) cs)
+    EDisjunct   -> (-i : map lit cs) : (map (\c -> [i, -(lit c)]) cs)
+    EEquals     -> [[-i, -(lit a), (lit b)], [-i, (lit a), -(lit b)],
+                    [i, (lit a), (lit b)], [i, -(lit a), -(lit b)]]
+    ENot        -> [[-i, -(lit x)], [i, (lit x)]]
+    ELit _      -> []
     where
         i           = index e
-        cs@(x:_)    = children e
+        cs          = children e
+        (x:_)       = children e
         (a:b:_)     = children e
