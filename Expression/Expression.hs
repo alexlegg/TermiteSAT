@@ -5,6 +5,7 @@ module Expression.Expression (
     , ExprVar(..)
     , Expression(..)
     , Section(..)
+    , Sign(..)
 
     , emptyManager
     , addExpression

@@ -69,7 +69,7 @@ solveAbstract spec s gt = do
 
 findCandidate spec s gt = do
     let CompiledSpec{..} = spec
-    let r = GT.rank gt
+    let r = GT.treerank gt
 
     d <- driverFml spec (r-1)
 
@@ -83,15 +83,16 @@ findCandidate spec s gt = do
                 exprs <- mapM (lookupExpression . abs) m
                 let f (m, x) = if isJust x
                                then case operation (fromJust x) of
-                                    ELit v      -> Just $ (if m > 0 then '+' else '-') : (show v)
+                                    ELit v      -> Just (m, v)
                                     _           -> Nothing
                                else Nothing
 
-                return $ intercalate " " (catMaybes (map f (zip m exprs)))
+                return $ catMaybes (map f (zip m exprs))
             else
                 return []
 
-    liftIO $ putStrLn (show move)
+    let gt' = GT.newChild gt move
+    liftIO $ putStrLn (show (GT.subtrees gt'))
 
     return False
 
