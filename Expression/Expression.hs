@@ -11,7 +11,10 @@ module Expression.Expression (
     , addExpression
     , getChildren
     , getExpression
+    , getMaxIndex
     , traverseExpression
+    , foldlExpression
+    , foldrExpression
     , unrollExpression
     , conjunct
     , disjunct
@@ -21,13 +24,16 @@ module Expression.Expression (
     , equalsConstant
     , trueExpr
     , falseExpr
+    , toDimacs
     ) where
 
 import Control.Monad.State
 import Control.Monad.Trans.Either
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import Data.List
 import Data.Bits (testBit)
+import Data.Foldable (foldlM)
 import Data.Maybe
 
 type ExpressionT m a = StateT ExprManager (EitherT String m) a
@@ -122,6 +128,23 @@ getChildren e = do
     es <- mapM getExpression (children e)
     return (catMaybes es)
 
+getMaxIndex :: Monad m => ExpressionT m Int
+getMaxIndex = do
+    ExprManager{..} <- get
+    return maxIndex
+
+foldlExpression :: Monad m => (a -> Expression -> a) -> a -> Expression -> ExpressionT m a
+foldlExpression f x e = do
+    cs <- getChildren e
+    let x' = foldl f x cs
+    foldlM (foldlExpression f) x' cs
+
+foldrExpression :: Monad m => (Expression -> a -> a) -> a -> Expression -> ExpressionT m a
+foldrExpression f x e = do
+    cs <- getChildren e
+    let x' = foldr f x cs
+    foldlM (foldrExpression f) x' cs
+
 traverseExpression :: Monad m => (ExprType -> ExprType) -> Expression -> ExpressionT m Expression
 traverseExpression f e = do
     cs <- getChildren e
@@ -181,6 +204,20 @@ trueExpr = addExpression ETrue []
 falseExpr :: Monad m => ExpressionT m Expression
 falseExpr = addExpression EFalse []
 
-toDimacs :: Moand m => Expression -> ExpressionT m [[Int]]
+toDimacs :: Monad m => Expression -> ExpressionT m [[Int]]
 toDimacs e = do
-    return []
+    exprs <- foldrExpression Set.insert Set.empty e
+    return $ concatMap exprToDimacs (Set.toList exprs)
+
+exprToDimacs e = case (operation e) of
+    ETrue       -> [[1]]
+    EFalse      -> [[-2]]
+    EConjunct   -> (i : (map negate cs)) : (map (\c -> [-i, c]) cs)
+    EDisjunct   -> (-i : cs) : (map (\c -> [i, -c]) cs)
+    EEquals     -> [[-i, -a, b], [-i, a, -b], [i, a, b], [i, -a, -b]]
+    ENot        -> [[-i, -x], [i, x]]
+    ELit _ _    -> []
+    where
+        i           = index e
+        cs@(x:_)    = children e
+        (a:b:_)     = children e

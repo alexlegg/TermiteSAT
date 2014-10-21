@@ -15,7 +15,7 @@ data SatResult = SatResult {
     satisfiable     :: Bool,
     model           :: Maybe [Int],
     conflicts       :: Maybe [Int]
-    }
+    } deriving (Show, Eq)
 
 satSolve :: Int -> [[Int]] -> IO SatResult
 satSolve max clauses = do

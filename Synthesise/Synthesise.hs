@@ -72,6 +72,12 @@ findCandidate spec s gt = do
 
     d <- driverFml spec (r-1)
 
+    dimacs <- toDimacs d
+
+    mi <- getMaxIndex
+    res <- liftIO $ satSolve mi dimacs
+    liftIO $ putStrLn (show res)
+
     return False
 
 driverFml spec rank = do
