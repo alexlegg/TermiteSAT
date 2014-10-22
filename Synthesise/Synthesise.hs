@@ -76,8 +76,11 @@ findCandidate spec s gt = do
     let r = treerank gt
 
     d <- driverFml spec (r-1)
+    pd <- printExpression d
+    liftIO $ putStrLn pd
 
     dimacs <- toDimacs d
+---    liftIO $ putStrLn (intercalate "\n" (map show dimacs))
     mi <- getMaxIndex
     res <- liftIO $ satSolve mi dimacs
 
@@ -119,14 +122,14 @@ saveMove rnk fml model = do
 
 isUMoveValid r spec model = do
     let CompiledSpec{..} = spec
-    let vuIndex = (map index vu) !! (r-1)
+    let vuIndex = (map index vu) !! ((length vu) - r)
     let vuModel = model !! (vuIndex - 1)
     when ((abs vuModel) /= vuIndex) (throwError "Assumption about model incorrect")
     return $ vuModel > 0
 
 isCMoveValid r spec model = do
     let CompiledSpec{..} = spec
-    let vcIndex = (map index vc) !! (r-1)
+    let vcIndex = (map index vc) !! ((length vc) - r)
     let vcModel = model !! (vcIndex - 1)
     when ((abs vcModel) /= vcIndex) (throwError "Assumption about model incorrect")
     return $ vcModel > 0

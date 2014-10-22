@@ -25,6 +25,7 @@ module Expression.Expression (
     , trueExpr
     , falseExpr
     , toDimacs
+    , printExpression
     ) where
 
 import Control.Monad.State
@@ -142,20 +143,20 @@ getMaxIndex = do
 foldlExpression :: Monad m => (a -> Expression -> a) -> a -> Expression -> ExpressionT m a
 foldlExpression f x e = do
     cs <- getChildren e
-    let x' = foldl f x cs
-    foldlM (foldlExpression f) x' cs
+    foldlM (foldlExpression f) (f x e) cs
 
 foldrExpression :: Monad m => (Expression -> a -> a) -> a -> Expression -> ExpressionT m a
 foldrExpression f x e = do
     cs <- getChildren e
-    let x' = foldr f x cs
-    foldlM (foldrExpression f) x' cs
+    foldlM (foldrExpression f) (f e x) cs
 
 traverseExpression :: Monad m => (ExprType -> ExprType) -> Expression -> ExpressionT m Expression
 traverseExpression f e = do
+    let signs = map sign (children e)
     cs <- getChildren e
     cs' <- mapM (traverseExpression f) cs
-    addExpression (f (operation e)) (map (Var Pos . index) cs')
+    let cs'' = map (uncurry Var) (zip signs (map index cs'))
+    addExpression (f (operation e)) cs''
 
 unrollExpression :: Monad m => Expression -> ExpressionT m Expression
 unrollExpression = traverseExpression shiftVar
@@ -211,7 +212,8 @@ falseExpr = addExpression EFalse []
 toDimacs :: Monad m => Expression -> ExpressionT m [[Int]]
 toDimacs e = do
     exprs <- foldrExpression Set.insert Set.empty e
-    return $ concatMap exprToDimacs (Set.toList exprs)
+    let dimacs = concatMap exprToDimacs (Set.toList exprs)
+    return $ [index e] : dimacs
 
 exprToDimacs e = case (operation e) of
     ETrue       -> [[1]]
@@ -227,3 +229,20 @@ exprToDimacs e = case (operation e) of
         cs          = children e
         (x:_)       = children e
         (a:b:_)     = children e
+
+printExpression :: Monad m => Expression -> ExpressionT m String
+printExpression = printExpression' 0 ""
+
+printExpression' tabs s e = do
+    cs <- getChildren e
+    let signs = map (\c -> if sign c == Pos then "" else "-") (children e)
+    pcs <- mapM (uncurry (printExpression' (tabs+1))) (zip signs cs)
+    let t = concat (replicate tabs "  ")
+    return $ t ++ s ++ case (operation e) of
+        ETrue       -> "T"
+        EFalse      -> "F"
+        EConjunct   -> "conj {\n" ++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}"
+        EDisjunct   -> "disj {\n" ++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}"
+        EEquals     -> "eq {\n" ++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}"
+        ENot        -> "not {\n"++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}" 
+        ELit v      -> show v
