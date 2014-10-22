@@ -1,7 +1,9 @@
 module Synthesise.GameTree (
       GameTree(..)
+    , Assignment(..)
     , empty
     , newChild
+    , makeAssignment
     ) where
 
 import qualified Data.Map as Map
@@ -27,6 +29,10 @@ empty r = GameTree {
 newChild :: GameTree -> [(Int, ExprVar)] -> GameTree
 newChild root es = root {subtrees = newsubtrees}
     where
-        assignment  = map (\(m, e) -> Assignment (if m > 0 then Pos else Neg) e) es
+        rankmoves   = filter (\(m, e) -> rank e == treerank newnode) es
+        assignment  = map makeAssignment rankmoves
         newnode     = empty ((treerank root) - 1)
         newsubtrees = Map.insert assignment newnode (subtrees root)
+
+makeAssignment :: (Int, ExprVar) -> Assignment
+makeAssignment (m, v) = Assignment (if m > 0 then Pos else Neg) v
