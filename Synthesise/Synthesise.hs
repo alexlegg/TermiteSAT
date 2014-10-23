@@ -34,7 +34,8 @@ synthesise' k spec = do
 
     t' <- mapM compile trans
     t <- conjunct t'
-    g <- compile goal
+    g' <- compile goal
+    g <- setRank 0 g'
     u <- compile ucont
 
     let xvars = map compileVar stateVars
@@ -76,8 +77,6 @@ findCandidate spec s gt = do
     let r = treerank gt
 
     d <- driverFml spec (r-1)
-    pd <- printExpression d
-    liftIO $ putStrLn pd
 
     dimacs <- toDimacs d
 ---    liftIO $ putStrLn (intercalate "\n" (map show dimacs))
@@ -114,6 +113,7 @@ saveMove rnk fml model = do
     let moves = zipMaybe2 model exprs
     let vmoves = map (mapSnd (getVar . operation)) moves
     let assignments = map makeAssignment ((uncurry zipMaybe2) (unzip vmoves))
+    liftIO $ putStrLn (show assignments)
     return $ filter (isRank rnk) assignments
     where
         getVar (ELit v)  = Just v
@@ -122,14 +122,14 @@ saveMove rnk fml model = do
 
 isUMoveValid r spec model = do
     let CompiledSpec{..} = spec
-    let vuIndex = (map index vu) !! ((length vu) - r)
+    let vuIndex = (map index vu) !! (r - 1)
     let vuModel = model !! (vuIndex - 1)
     when ((abs vuModel) /= vuIndex) (throwError "Assumption about model incorrect")
     return $ vuModel > 0
 
 isCMoveValid r spec model = do
     let CompiledSpec{..} = spec
-    let vcIndex = (map index vc) !! ((length vc) - r)
+    let vcIndex = (map index vc) !! (r - 1)
     let vcModel = model !! (vcIndex - 1)
     when ((abs vcModel) /= vcIndex) (throwError "Assumption about model incorrect")
     return $ vcModel > 0

@@ -16,6 +16,7 @@ module Expression.Expression (
     , foldlExpression
     , foldrExpression
     , unrollExpression
+    , setRank
     , conjunct
     , disjunct
     , equate
@@ -80,7 +81,9 @@ instance Eq Expression where
     x == y      = operation x == operation y && children x == children y
 
 instance Ord Expression where
-    x <= y      = operation x <= operation y && children x <= children y
+    x <= y      = if operation x == operation y
+                    then children x <= children y
+                    else operation x <= operation y 
 
 instance Show Expression where
     show e = let Expression{..} = e in
@@ -120,8 +123,7 @@ addExpression e c = do
                 maxIndex    = maxIndex+1,
                 exprMap     = Map.insert maxIndex expr exprMap,
                 indexMap    = Map.insert expr maxIndex indexMap}
-            return $ expr
-
+            return expr
         Just i -> do
             return $ fromJust (Map.lookup i exprMap)
 
@@ -157,6 +159,12 @@ traverseExpression f e = do
     cs' <- mapM (traverseExpression f) cs
     let cs'' = map (uncurry Var) (zip signs (map index cs'))
     addExpression (f (operation e)) cs''
+
+setRank :: Monad m => Int -> Expression -> ExpressionT m Expression
+setRank r = traverseExpression (setVarRank r)
+    
+setVarRank r (ELit v)   = ELit (v {rank = r})
+setVarRank _ x          = x
 
 unrollExpression :: Monad m => Expression -> ExpressionT m Expression
 unrollExpression = traverseExpression shiftVar
