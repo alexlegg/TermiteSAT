@@ -2,6 +2,7 @@
 module Expression.Compile (
         compile
       , compileVar
+      , CompiledSpec(..)
     ) where
 
 import Control.Monad.State
@@ -12,6 +13,14 @@ import qualified Data.Map as Map
 import qualified Expression.HAST as HAST
 import Expression.AST
 import Expression.Expression
+
+data CompiledSpec = CompiledSpec {
+      t       :: [Expression]
+    , g       :: [Expression]
+    , u       :: [Expression]
+    , vc      :: [Expression]
+    , vu      :: [Expression]
+    }
 
 throwError :: Monad m => String -> ExpressionT m a
 throwError = lift . left
