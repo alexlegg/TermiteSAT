@@ -1,12 +1,16 @@
 module Synthesise.GameTree (
-      GameTree(..)
+      GTNode(..)
+    , GTCrumb(..)
+    , GameTree(..)
     , Assignment(..)
+    , gtrank
     , empty
-    , newChild
     , makeAssignment
+    , mapLeaves
     ) where
 
 import qualified Data.Map as Map
+import Data.Maybe
 import Expression.Expression
 
 data Assignment = Assignment Sign ExprVar deriving (Eq, Ord)
@@ -15,24 +19,32 @@ instance Show Assignment where
     show (Assignment Pos v) = show v
     show (Assignment Neg v) = '-' : show v
 
-data GameTree = GameTree {
+data GTNode = GTNode {
     treerank    :: Int,
-    subtrees    :: Map.Map [Assignment] GameTree
+    subtrees    :: Map.Map [Assignment] GTNode
     } deriving (Show, Eq)
 
-empty :: Int -> GameTree
-empty r = GameTree {
-    treerank = r,
-    subtrees = Map.empty
-    }
+type GTCrumb = [[Assignment]]
 
-newChild :: GameTree -> [(Int, ExprVar)] -> GameTree
-newChild root es = root {subtrees = newsubtrees}
-    where
-        rankmoves   = filter (\(m, e) -> rank e == treerank newnode) es
-        assignment  = map makeAssignment rankmoves
-        newnode     = empty ((treerank root) - 1)
-        newsubtrees = Map.insert assignment newnode (subtrees root)
+type GameTree = (GTNode, GTCrumb)
+
+gtrank :: GameTree -> Int
+gtrank = treerank . follow
+
+follow (n, [])      = n
+follow (n, (a:as))  = follow (fromJust (Map.lookup a (subtrees n)), as)
+
+empty :: Int -> GameTree
+empty r = (node, []) 
+    where node = GTNode {
+        treerank = r,
+        subtrees = Map.empty
+        }
 
 makeAssignment :: (Int, ExprVar) -> Assignment
 makeAssignment (m, v) = Assignment (if m > 0 then Pos else Neg) v
+
+mapLeaves :: (GTNode -> a) -> GTNode -> [a]
+mapLeaves f gt = if Map.null (subtrees gt)
+                 then [f gt]
+                 else concat $ Map.elems (Map.map (mapLeaves f) (subtrees gt))
