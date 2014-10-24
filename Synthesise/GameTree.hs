@@ -6,7 +6,7 @@ module Synthesise.GameTree (
     , gtrank
     , empty
     , makeAssignment
-    , mapLeaves
+    , getLeaves
     ) where
 
 import qualified Data.Map as Map
@@ -44,7 +44,10 @@ empty r = (node, [])
 makeAssignment :: (Int, ExprVar) -> Assignment
 makeAssignment (m, v) = Assignment (if m > 0 then Pos else Neg) v
 
-mapLeaves :: (GTNode -> a) -> GTNode -> [a]
-mapLeaves f gt = if Map.null (subtrees gt)
-                 then [f gt]
-                 else concat $ Map.elems (Map.map (mapLeaves f) (subtrees gt))
+getLeaves :: GameTree -> [GameTree]
+getLeaves (gt, c) = map (\x -> (gt, c ++ x)) (getLeaves' gt)
+
+getLeaves' :: GTNode -> [GTCrumb]
+getLeaves' gt = if Map.null (subtrees gt)
+                then [[]]
+                else Map.foldWithKey (\c n x -> (map (c :) (getLeaves' n)) ++ x) [] (subtrees gt)
