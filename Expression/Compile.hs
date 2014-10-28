@@ -48,6 +48,7 @@ makeVar vi bit = ExprVar {
     varname = name vi,
     varsect = section vi,
     bit     = bit,
+    varcopy = 0,
     rank    = virank vi
     }
     

@@ -6,6 +6,7 @@ module Expression.Expression (
     , Expression(..)
     , Section(..)
     , Sign(..)
+    , Var(..)
 
     , emptyManager
     , addExpression
@@ -26,6 +27,7 @@ module Expression.Expression (
     , trueExpr
     , falseExpr
     , toDimacs
+    , setCopy
     , printExpression
     ) where
 
@@ -56,11 +58,12 @@ data ExprVar = ExprVar {
     varname     :: String,
     varsect     :: Section,
     bit         :: Int,
+    varcopy     :: Int,
     rank        :: Int
     } deriving (Eq, Ord)
 
 instance Show ExprVar where
-    show v = let ExprVar{..} = v in varname ++ show rank ++ "[" ++ show bit ++ "]"
+    show v = let ExprVar{..} = v in varname ++ show rank ++ "[" ++ show bit ++ "](" ++ show varcopy ++ ")"
 
 data Var = Var Sign Int deriving (Show, Eq, Ord)
 
@@ -254,3 +257,9 @@ printExpression' tabs s e = do
         EEquals     -> "eq {\n" ++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}"
         ENot        -> "not {\n"++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}" 
         ELit v      -> show v
+
+setCopy :: Monad m => Int -> Expression -> ExpressionT m Expression
+setCopy copy e = traverseExpression f e
+    where 
+        f (ELit v)  = ELit (v {varcopy = copy})
+        f x         = x
