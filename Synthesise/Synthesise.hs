@@ -23,12 +23,11 @@ synthesise' k spec = do
     g <- setRank 0 g'
     u <- compile ucont
 
-    let xvars = map compileVar stateVars
-    let uvars = map compileVar ucontVars
-    let cvars = map compileVar contVars
+    let uvars = concatMap compileVar ucontVars
+    let cvars = concatMap compileVar contVars
 
-    u_idle <- equalsConstant (concat uvars) 0
-    c_idle <- equalsConstant (concat cvars) 0
+    u_idle <- equalsConstant (map (\v -> v {rank = 1}) uvars) 0
+    c_idle <- equalsConstant (map (\v -> v {rank = 1}) cvars) 0
 
     vc <- equate c_idle u
     vu <- implicate u =<< (negation u_idle)
@@ -38,6 +37,9 @@ synthesise' k spec = do
     us  <- iterateNM (k-1) unrollExpression u
     vcs <- iterateNM (k-1) unrollExpression vc
     vus <- iterateNM (k-1) unrollExpression vu
+
+    vcse <- mapM printExpression vcs
+    liftIO $ mapM putStrLn vcse
 
     let cspec = CompiledSpec {
           t     = ts

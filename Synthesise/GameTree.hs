@@ -12,6 +12,7 @@ module Synthesise.GameTree (
     , assignmentsToExpression
     , getLeaves
     , appendChild
+    , appendChildAt
     , mapChildren
     , mapChildrenM
     ) where
@@ -83,6 +84,9 @@ appendChild gt a = update insert gt
                         treerank    = (treerank n) - 1,
                         copy        = (copy n) + 1,
                         subtrees    = Map.empty }
+
+appendChildAt :: GameTree -> GTCrumb -> [Assignment] -> GameTree
+appendChildAt gt p a = (fst (appendChild (fst gt, p) a), snd gt)
 
 mapChildren :: (GameTree -> a) -> GameTree -> [a]
 mapChildren f (gt, as) = map (\a -> f (gt, as ++ [a])) (Map.keys (subtrees gt))

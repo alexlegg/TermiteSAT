@@ -204,7 +204,7 @@ equalsConstant es const = do
 
 equate :: Monad m => Expression -> Expression -> ExpressionT m Expression
 equate a b = do
-    addExpression EEquals [Var Neg (index a), Var Pos (index b)]
+    addExpression EEquals [Var Pos (index a), Var Pos (index b)]
 
 implicate :: Monad m => Expression -> Expression -> ExpressionT m Expression
 implicate a b = do
