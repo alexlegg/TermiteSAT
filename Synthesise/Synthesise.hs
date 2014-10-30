@@ -38,9 +38,6 @@ synthesise' k spec = do
     vcs <- iterateNM (k-1) unrollExpression vc
     vus <- iterateNM (k-1) unrollExpression vu
 
-    vcse <- mapM printExpression vcs
-    liftIO $ mapM putStrLn vcse
-
     let cspec = CompiledSpec {
           t     = ts
         , g     = gs

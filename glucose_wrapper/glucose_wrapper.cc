@@ -26,6 +26,18 @@ extern "C" {
     bool addClause(glucose_solver *s)
     {
         bool r = s->addClause(s->clause);
+
+///        if (!s->okay()) {
+///            printf("Bad clause\n");
+///            for (int i = 0; i != s->clause.size(); ++i)
+///            {
+///                if (sign(s->clause[i])) printf("-");
+///                printf("%d ", var(s->clause[i]));
+///            }
+///            printf("\n");
+///            printf("Bad clause\n");
+///        }
+
         s->clause.clear();
         return r;
     }
@@ -58,5 +70,26 @@ extern "C" {
         model[mi] = 0;
 
         return model;
+    }
+
+    int *conflicts(glucose_solver *s)
+    {
+        int *conflicts = (int *)malloc(sizeof(int) * (1 + s->conflict.size()));
+        int mi = 0;
+
+        for (int i = 1; i < s->conflict.size(); ++i)
+        {
+            Lit lit = s->conflict[i];
+            if (sign(lit)) {
+                conflicts[mi] = -var(lit);
+                mi++;
+            } else {
+                conflicts[mi] = var(lit);
+                mi++;
+            }
+        }
+        conflicts[mi] = 0;
+
+        return conflicts;
     }
 }

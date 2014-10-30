@@ -11,5 +11,6 @@ void            addVar(glucose_solver *s);
 
 bool            solve(glucose_solver *s);
 int             *model(glucose_solver *s);
+int             *conflicts(glucose_solver *s);
 
 #endif

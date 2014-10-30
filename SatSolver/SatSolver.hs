@@ -36,13 +36,17 @@ satSolve max clauses = do
         then liftM Just $ getModel solver 
         else return Nothing
 
+    conflicts <- if not res
+        then liftM Just $ getConflicts solver
+        else return Nothing
+
     -- Clean up
     c_glucose_delete solver
 
     return $ SatResult {
         satisfiable = res,
         model = fmap (map fromIntegral) model,
-        conflicts = Nothing
+        conflicts = fmap (map fromIntegral) conflicts
         }
 
 addClause solver clause = do
@@ -53,6 +57,12 @@ getModel solver = do
     model <- c_model solver
     res <- peekArray0 0 model
     free model
+    return res
+
+getConflicts solver = do
+    conflicts <- c_conflicts solver
+    res <- peekArray0 0 conflicts
+    free conflicts
     return res
 
 foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h glucose_new"
@@ -75,3 +85,6 @@ foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h solve"
 
 foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h model"
     c_model :: Ptr GlucoseSolver -> IO (Ptr CInt)
+
+foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h conflicts"
+    c_conflicts :: Ptr GlucoseSolver -> IO (Ptr CInt)
