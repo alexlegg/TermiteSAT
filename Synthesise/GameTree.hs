@@ -8,6 +8,8 @@ module Synthesise.GameTree (
     , gtrank
     , gtcopy
     , gtroot
+    , lastMove
+    , blockMove
     , hasChildren
     , empty
     , makeAssignment
@@ -37,6 +39,7 @@ instance Show Assignment where
 data GTNode = GTNode {
     player      :: Player,
     treerank    :: Int,
+    blocked     :: [[Assignment]],
     copy        :: Int,
     subtrees    :: Map.Map [Assignment] GTNode
     } deriving (Show, Eq)
@@ -57,6 +60,12 @@ hasChildren = not . Map.null . subtrees . follow
 gtroot :: GameTree -> GTNode
 gtroot (n, _) = n
 
+blockMove :: GameTree -> [Assignment] -> GameTree
+blockMove gt a = update (\n -> n {blocked = a : (blocked n)}) gt
+
+lastMove :: GameTree -> [Assignment]
+lastMove (n, as) = last as
+
 follow :: GameTree -> GTNode
 follow (n, [])      = n
 follow (n, (a:as))  = follow (fromJust (Map.lookup a (subtrees n)), as)
@@ -70,6 +79,7 @@ empty p r = (node, [])
     where node = GTNode {
         player   = p,
         treerank = r,
+        blocked  = [],
         copy     = 0,
         subtrees = Map.empty
         }
@@ -93,6 +103,7 @@ appendChild gt a = update insert gt
         child n     = GTNode {
                         player      = opponent (player n),
                         treerank    = newrank n,
+                        blocked     = [],
                         copy        = (copy n) + 1,
                         subtrees    = Map.empty }
 
