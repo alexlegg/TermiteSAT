@@ -8,6 +8,7 @@ module Expression.Expression (
     , Sign(..)
     , Var(..)
 
+    , flipSign
     , emptyManager
     , addExpression
     , getChildren
@@ -73,6 +74,9 @@ lit (Var Pos v) = v
 lit (Var Neg v) = -v
 
 data Sign = Pos | Neg deriving (Show, Eq, Ord)
+
+flipSign Pos = Neg
+flipSign Neg = Pos
 
 data Expression = Expression {
     index           :: Int,

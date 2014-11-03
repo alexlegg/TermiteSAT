@@ -8,12 +8,14 @@ module Synthesise.GameTree (
     , gtrank
     , gtcopy
     , gtroot
+    , gtblocked
     , lastMove
     , blockMove
     , hasChildren
     , empty
     , makeAssignment
     , assignmentsToExpression
+    , blockingExpression
     , getLeaves
     , appendChild
     , appendChildAt
@@ -23,6 +25,7 @@ module Synthesise.GameTree (
 
 import qualified Data.Map as Map
 import Data.Maybe
+import Data.List
 import Expression.Expression
 
 data Assignment = Assignment Sign ExprVar deriving (Eq, Ord)
@@ -59,6 +62,9 @@ hasChildren = not . Map.null . subtrees . follow
 
 gtroot :: GameTree -> GTNode
 gtroot (n, _) = n
+
+gtblocked :: GameTree -> [[[Assignment]]]
+gtblocked (n, as) = map (\a -> blocked (follow (n, a))) (inits as)
 
 blockMove :: GameTree -> [Assignment] -> GameTree
 blockMove gt a = update (\n -> n {blocked = a : (blocked n)}) gt
@@ -116,13 +122,27 @@ mapChildren f (gt, as) = map (\a -> f (gt, as ++ [a])) (Map.keys (subtrees gt))
 mapChildrenM :: Monad m => (GameTree -> m a) -> GameTree -> m [a]
 mapChildrenM f gt = sequence $ mapChildren f gt
 
-assignmentsToExpression :: Monad m => [[Assignment]] -> ExpressionT m Expression
-assignmentsToExpression [] = trueExpr
+assignmentsToExpression :: Monad m => [[Assignment]] -> ExpressionT m (Maybe Expression)
+assignmentsToExpression [] = return Nothing
 assignmentsToExpression as = do
     vs <- mapM f (concat as)
-    addExpression EConjunct vs
+    e <- addExpression EConjunct vs
+    return (Just e)
     where
         f (Assignment s v) = do
             e <- addExpression (ELit v) []
             return $ Var s (index e)
 
+blockingExpression :: Monad m => [[Assignment]] -> ExpressionT m (Maybe Expression)
+blockingExpression [] = return Nothing
+blockingExpression bss = do
+    es <- mapM f bss
+    e <- conjunct es
+    return (Just e)
+    where
+        f bs = do
+            bse <- mapM g bs
+            addExpression EConjunct bse
+        g (Assignment s v) = do
+            e <- addExpression (ELit v) []
+            return $ Var (flipSign s) (index e)
