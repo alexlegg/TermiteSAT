@@ -29,6 +29,8 @@ solveAbstract player spec s gt = do
     if isJust cand
     then do
         let gt' = fromJust cand
+        let cMoves = gtMoves gt'
+        liftIO $ putStrLn ("Candidate for " ++ show player ++ " at rank " ++ show (gtrank gt) ++ ": " ++ show (map printMove cMoves))
         cex <- verify player spec s gt'
         if isJust cex
             then do

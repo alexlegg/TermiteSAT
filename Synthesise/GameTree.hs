@@ -7,6 +7,7 @@ module Synthesise.GameTree (
     , opponent
     , gtrank
     , gtcopy
+    , gtMoves
     , gtroot
     , gtblocked
     , lastMove
@@ -59,6 +60,9 @@ gtcopy = copy . follow
 
 hasChildren :: GameTree -> Bool
 hasChildren = not . Map.null . subtrees . follow
+
+gtMoves :: GameTree -> [[Assignment]]
+gtMoves = Map.keys . subtrees . follow
 
 gtroot :: GameTree -> GTNode
 gtroot (n, _) = n
