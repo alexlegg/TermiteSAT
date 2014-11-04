@@ -33,7 +33,7 @@ solveAbstract player spec s gt = do
         if isJust cex
             then do
                 let block = lastMove (fromJust cex)
-                liftIO $ putStrLn ("CEX at rank " ++ show (gtrank gt) ++ " for " ++ show player ++ ": " ++ (show block))
+                liftIO $ putStrLn ("CEX at rank " ++ show (gtrank gt) ++ " for " ++ show player ++ ": " ++ (printMove block))
                 let gt'' = blockMove gt block
                 solveAbstract player spec s gt''
             else do
@@ -139,7 +139,7 @@ rootToLeafE spec rank = do
 
 saveContMove spec model gt = do
     valid <- isCMoveValid gt spec model
-    liftIO $ putStrLn ("Cmove valid? " ++ (show valid))
+---    liftIO $ putStrLn ("Cmove valid? " ++ (show valid))
     if not valid
     then return Nothing
     else do
@@ -151,7 +151,7 @@ saveContMove spec model gt = do
 
 saveUContMove spec model gt = do
     valid <- isUMoveValid gt spec model
-    liftIO $ putStrLn ("Umove valid? " ++ (show valid))
+---    liftIO $ putStrLn ("Umove valid? " ++ (show valid))
     if not valid
     then return Nothing
     else do
@@ -212,3 +212,16 @@ mapSnd f (x,y) = (x,f y)
 
 throwError :: Monad m => String -> ExpressionT m a
 throwError = lift . left
+
+printMove :: [Assignment] -> String
+printMove as = intercalate "," (map printVar vs)
+    where
+        vs = groupBy f as
+        f (Assignment _ x) (Assignment _ y) = varname x == varname y
+
+printVar :: [Assignment] -> String
+printVar as = nm (head as) ++ " = " ++ show (sum (map val as))
+    where
+        val (Assignment Pos v)  = 2 ^ (bit v)
+        val (Assignment Neg v)  = 0
+        nm (Assignment _ v)     = varname v
