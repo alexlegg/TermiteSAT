@@ -116,7 +116,7 @@ declToVarInfo sect decl = map mk (vars decl)
         size = case varType decl of
                 BoolType        -> 1
                 IntType sz      -> sz
-                EnumType es     -> length es
+                EnumType es     -> ceiling (logBase 2 (fromIntegral (length es)))
         mk n = VarInfo {
                   name      = n
                 , sz        = size
