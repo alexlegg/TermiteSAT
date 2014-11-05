@@ -22,7 +22,6 @@ checkRank spec rnk s = do
 
 solveAbstract player spec s gt = do
     liftIO $ putStrLn ("Solve abstract for " ++ show player ++ " at rank " ++ show (gtrank gt))
----    liftIO $ putStrLn (show gt)
 
     cand <- findCandidate player spec s gt
 
@@ -49,15 +48,13 @@ findCandidate player spec s gt = do
     let CompiledSpec{..} = spec
     let r = gtrank gt
 
-    t <- if player == Existential
-         then driverFml spec gt
-         else environmentFml spec gt
+    fml <- if player == Existential
+         then driverFml spec s gt
+         else environmentFml spec s gt
 
-    fml <- conjunct [s, t]
     dimacs <- toDimacs fml
     mi <- getMaxIndex
     res <- liftIO $ satSolve mi dimacs
----    liftIO $ putStrLn ("sat: " ++ (show (satisfiable res)))
 
     if satisfiable res
     then do
@@ -74,7 +71,6 @@ findCandidate player spec s gt = do
 
 verify player spec s gt = do
     let leaves = filter ((/= 0) . gtrank) (getLeaves gt)
----    liftIO $ putStrLn (show leaves)
     mapMUntilJust (solveAbstract (opponent player) spec s) leaves
 
 mapMUntilJust :: (Monad m) => (a -> m (Maybe b)) -> [a] -> m (Maybe b)
@@ -85,19 +81,19 @@ mapMUntilJust f (a:as)  = do
     then return b
     else mapMUntilJust f as
 
-driverFml spec gt       = makeFml spec gt rootToLeafD
+driverFml spec s gt       = makeFml spec s gt rootToLeafD
 
-environmentFml spec gt  = makeFml spec gt rootToLeafE
+environmentFml spec s gt  = makeFml spec s gt rootToLeafE
 
-makeFml spec gt rootToLeaf = do
+makeFml spec s gt rootToLeaf = do
     let rank = treerank (gtroot gt)
     let leaves = getLeaves gt
 
     base <- rootToLeaf spec rank
-    fmls <- mapM (renameAndFix base) leaves
+    fmls <- mapM (renameAndFix s base) leaves
     conjunct fmls
 
-renameAndFix base leaf = do
+renameAndFix base s leaf = do
     let copy = gtcopy leaf
 
     fr <- setCopy copy base
@@ -106,11 +102,11 @@ renameAndFix base leaf = do
     mr <- maybe trueExpr (setCopy copy) m
 
     b <- mapM blockingExpression (gtblocked leaf)
----    liftIO $ putStrLn (show b)
----    bn <- mapM negation (catMaybes b)
     br <- mapM (setCopy copy) (catMaybes b)
 
-    conjunct ([fr, mr] ++ br)
+    sr <- setCopy copy s
+
+    conjunct ([s, fr, mr] ++ br)
 
 rootToLeafD spec rank = do
     let CompiledSpec{..} = spec
