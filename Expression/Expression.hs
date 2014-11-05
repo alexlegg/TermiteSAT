@@ -179,13 +179,15 @@ unrollExpression = traverseExpression shiftVar
 shiftVar (ELit v)   = ELit (v {rank = rank v + 1})
 shiftVar x          = x
 
+liftExprType t e = if operation e == t then children e else [Var Pos (index e)]
+
 -- |The 'conjunct' function takes a list of Expressions and produces one conjunction Expression
 conjunct :: Monad m => [Expression] -> ExpressionT m Expression
 conjunct es = do
     case length es of
         0 -> addExpression EFalse []
         1 -> return (head es)
-        _ -> addExpression EConjunct (map (Var Pos . index) es)
+        _ -> addExpression EConjunct (concatMap (liftExprType EConjunct) es)
 
 -- |The 'disjunct' function takes a list of Expressions and produces one disjunction Expression
 disjunct :: Monad m => [Expression] -> ExpressionT m Expression
@@ -193,7 +195,7 @@ disjunct es = do
     case length es of
         0 -> addExpression ETrue []
         1 -> return (head es)
-        _ -> addExpression EDisjunct (map (Var Pos . index) es)
+        _ -> addExpression EDisjunct (concatMap (liftExprType EDisjunct) es)
 
 makeSignsFromValue :: Int -> Int -> [Sign]
 makeSignsFromValue v sz = map f [0..(sz-1)]
