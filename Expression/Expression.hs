@@ -53,6 +53,7 @@ data ExprType = ETrue
               | EEquals
               | ENot
               | ELit ExprVar
+              | ECopy
     deriving (Show, Eq, Ord)
 
 data ExprVar = ExprVar {
@@ -226,15 +227,17 @@ trueExpr = addExpression ETrue []
 falseExpr :: Monad m => ExpressionT m Expression
 falseExpr = addExpression EFalse []
 
-toDimacs :: Monad m => Expression -> ExpressionT m [[Int]]
+toDimacs :: Monad m => Expression -> ExpressionT m (Map.Map Int Int, [[Int]])
 toDimacs e = do
     exprs <- foldrExpression Set.insert Set.empty e
-    let dimacs = concatMap exprToDimacs (Set.toList exprs)
-    return $ [index e] : dimacs
+    let eMap = Map.fromList (zip (map index (Set.toList exprs)) [1..])
+    let dimacs = concatMap (exprToDimacs eMap) (Set.toList exprs)
+    let de = fromJust (Map.lookup (index e) eMap)
+    return $ (eMap, [de] : dimacs)
 
-exprToDimacs e = case (operation e) of
-    ETrue       -> [[1]]
-    EFalse      -> [[-2]]
+exprToDimacs m e = case (operation e) of
+    ETrue       -> [[i]]
+    EFalse      -> [[-i]]
     EConjunct   -> (i : (map (negate . lit) cs)) : (map (\c -> [-i, (lit c)]) cs)
     EDisjunct   -> (-i : map lit cs) : (map (\c -> [i, -(lit c)]) cs)
     EEquals     -> [[-i, -(lit a), (lit b)], [-i, (lit a), -(lit b)],
@@ -242,10 +245,11 @@ exprToDimacs e = case (operation e) of
     ENot        -> [[-i, -(lit x)], [i, (lit x)]]
     ELit _      -> []
     where
-        i           = index e
-        cs          = children e
-        (x:_)       = children e
-        (a:b:_)     = children e
+        i           = fromJust $ Map.lookup (index e) m
+        cs          = map setInd (children e)
+        (x:_)       = cs
+        (a:b:_)     = cs
+        setInd (Var s i) = Var s (fromJust (Map.lookup i m))
 
 printExpression :: Monad m => Expression -> ExpressionT m String
 printExpression = printExpression' 0 ""

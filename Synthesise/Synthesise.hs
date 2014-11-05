@@ -44,6 +44,8 @@ synthesise' k spec = do
         , u     = us
         , vc    = vcs
         , vu    = vus
+        , cont  = cvars
+        , ucont = uvars
         }
 
     init <- compile init

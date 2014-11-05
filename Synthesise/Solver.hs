@@ -52,8 +52,8 @@ findCandidate player spec s gt = do
          then driverFml spec s gt
          else environmentFml spec s gt
 
-    dimacs <- toDimacs fml
-    mi <- getMaxIndex
+    (dMap, dimacs) <- toDimacs fml
+    mi <- getMaxIndex --FIXME
     res <- liftIO $ satSolve mi dimacs
 
     if satisfiable res
@@ -61,7 +61,7 @@ findCandidate player spec s gt = do
         let m = fromJust (model res)
         let leaves = getLeaves gt
         let saveMove = if player == Existential then saveContMove else saveUContMove
-        newchildren <- (liftM catMaybes) (mapM (saveMove spec m) leaves)
+        newchildren <- (liftM catMaybes) (mapM (saveMove spec dMap m) leaves)
 
         return $ if length newchildren == 0
             then Nothing
@@ -135,65 +135,49 @@ rootToLeafE spec rank = do
 
     conjunct [t !! i, vu !! i, vc !! i, goal]
 
-saveContMove spec model gt = do
-    valid <- isCMoveValid gt spec model
----    liftIO $ putStrLn ("Cmove valid? " ++ (show valid))
+saveContMove spec dMap model gt = do
+    valid <- isMoveValid gt (vc spec) dMap model
+    liftIO $ putStrLn ("Cmove valid? " ++ (show valid))
     if not valid
     then return Nothing
     else do
-        move <- saveMove gt model
-        let cmove = filter isCont move
-        return $ Just (snd gt, cmove)
-    where
-        isCont (Assignment _ v) = varsect v == ContVar
+        move <- getMove (cont spec) gt dMap model
+        return $ Just (snd gt, move)
 
-saveUContMove spec model gt = do
-    valid <- isUMoveValid gt spec model
----    liftIO $ putStrLn ("Umove valid? " ++ (show valid))
+saveUContMove spec dMap model gt = do
+    valid <- isMoveValid gt (vu spec) dMap model
+    liftIO $ putStrLn ("Umove valid? " ++ (show valid))
     if not valid
     then return Nothing
     else do
-        move <- saveMove gt model
-        let umove = filter isUCont move
-        return $ Just (snd gt, umove)
-    where
-        isUCont (Assignment _ v) = varsect v == UContVar
+        move <- getMove (ucont spec) gt dMap model
+        return $ Just (snd gt, move)
 
-saveMove gt model = do
+getMove vars gt dMap model = do
     let rnk = gtrank gt
     let cpy = gtcopy gt
-    exprs <- mapM (lookupExpression . abs) model
-    let moves = zipMaybe2 model exprs
-    let vmoves = map (mapSnd (getVar . operation)) moves
-    let assignments = map makeAssignment ((uncurry zipMaybe2) (unzip vmoves))
-    return $ filter (\a -> isRank rnk a && isCopy cpy a) assignments
-    where
-        getVar (ELit v)  = Just v
-        getVar _         = Nothing
-        isRank r (Assignment _ v)   = r == (rank v)
-        isCopy c (Assignment _ v)   = c == (varcopy v)
 
-isUMoveValid gt spec model = do
-    let CompiledSpec{..} = spec
+    -- Change the rank 0/copy 0 vars to the vars we need
+    let vars' = map (\v -> v {varcopy = cpy, rank = rnk}) vars
+
+    -- Lookup the indices of these vars in the Expression monad
+    ve <- mapM (\v -> addExpression (ELit v) []) vars'
+
+    -- Lookup the dimacs equivalents to these indices
+    let vd = zipMaybe1 (map ((`Map.lookup` dMap) . index) ve) vars'
+
+    -- Finally, construct assignments
+    return $ map (makeAssignment . (mapFst (\i -> model !! (i-1)))) vd
+
+isMoveValid gt vs dMap model = do
     let r = gtrank gt
     let c = gtcopy gt
-    let vuIndex = (map index vu) !! (r - 1)
-    vu <- lookupExpression vuIndex
-    vuc <- setCopy c (fromJust vu)
-    let vuModel = model !! ((index vuc) - 1)
-    when ((abs vuModel) /= (index vuc)) (throwError "Assumption about model incorrect")
-    return $ vuModel > 0
-
-isCMoveValid gt spec model = do
-    let CompiledSpec{..} = spec
-    let r = gtrank gt
-    let c = gtcopy gt
-    let vcIndex = (map index vc) !! (r - 1)
-    vc <- lookupExpression vcIndex
-    vcc <- setCopy c (fromJust vc)
-    let vcModel = model !! ((index vcc) - 1)
-    when ((abs vcModel) /= (index vcc)) (throwError "Assumption about model incorrect")
-    return $ vcModel > 0
+    let vi = index (vs !! (r - 1))
+    v <- lookupExpression vi
+    vc <- setCopy c (fromJust v)
+    let d = fromJust $ Map.lookup (index vc) dMap
+    let m = model !! (d - 1)
+    return $ m > 0
 
 zipMaybe2 :: [a] -> [Maybe b] -> [(a, b)]
 zipMaybe2 as bs = mapMaybe f (zip as bs)
@@ -201,6 +185,13 @@ zipMaybe2 as bs = mapMaybe f (zip as bs)
     f (a, b) = do
         b' <- b
         return (a, b')
+
+zipMaybe1 :: [Maybe a] -> [b] -> [(a, b)]
+zipMaybe1 as bs = mapMaybe f (zip as bs)
+    where
+    f (a, b) = do
+        a' <- a
+        return (a', b)
 
 mapFst :: (a -> b) -> (a, c) -> (b, c)
 mapFst f (x,y) = (f x,y)
