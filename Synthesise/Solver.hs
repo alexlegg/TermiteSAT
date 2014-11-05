@@ -106,7 +106,7 @@ renameAndFix base s leaf = do
 
     sr <- setCopy copy s
 
-    conjunct ([s, fr, mr] ++ br)
+    conjunct ([sr, fr, mr] ++ br)
 
 rootToLeafD spec rank = do
     let CompiledSpec{..} = spec
