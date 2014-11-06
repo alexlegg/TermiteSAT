@@ -15,6 +15,7 @@ import Expression.Compile
 import Expression.Expression
 import Synthesise.GameTree
 import SatSolver.SatSolver
+import Utils.Utils
 
 checkRank spec rnk s = do
     r <- solveAbstract Existential spec s (empty Existential rnk)
@@ -178,26 +179,6 @@ isMoveValid gt vs dMap model = do
     let d = fromJust $ Map.lookup (index vc) dMap
     let m = model !! (d - 1)
     return $ m > 0
-
-zipMaybe2 :: [a] -> [Maybe b] -> [(a, b)]
-zipMaybe2 as bs = mapMaybe f (zip as bs)
-    where
-    f (a, b) = do
-        b' <- b
-        return (a, b')
-
-zipMaybe1 :: [Maybe a] -> [b] -> [(a, b)]
-zipMaybe1 as bs = mapMaybe f (zip as bs)
-    where
-    f (a, b) = do
-        a' <- a
-        return (a', b)
-
-mapFst :: (a -> b) -> (a, c) -> (b, c)
-mapFst f (x,y) = (f x,y)
-
-mapSnd :: (a -> b) -> (c, a) -> (c, b)
-mapSnd f (x,y) = (x,f y)
 
 throwError :: Monad m => String -> ExpressionT m a
 throwError = lift . left

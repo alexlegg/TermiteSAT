@@ -40,6 +40,7 @@ import Data.List
 import Data.Bits (testBit)
 import Data.Foldable (foldlM)
 import Data.Maybe
+import Utils.Utils
 
 type ExpressionT m a = StateT ExprManager (EitherT String m) a
 
@@ -53,7 +54,7 @@ data ExprType = ETrue
               | EEquals
               | ENot
               | ELit ExprVar
-              | ECopy
+              | ECopy Int
     deriving (Show, Eq, Ord)
 
 data ExprVar = ExprVar {
@@ -108,7 +109,8 @@ instance Show Expression where
 data ExprManager = ExprManager {
     maxIndex        :: Int,
     exprMap         :: Map.Map Int Expression,
-    indexMap        :: Map.Map Expression Int
+    indexMap        :: Map.Map Expression Int,
+    copyIndex       :: Int
 } deriving (Eq)
 
 instance Show ExprManager where
@@ -119,7 +121,7 @@ instance Show ExprManager where
 data Section = StateVar | ContVar | UContVar
     deriving (Show, Eq, Ord)
 
-emptyManager = ExprManager { maxIndex = 3, exprMap = Map.empty, indexMap = Map.empty }
+emptyManager = ExprManager { maxIndex = 3, exprMap = Map.empty, indexMap = Map.empty, copyIndex = 0 }
 
 addExpression :: Monad m => ExprType -> [Var] -> ExpressionT m Expression
 addExpression e c = do
@@ -227,15 +229,24 @@ trueExpr = addExpression ETrue []
 falseExpr :: Monad m => ExpressionT m Expression
 falseExpr = addExpression EFalse []
 
-toDimacs :: Monad m => Expression -> ExpressionT m (Map.Map Int Int, [[Int]])
+-- Takes an expression tree and paritions it into sets of espressions of the same copy
+partitionCopies :: Monad m => Expression -> ExpressionT m ([(Int, Set.Set Expression)])
+partitionCopies e = foldrExpression f [(0, Set.empty)] e
+    where 
+    f e sets@(s:ss) = case operation e of
+        ECopy c -> (c, Set.empty) : sets
+        _       -> (fst s, Set.insert e (snd s)) : ss
+        
+toDimacs :: Monad m => Expression -> ExpressionT m (Map.Map (Int, Int) Int, [[Int]])
 toDimacs e = do
-    exprs <- foldrExpression Set.insert Set.empty e
-    let eMap = Map.fromList (zip (map index (Set.toList exprs)) [1..])
-    let dimacs = concatMap (exprToDimacs eMap) (Set.toList exprs)
-    let de = fromJust (Map.lookup (index e) eMap)
+    copies <- partitionCopies e
+    let exprs = concatMap (\(c, es) -> map (\e -> (c, e)) (Set.toList es)) copies
+    let eMap = Map.fromList (zip (map (mapSnd index) exprs) [1..])
+    let dimacs = concatMap (exprToDimacs eMap) exprs
+    let de = fromJust (Map.lookup (0, index e) eMap)
     return $ (eMap, [de] : dimacs)
 
-exprToDimacs m e = case (operation e) of
+exprToDimacs m (c, e) = case (operation e) of
     ETrue       -> [[i]]
     EFalse      -> [[-i]]
     EConjunct   -> (i : (map (negate . lit) cs)) : (map (\c -> [-i, (lit c)]) cs)
@@ -245,11 +256,11 @@ exprToDimacs m e = case (operation e) of
     ENot        -> [[-i, -(lit x)], [i, (lit x)]]
     ELit _      -> []
     where
-        i           = fromJust $ Map.lookup (index e) m
+        i           = fromJust $ Map.lookup (c, (index e)) m
         cs          = map setInd (children e)
         (x:_)       = cs
         (a:b:_)     = cs
-        setInd (Var s i) = Var s (fromJust (Map.lookup i m))
+        setInd (Var s i) = Var s (fromJust (Map.lookup (c, i) m)) --I think this is a bug
 
 printExpression :: Monad m => Expression -> ExpressionT m String
 printExpression = printExpression' 0 ""
@@ -269,7 +280,10 @@ printExpression' tabs s e = do
         ELit v      -> show v
 
 setCopy :: Monad m => Int -> Expression -> ExpressionT m Expression
-setCopy copy e = traverseExpression f e
-    where 
-        f (ELit v)  = ELit (v {varcopy = copy})
-        f x         = x
+setCopy copy e = do
+    m@ExprManager{..} <- get
+    c <- addExpression (ECopy copyIndex) [Var Pos (index e)]
+    m' <- get
+    put m' { copyIndex = copyIndex + 1 }
+    return c
+    
