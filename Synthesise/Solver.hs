@@ -61,8 +61,7 @@ findCandidate player spec s gt = do
     then do
         let m = fromJust (model res)
         let leaves = getLeaves gt
-        let saveMove = if player == Existential then saveContMove else saveUContMove
-        newchildren <- (liftM catMaybes) (mapM (saveMove spec dMap m) leaves)
+        newchildren <- (liftM catMaybes) (mapM (saveMove player spec dMap m) leaves)
 
         return $ if length newchildren == 0
             then Nothing
@@ -74,16 +73,7 @@ verify player spec s gt = do
     let leaves = filter ((/= 0) . gtrank) (getLeaves gt)
     mapMUntilJust (solveAbstract (opponent player) spec s) leaves
 
-mapMUntilJust :: (Monad m) => (a -> m (Maybe b)) -> [a] -> m (Maybe b)
-mapMUntilJust _ []      = return Nothing
-mapMUntilJust f (a:as)  = do
-    b <- f a
-    if isJust b
-    then return b
-    else mapMUntilJust f as
-
 driverFml spec s gt       = makeFml spec s gt rootToLeafD
-
 environmentFml spec s gt  = makeFml spec s gt rootToLeafE
 
 makeFml spec s gt rootToLeaf = do
@@ -92,22 +82,15 @@ makeFml spec s gt rootToLeaf = do
 
     base <- rootToLeaf spec rank
     fmls <- mapM (renameAndFix s base) leaves
-    conjunct fmls
+    conjunct (map snd fmls)
 
-renameAndFix base s leaf = do
-    let copy = gtcopy leaf
-
-    fr <- setCopy copy base
-
-    m <- assignmentsToExpression (snd leaf)
-    mr <- maybe trueExpr (setCopy copy) m
-
-    b <- mapM blockingExpression (gtblocked leaf)
-    br <- mapM (setCopy copy) (catMaybes b)
-
-    sr <- setCopy copy s
-
-    conjunct ([sr, fr, mr] ++ br)
+renameAndFix fml s leaf = do
+    moves <- assignmentsToExpression (snd leaf)
+    block <- mapM blockingExpression (gtblocked leaf)
+    conj <- case moves of
+        (Just m)    -> conjunct ([s, m, fml] ++ catMaybes block)
+        Nothing     -> conjunct ([s, fml]  ++ catMaybes block)
+    makeCopy conj
 
 rootToLeafD spec rank = do
     let CompiledSpec{..} = spec
@@ -136,22 +119,15 @@ rootToLeafE spec rank = do
 
     conjunct [t !! i, vu !! i, vc !! i, goal]
 
-saveContMove spec dMap model gt = do
-    valid <- isMoveValid gt (vc spec) dMap model
-    liftIO $ putStrLn ("Cmove valid? " ++ (show valid))
+saveMove player spec dMap model gt = do
+    let vs = if player == Existential then vc spec else vu spec
+    valid <- isMoveValid gt vs dMap model
+    liftIO $ putStrLn ("Move valid? " ++ (show valid))
     if not valid
     then return Nothing
     else do
-        move <- getMove (cont spec) gt dMap model
-        return $ Just (snd gt, move)
-
-saveUContMove spec dMap model gt = do
-    valid <- isMoveValid gt (vu spec) dMap model
-    liftIO $ putStrLn ("Umove valid? " ++ (show valid))
-    if not valid
-    then return Nothing
-    else do
-        move <- getMove (ucont spec) gt dMap model
+        let vars = if player == Existential then cont spec else ucont spec
+        move <- getMove vars gt dMap model
         return $ Just (snd gt, move)
 
 getMove vars gt dMap model = do
@@ -159,13 +135,13 @@ getMove vars gt dMap model = do
     let cpy = gtcopy gt
 
     -- Change the rank 0/copy 0 vars to the vars we need
-    let vars' = map (\v -> v {varcopy = cpy, rank = rnk}) vars
+    let vars' = map (\v -> v {rank = rnk}) vars
 
     -- Lookup the indices of these vars in the Expression monad
     ve <- mapM (\v -> addExpression (ELit v) []) vars'
 
     -- Lookup the dimacs equivalents to these indices
-    let vd = zipMaybe1 (map ((`Map.lookup` dMap) . index) ve) vars'
+    let vd = zipMaybe1 (map (\v -> Map.lookup (cpy, index v) dMap) ve) vars'
 
     -- Finally, construct assignments
     return $ map (makeAssignment . (mapFst (\i -> model !! (i-1)))) vd
@@ -175,8 +151,7 @@ isMoveValid gt vs dMap model = do
     let c = gtcopy gt
     let vi = index (vs !! (r - 1))
     v <- lookupExpression vi
-    vc <- setCopy c (fromJust v)
-    let d = fromJust $ Map.lookup (index vc) dMap
+    let d = fromJust $ Map.lookup (c, index (fromJust v)) dMap
     let m = model !! (d - 1)
     return $ m > 0
 

@@ -3,9 +3,12 @@ module Utils.Utils (
     , zipMaybe2
     , mapFst
     , mapSnd
+    , concatMapM
+    , mapMUntilJust
     ) where
 
 import Data.Maybe
+import Control.Monad
 
 zipMaybe1 :: [Maybe a] -> [b] -> [(a, b)]
 zipMaybe1 as bs = mapMaybe f (zip as bs)
@@ -26,3 +29,14 @@ mapFst f (x,y) = (f x,y)
 
 mapSnd :: (a -> b) -> (c, a) -> (c, b)
 mapSnd f (x,y) = (x,f y)
+
+concatMapM :: Monad m => (a -> m [b]) -> [a] -> m [b]
+concatMapM f xs = (liftM concat) (mapM f xs)
+
+mapMUntilJust :: (Monad m) => (a -> m (Maybe b)) -> [a] -> m (Maybe b)
+mapMUntilJust _ []      = return Nothing
+mapMUntilJust f (a:as)  = do
+    b <- f a
+    if isJust b
+    then return b
+    else mapMUntilJust f as

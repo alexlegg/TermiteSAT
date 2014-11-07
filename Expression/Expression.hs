@@ -28,7 +28,7 @@ module Expression.Expression (
     , trueExpr
     , falseExpr
     , toDimacs
-    , setCopy
+    , makeCopy
     , printExpression
     ) where
 
@@ -41,6 +41,7 @@ import Data.Bits (testBit)
 import Data.Foldable (foldlM)
 import Data.Maybe
 import Utils.Utils
+import Debug.Trace
 
 type ExpressionT m a = StateT ExprManager (EitherT String m) a
 
@@ -242,11 +243,23 @@ toDimacs e = do
     copies <- partitionCopies e
     let exprs = concatMap (\(c, es) -> map (\e -> (c, e)) (Set.toList es)) copies
     let eMap = Map.fromList (zip (map (mapSnd index) exprs) [1..])
-    let dimacs = concatMap (exprToDimacs eMap) exprs
+    dimacs <- concatMapM (exprToDimacs eMap) exprs
     let de = fromJust (Map.lookup (0, index e) eMap)
     return $ (eMap, [de] : dimacs)
 
-exprToDimacs m (c, e) = case (operation e) of
+exprToDimacs m (c, e) = do
+    let ind = fromJust $ Map.lookup (c, (index e)) m
+    cs <- mapM (makeChildVar m c) (children e)
+    return $ makeDimacs (operation e) ind cs
+
+makeChildVar m c (Var s i) = do
+    e <- (liftM fromJust) (lookupExpression i)
+    -- If the var is a copy we need to skip past it
+    case operation e of
+        ECopy c'    -> makeChildVar m c' (head (children e)) --FIXME sign might be wrong
+        _           -> return $ Var s (fromJust (Map.lookup (c, i) m))
+
+makeDimacs op i cs = case op of
     ETrue       -> [[i]]
     EFalse      -> [[-i]]
     EConjunct   -> (i : (map (negate . lit) cs)) : (map (\c -> [-i, (lit c)]) cs)
@@ -256,12 +269,9 @@ exprToDimacs m (c, e) = case (operation e) of
     ENot        -> [[-i, -(lit x)], [i, (lit x)]]
     ELit _      -> []
     where
-        i           = fromJust $ Map.lookup (c, (index e)) m
-        cs          = map setInd (children e)
-        (x:_)       = cs
-        (a:b:_)     = cs
-        setInd (Var s i) = Var s (fromJust (Map.lookup (c, i) m)) --I think this is a bug
-
+        (x:_)   = cs
+        (a:b:_) = cs
+    
 printExpression :: Monad m => Expression -> ExpressionT m String
 printExpression = printExpression' 0 ""
 
@@ -279,11 +289,12 @@ printExpression' tabs s e = do
         ENot        -> "not {\n"++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}" 
         ELit v      -> show v
 
-setCopy :: Monad m => Int -> Expression -> ExpressionT m Expression
-setCopy copy e = do
+makeCopy :: Monad m => Expression -> ExpressionT m (Int, Expression)
+makeCopy e = do
     m@ExprManager{..} <- get
-    c <- addExpression (ECopy copyIndex) [Var Pos (index e)]
+    let newCopy = copyIndex + 1
+    e' <- addExpression (ECopy newCopy) [Var Pos (index e)]
     m' <- get
-    put m' { copyIndex = copyIndex + 1 }
-    return c
+    put m' { copyIndex = newCopy }
+    return (newCopy, e')
     
