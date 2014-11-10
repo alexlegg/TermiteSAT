@@ -50,8 +50,8 @@ findCandidate player spec s gt = do
     let r = gtrank gt
 
     (copyMap, fml) <- if player == Existential
-         then driverFml spec s gt
-         else environmentFml spec s gt
+         then driverFml spec player s gt
+         else environmentFml spec player s gt
 
     let rootCopy = fromJust $ lookup [] copyMap
     (dMap, dimacs) <- toDimacs rootCopy fml
@@ -74,25 +74,37 @@ verify player spec s gt = do
     let leaves = filter ((/= 0) . gtrank) (getLeaves gt)
     mapMUntilJust (solveAbstract (opponent player) spec s) leaves
 
-driverFml spec s gt       = makeFml spec s gt rootToLeafD
-environmentFml spec s gt  = makeFml spec s gt rootToLeafE
+driverFml spec player s gt       = makeFml spec player s gt rootToLeafD
+environmentFml spec player s gt  = makeFml spec player s gt rootToLeafE
 
-makeFml spec s gt rootToLeaf = do
+makeFml spec player s gt rootToLeaf = do
     let rank = treerank (gtroot gt)
     let leaves = getLeaves gt
 
     base <- rootToLeaf spec rank
-    fmls <- mapM (renameAndFix s base) leaves
+    fmls <- mapM (renameAndFix spec player s base) leaves
     let copyMap = zip (map snd leaves) (map fst fmls)
     f <- conjunct (map snd fmls)
     return (copyMap, f)
 
-renameAndFix fml s leaf = do
-    moves <- assignmentsToExpression (snd leaf)
+-- Constructs (copy (move /\ validity)) -> move
+-- Ensures that a player can't force the other player into an invalid move
+makeMove (move, validity) = do
+    valid <- conjunct [move, validity]
+    valid_hat <- setHatVar valid
+    implicate valid_hat move
+
+renameAndFix spec player fml s leaf = do
+    let assignments = if player == Existential 
+        then zip (everyEven (snd leaf)) (reverse (vu spec))
+        else zip (everyOdd (snd leaf)) (reverse (vc spec))
+    moves <- mapM (\(a, v) -> do a' <- assignmentToExpression a; return (a', v)) assignments
+    vmoves <- mapM makeMove moves
+    vmoves_print <- mapM printExpression vmoves
+    liftIO $ mapM putStrLn vmoves_print
     block <- mapM blockingExpression (gtblocked leaf)
-    conj <- case moves of
-        (Just m)    -> conjunct ([s, m, fml] ++ catMaybes block)
-        Nothing     -> conjunct ([s, fml]  ++ catMaybes block)
+
+    conj <- conjunct ([s, fml] ++ vmoves ++ catMaybes block)
     makeCopy conj
 
 rootToLeafD spec rank = do

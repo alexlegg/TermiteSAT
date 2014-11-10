@@ -15,7 +15,7 @@ module Synthesise.GameTree (
     , hasChildren
     , empty
     , makeAssignment
-    , assignmentsToExpression
+    , assignmentToExpression
     , blockingExpression
     , getLeaves
     , appendChild
@@ -126,12 +126,10 @@ mapChildren f (gt, as) = map (\a -> f (gt, as ++ [a])) (Map.keys (subtrees gt))
 mapChildrenM :: Monad m => (GameTree -> m a) -> GameTree -> m [a]
 mapChildrenM f gt = sequence $ mapChildren f gt
 
-assignmentsToExpression :: Monad m => [[Assignment]] -> ExpressionT m (Maybe Expression)
-assignmentsToExpression [] = return Nothing
-assignmentsToExpression as = do
-    vs <- mapM f (concat as)
-    e <- addExpression EConjunct vs
-    return (Just e)
+assignmentToExpression :: Monad m => [Assignment] -> ExpressionT m Expression
+assignmentToExpression as = do
+    vs <- mapM f as
+    addExpression EConjunct vs
     where
         f (Assignment s v) = do
             e <- addExpression (ELit v) []

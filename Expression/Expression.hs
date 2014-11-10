@@ -19,6 +19,7 @@ module Expression.Expression (
     , foldrExpression
     , unrollExpression
     , setRank
+    , setHatVar
     , conjunct
     , disjunct
     , equate
@@ -62,12 +63,11 @@ data ExprVar = ExprVar {
     varname     :: String,
     varsect     :: Section,
     bit         :: Int,
-    varcopy     :: Int,
     rank        :: Int
     } deriving (Eq, Ord)
 
 instance Show ExprVar where
-    show v = let ExprVar{..} = v in varname ++ show rank ++ "[" ++ show bit ++ "](" ++ show varcopy ++ ")"
+    show v = let ExprVar{..} = v in varname ++ show rank ++ "[" ++ show bit ++ "]"
 
 data Var = Var Sign Int deriving (Show, Eq, Ord)
 
@@ -119,7 +119,7 @@ instance Show ExprManager where
         "maxIndex: " ++ show maxIndex ++
         Map.foldl (\a b -> a ++ "\n" ++ show b) "" exprMap
 
-data Section = StateVar | ContVar | UContVar
+data Section = StateVar | ContVar | UContVar | HatVar
     deriving (Show, Eq, Ord)
 
 emptyManager = ExprManager { maxIndex = 3, exprMap = Map.empty, indexMap = Map.empty, copyIndex = 0 }
@@ -176,6 +176,14 @@ setRank r = traverseExpression (setVarRank r)
     
 setVarRank r (ELit v)   = ELit (v {rank = r})
 setVarRank _ x          = x
+
+setHatVar :: Monad m => Expression -> ExpressionT m Expression
+setHatVar = traverseExpression setVarHat
+
+setVarHat (ELit v)  = if varsect v == UContVar || varsect v == ContVar
+                    then ELit (v {varname = varname v ++ "_hat", varsect = HatVar})
+                    else ELit v
+setVarHat x         = x
 
 unrollExpression :: Monad m => Expression -> ExpressionT m Expression
 unrollExpression = traverseExpression shiftVar
@@ -260,7 +268,9 @@ makeChildVar m c (Var s i) = do
     e <- (liftM fromJust) (lookupExpression i)
     -- If the var is a copy we need to skip past it
     case operation e of
-        ECopy c'    -> makeChildVar m c' (head (children e)) --FIXME sign might be wrong
+        ECopy c'    -> do
+            (Var s' i') <- makeChildVar m c' (head (children e))
+            return $ Var (if (s == s') then Pos else Neg) i'
         _           -> return $ Var s (fromJust (Map.lookup (c, i) m))
 
 makeDimacs op i cs = case op of
@@ -291,6 +301,7 @@ printExpression' tabs s e = do
         EDisjunct   -> "disj {\n" ++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}"
         EEquals     -> "eq {\n" ++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}"
         ENot        -> "not {\n"++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}" 
+        ECopy c     -> "copy " ++ show c ++ " {" ++ head pcs ++ "}"
         ELit v      -> show v
 
 makeCopy :: Monad m => Expression -> ExpressionT m (Int, Expression)

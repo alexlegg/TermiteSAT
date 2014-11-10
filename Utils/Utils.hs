@@ -5,6 +5,8 @@ module Utils.Utils (
     , mapSnd
     , concatMapM
     , mapMUntilJust
+    , everyOdd
+    , everyEven
     ) where
 
 import Data.Maybe
@@ -40,3 +42,13 @@ mapMUntilJust f (a:as)  = do
     if isJust b
     then return b
     else mapMUntilJust f as
+
+everyOdd :: [a] -> [a]
+everyOdd []         = []
+everyOdd (a:[])     = [a]
+everyOdd (a:b:as)   = a : everyOdd as
+
+everyEven :: [a] -> [a]
+everyEven []         = []
+everyEven (a:[])     = []
+everyEven (a:b:as)   = b : everyEven as
