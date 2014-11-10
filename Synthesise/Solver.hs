@@ -49,11 +49,12 @@ findCandidate player spec s gt = do
     let CompiledSpec{..} = spec
     let r = gtrank gt
 
-    fml <- if player == Existential
+    (copyMap, fml) <- if player == Existential
          then driverFml spec s gt
          else environmentFml spec s gt
 
-    (dMap, dimacs) <- toDimacs fml
+    let rootCopy = fromJust $ lookup [] copyMap
+    (dMap, dimacs) <- toDimacs rootCopy fml
     mi <- getMaxIndex --FIXME
     res <- liftIO $ satSolve mi dimacs
 
@@ -61,7 +62,7 @@ findCandidate player spec s gt = do
     then do
         let m = fromJust (model res)
         let leaves = getLeaves gt
-        newchildren <- (liftM catMaybes) (mapM (saveMove player spec dMap m) leaves)
+        newchildren <- (liftM catMaybes) (mapM (saveMove player spec dMap copyMap m) leaves)
 
         return $ if length newchildren == 0
             then Nothing
@@ -82,7 +83,9 @@ makeFml spec s gt rootToLeaf = do
 
     base <- rootToLeaf spec rank
     fmls <- mapM (renameAndFix s base) leaves
-    conjunct (map snd fmls)
+    let copyMap = zip (map snd leaves) (map fst fmls)
+    f <- conjunct (map snd fmls)
+    return (copyMap, f)
 
 renameAndFix fml s leaf = do
     moves <- assignmentsToExpression (snd leaf)
@@ -119,20 +122,20 @@ rootToLeafE spec rank = do
 
     conjunct [t !! i, vu !! i, vc !! i, goal]
 
-saveMove player spec dMap model gt = do
+saveMove player spec dMap copyMap model gt = do
     let vs = if player == Existential then vc spec else vu spec
-    valid <- isMoveValid gt vs dMap model
-    liftIO $ putStrLn ("Move valid? " ++ (show valid))
+    valid <- isMoveValid gt vs dMap copyMap model
+---    liftIO $ putStrLn ("Move valid? " ++ (show valid))
     if not valid
     then return Nothing
     else do
         let vars = if player == Existential then cont spec else ucont spec
-        move <- getMove vars gt dMap model
+        move <- getMove vars gt dMap copyMap model
         return $ Just (snd gt, move)
 
-getMove vars gt dMap model = do
+getMove vars gt dMap copyMap model = do
     let rnk = gtrank gt
-    let cpy = gtcopy gt
+    let (Just cpy) = lookup (snd gt) copyMap
 
     -- Change the rank 0/copy 0 vars to the vars we need
     let vars' = map (\v -> v {rank = rnk}) vars
@@ -146,9 +149,9 @@ getMove vars gt dMap model = do
     -- Finally, construct assignments
     return $ map (makeAssignment . (mapFst (\i -> model !! (i-1)))) vd
 
-isMoveValid gt vs dMap model = do
+isMoveValid gt vs dMap copyMap model = do
     let r = gtrank gt
-    let c = gtcopy gt
+    let (Just c) = lookup (snd gt) copyMap
     let vi = index (vs !! (r - 1))
     v <- lookupExpression vi
     let d = fromJust $ Map.lookup (c, index (fromJust v)) dMap

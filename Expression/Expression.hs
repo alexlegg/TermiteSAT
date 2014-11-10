@@ -237,14 +237,18 @@ partitionCopies e = foldrExpression f [(0, Set.empty)] e
     f e sets@(s:ss) = case operation e of
         ECopy c -> (c, Set.empty) : sets
         _       -> (fst s, Set.insert e (snd s)) : ss
+
+baseExpr e = case operation e of
+    ECopy c -> (c, var (head (children e)))
+    _       -> (0, index e)
         
-toDimacs :: Monad m => Expression -> ExpressionT m (Map.Map (Int, Int) Int, [[Int]])
-toDimacs e = do
+toDimacs :: Monad m => Int -> Expression -> ExpressionT m (Map.Map (Int, Int) Int, [[Int]])
+toDimacs rootCopy e = do
     copies <- partitionCopies e
     let exprs = concatMap (\(c, es) -> map (\e -> (c, e)) (Set.toList es)) copies
     let eMap = Map.fromList (zip (map (mapSnd index) exprs) [1..])
     dimacs <- concatMapM (exprToDimacs eMap) exprs
-    let de = fromJust (Map.lookup (0, index e) eMap)
+    let (Just de) = Map.lookup (baseExpr e) eMap
     return $ (eMap, [de] : dimacs)
 
 exprToDimacs m (c, e) = do
