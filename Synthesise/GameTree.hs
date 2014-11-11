@@ -144,7 +144,7 @@ blockingExpression bss = do
     where
         f bs = do
             bse <- mapM g bs
-            addExpression EConjunct bse
+            addExpression EDisjunct bse
         g (Assignment s v) = do
             e <- addExpression (ELit v) []
             return $ Var (flipSign s) (index e)

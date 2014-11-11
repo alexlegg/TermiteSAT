@@ -53,8 +53,7 @@ findCandidate player spec s gt = do
          then driverFml spec player s gt
          else environmentFml spec player s gt
 
-    let rootCopy = fromJust $ lookup [] copyMap
-    (dMap, dimacs) <- toDimacs rootCopy fml
+    (dMap, dimacs) <- toDimacs fml
     mi <- getMaxIndex --FIXME
     res <- liftIO $ satSolve mi dimacs
 
@@ -87,21 +86,20 @@ makeFml spec player s gt rootToLeaf = do
     f <- conjunct (map snd fmls)
     return (copyMap, f)
 
--- Constructs (copy (move /\ validity)) -> move
 -- Ensures that a player can't force the other player into an invalid move
-makeMove (move, validity) = do
-    valid <- conjunct [move, validity]
+makeMove (move, valid) = do
+    move_hat <- setHatVar move
     valid_hat <- setHatVar valid
-    implicate valid_hat move
+    imp <- implicate valid_hat move
+    conjunct [move_hat, imp]
 
 renameAndFix spec player fml s leaf = do
     let assignments = if player == Existential 
         then zip (everyEven (snd leaf)) (reverse (vu spec))
         else zip (everyOdd (snd leaf)) (reverse (vc spec))
+
     moves <- mapM (\(a, v) -> do a' <- assignmentToExpression a; return (a', v)) assignments
     vmoves <- mapM makeMove moves
-    vmoves_print <- mapM printExpression vmoves
-    liftIO $ mapM putStrLn vmoves_print
     block <- mapM blockingExpression (gtblocked leaf)
 
     conj <- conjunct ([s, fml] ++ vmoves ++ catMaybes block)

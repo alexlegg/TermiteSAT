@@ -250,8 +250,8 @@ baseExpr e = case operation e of
     ECopy c -> (c, var (head (children e)))
     _       -> (0, index e)
         
-toDimacs :: Monad m => Int -> Expression -> ExpressionT m (Map.Map (Int, Int) Int, [[Int]])
-toDimacs rootCopy e = do
+toDimacs :: Monad m => Expression -> ExpressionT m (Map.Map (Int, Int) Int, [[Int]])
+toDimacs e = do
     copies <- partitionCopies e
     let exprs = concatMap (\(c, es) -> map (\e -> (c, e)) (Set.toList es)) copies
     let eMap = Map.fromList (zip (map (mapSnd index) exprs) [1..])
