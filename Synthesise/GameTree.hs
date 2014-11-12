@@ -8,6 +8,7 @@ module Synthesise.GameTree (
     , gtrank
     , gtcopy
     , gtMoves
+    , gtChildMoves
     , gtroot
     , gtblocked
     , lastMove
@@ -24,9 +25,9 @@ module Synthesise.GameTree (
     , mapChildrenM
     ) where
 
-import qualified Data.Map as Map
 import Data.Maybe
 import Data.List
+import Utils.Utils
 import Expression.Expression
 
 data Assignment = Assignment Sign ExprVar deriving (Eq, Ord)
@@ -45,10 +46,10 @@ data GTNode = GTNode {
     treerank    :: Int,
     blocked     :: [[Assignment]],
     copy        :: Int,
-    subtrees    :: Map.Map [Assignment] GTNode
+    subtrees    :: [([Assignment], GTNode)]
     } deriving (Show, Eq)
 
-type GTCrumb = [[Assignment]]
+type GTCrumb = [Int]
 
 type GameTree = (GTNode, GTCrumb)
 
@@ -59,10 +60,16 @@ gtcopy :: GameTree -> Int
 gtcopy = copy . follow
 
 hasChildren :: GameTree -> Bool
-hasChildren = not . Map.null . subtrees . follow
+hasChildren = not . null . subtrees . follow
 
+-- Gets all outgoing moves of a node
+gtChildMoves :: GameTree -> [[Assignment]]
+gtChildMoves = (map fst) . subtrees . follow
+
+-- Gets all the moves leading to a node
 gtMoves :: GameTree -> [[Assignment]]
-gtMoves = Map.keys . subtrees . follow
+gtMoves (_, [])     = []
+gtMoves (n, a:as)   = let c = subtrees n !! a in fst c : (gtMoves (snd c, as))
 
 gtroot :: GameTree -> GTNode
 gtroot (n, _) = n
@@ -74,15 +81,17 @@ blockMove :: GameTree -> [Assignment] -> GameTree
 blockMove gt a = update (\n -> n {blocked = a : (blocked n)}) gt
 
 lastMove :: GameTree -> [Assignment]
-lastMove (n, as) = last as
+lastMove (n, as) = fst ((subtrees prev) !! (last as))
+    where
+        prev = follow (n, init as)
 
 follow :: GameTree -> GTNode
 follow (n, [])      = n
-follow (n, (a:as))  = follow (fromJust (Map.lookup a (subtrees n)), as)
+follow (n, (a:as))  = follow (snd ((subtrees n) !! a), as)
 
 update :: (GTNode -> GTNode) -> GameTree -> GameTree
 update f (n, [])        = (f n, [])
-update f (n, (a:as))    = let n' = n {subtrees = Map.adjust (\x -> fst $ update f (x, as)) a (subtrees n)} in (n', a:as)
+update f (n, (a:as))    = let n' = n {subtrees = adjust (\x -> (fst x, fst $ update f (snd x, as))) a (subtrees n)} in (n', a:as)
 
 empty :: Player -> Int -> GameTree
 empty p r = (node, []) 
@@ -91,7 +100,7 @@ empty p r = (node, [])
         treerank = r,
         blocked  = [],
         copy     = 0,
-        subtrees = Map.empty
+        subtrees = []
         }
 
 makeAssignment :: (Int, ExprVar) -> Assignment
@@ -101,27 +110,27 @@ getLeaves :: GameTree -> [GameTree]
 getLeaves (gt, c) = map (\x -> (gt, x)) (getLeaves' gt)
 
 getLeaves' :: GTNode -> [GTCrumb]
-getLeaves' gt = if Map.null (subtrees gt)
+getLeaves' gt = if null (subtrees gt)
                 then [[]]
-                else Map.foldWithKey (\c n x -> (map (c :) (getLeaves' n)) ++ x) [] (subtrees gt)
+                else foldr (\(c, n) x -> (map (c :) (getLeaves' n)) ++ x) [] (zip [0..] (map snd (subtrees gt)))
 
 appendChild :: GameTree -> [Assignment] -> GameTree
 appendChild gt a = update insert gt
     where
-        insert g    = g {subtrees = Map.insert a (child g) (subtrees g)}
+        insert g    = g {subtrees = (subtrees g) ++ [(a, (child g))]}
         newrank n   = (treerank n) - if player n == Universal then 1 else 0
         child n     = GTNode {
                         player      = opponent (player n),
                         treerank    = newrank n,
                         blocked     = [],
                         copy        = (copy n) + 1,
-                        subtrees    = Map.empty }
+                        subtrees    = [] }
 
 appendChildAt :: GameTree -> GTCrumb -> [Assignment] -> GameTree
 appendChildAt gt p a = (fst (appendChild (fst gt, p) a), snd gt)
 
 mapChildren :: (GameTree -> a) -> GameTree -> [a]
-mapChildren f (gt, as) = map (\a -> f (gt, as ++ [a])) (Map.keys (subtrees gt))
+mapChildren f (gt, as) = map (\a -> f (gt, as ++ [a])) [0 .. length (subtrees gt)]
 
 mapChildrenM :: Monad m => (GameTree -> m a) -> GameTree -> m [a]
 mapChildrenM f gt = sequence $ mapChildren f gt

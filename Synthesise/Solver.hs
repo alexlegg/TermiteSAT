@@ -29,7 +29,7 @@ solveAbstract player spec s gt = do
     if isJust cand
     then do
         let gt' = fromJust cand
-        let cMoves = gtMoves gt'
+        let cMoves = gtChildMoves gt'
         liftIO $ putStrLn ("Candidate for " ++ show player ++ " at rank " ++ show (gtrank gt) ++ ": " ++ show (map printMove cMoves))
         cex <- verify player spec s gt'
         if isJust cex
@@ -95,8 +95,8 @@ makeMove (move, valid) = do
 
 renameAndFix spec player fml s leaf = do
     let assignments = if player == Existential 
-        then zip (everyEven (snd leaf)) (reverse (vu spec))
-        else zip (everyOdd (snd leaf)) (reverse (vc spec))
+        then zip (everyEven (gtMoves leaf)) (reverse (vu spec))
+        else zip (everyOdd (gtMoves leaf)) (reverse (vc spec))
 
     moves <- mapM (\(a, v) -> do a' <- assignmentToExpression a; return (a', v)) assignments
     vmoves <- mapM makeMove moves

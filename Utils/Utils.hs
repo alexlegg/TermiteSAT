@@ -7,6 +7,7 @@ module Utils.Utils (
     , mapMUntilJust
     , everyOdd
     , everyEven
+    , adjust
     ) where
 
 import Data.Maybe
@@ -52,3 +53,10 @@ everyEven :: [a] -> [a]
 everyEven []         = []
 everyEven (a:[])     = []
 everyEven (a:b:as)   = b : everyEven as
+
+adjust :: (a -> a) -> Int -> [a] -> [a]
+adjust f k []   = []
+adjust f k (m:ms)
+    | k == 0    = (f m) : ms
+    | otherwise = m : (adjust f (k-1) ms)
+
