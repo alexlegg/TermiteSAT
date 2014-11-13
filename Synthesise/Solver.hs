@@ -18,11 +18,11 @@ import SatSolver.SatSolver
 import Utils.Utils
 
 checkRank spec rnk s = do
-    r <- solveAbstract Existential spec s (empty Existential rnk)
+    r <- solveAbstract Existential spec s (gtNew Existential rnk)
     return (isJust r)
 
 solveAbstract player spec s gt = do
-    liftIO $ putStrLn ("Solve abstract for " ++ show player ++ " at rank " ++ show (gtrank gt))
+    liftIO $ putStrLn ("Solve abstract for " ++ show player ++ " at rank " ++ show (gtRank gt))
 
     cand <- findCandidate player spec s gt
 
@@ -30,24 +30,24 @@ solveAbstract player spec s gt = do
     then do
         let gt' = fromJust cand
         let cMoves = gtChildMoves gt'
-        liftIO $ putStrLn ("Candidate for " ++ show player ++ " at rank " ++ show (gtrank gt) ++ ": " ++ show (map printMove cMoves))
+        liftIO $ putStrLn ("Candidate for " ++ show player ++ " at rank " ++ show (gtRank gt) ++ ": " ++ show (map printMove cMoves))
         cex <- verify player spec s gt'
         if isJust cex
             then do
                 let block = lastMove (fromJust cex)
-                liftIO $ putStrLn ("CEX at rank " ++ show (gtrank gt) ++ " for " ++ show player ++ ": " ++ (printMove block))
+                liftIO $ putStrLn ("CEX at rank " ++ show (gtRank gt) ++ " for " ++ show player ++ ": " ++ (printMove block))
                 let gt'' = blockMove gt block
                 solveAbstract player spec s gt''
             else do
-                liftIO $ putStrLn ("Verified candidate for " ++ show player ++ "  (rank " ++ show (gtrank gt) ++ ")")
+                liftIO $ putStrLn ("Verified candidate for " ++ show player ++ "  (rank " ++ show (gtRank gt) ++ ")")
                 return cand
     else do
-        liftIO $ putStrLn ("Could not find a candidate for " ++ show player ++ " (rank " ++ show (gtrank gt) ++ ")")
+        liftIO $ putStrLn ("Could not find a candidate for " ++ show player ++ " (rank " ++ show (gtRank gt) ++ ")")
         return Nothing
 
 findCandidate player spec s gt = do
     let CompiledSpec{..} = spec
-    let r = gtrank gt
+    let r = gtRank gt
 
     (copyMap, fml) <- if player == Existential
          then driverFml spec player s gt
@@ -60,7 +60,7 @@ findCandidate player spec s gt = do
     if satisfiable res
     then do
         let m = fromJust (model res)
-        let leaves = getLeaves gt
+        let leaves = gtLeaves gt
         newchildren <- (liftM catMaybes) (mapM (saveMove player spec dMap copyMap m) leaves)
 
         return $ if length newchildren == 0
@@ -70,7 +70,7 @@ findCandidate player spec s gt = do
         return Nothing
 
 verify player spec s gt = do
-    let leaves = filter ((/= 0) . gtrank) (getLeaves gt)
+    let leaves = filter ((/= 0) . gtRank) (gtLeaves gt)
     mapMUntilJust (solveAbstract (opponent player) spec s) leaves
 
 driverFml spec player s gt       = makeFml spec player s gt rootToLeafD
@@ -78,7 +78,7 @@ environmentFml spec player s gt  = makeFml spec player s gt rootToLeafE
 
 makeFml spec player s gt rootToLeaf = do
     let rank = treerank (gtroot gt)
-    let leaves = getLeaves gt
+    let leaves = gtLeaves gt
 
     base <- rootToLeaf spec rank
     fmls <- mapM (renameAndFix spec player s base) leaves
@@ -100,9 +100,9 @@ renameAndFix spec player fml s leaf = do
 
     moves <- mapM (\(a, v) -> do a' <- assignmentToExpression a; return (a', v)) assignments
     vmoves <- mapM makeMove moves
-    block <- mapM blockingExpression (gtblocked leaf)
+---    block <- mapM blockingExpression (gtblocked leaf)
 
-    conj <- conjunct ([s, fml] ++ vmoves ++ catMaybes block)
+    conj <- conjunct ([s, fml] ++ vmoves)
     makeCopy conj
 
 rootToLeafD spec rank = do
@@ -144,9 +144,14 @@ saveMove player spec dMap copyMap model gt = do
         return $ Just (snd gt, move)
 
 getMove vars gt dMap copyMap model = do
-    let rnk = gtrank gt
+    let rnk = gtRank gt
+    let maxrnk = treerank (gtroot gt)
     let (Just cpy) = lookup (snd gt) copyMap
+    r <- mapM (getMoveAtRank vars dMap cpy model) [rnk..maxrnk]
+    liftIO $ putStrLn (show r)
+    return (head r)
 
+getMoveAtRank vars dMap cpy model rnk = do
     -- Change the rank 0/copy 0 vars to the vars we need
     let vars' = map (\v -> v {rank = rnk}) vars
 
@@ -160,7 +165,7 @@ getMove vars gt dMap copyMap model = do
     return $ map (makeAssignment . (mapFst (\i -> model !! (i-1)))) vd
 
 isMoveValid gt vs dMap copyMap model = do
-    let r = gtrank gt
+    let r = gtRank gt
     let (Just c) = lookup (snd gt) copyMap
     let vi = index (vs !! (r - 1))
     v <- lookupExpression vi
