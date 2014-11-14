@@ -2,14 +2,15 @@ module Synthesise.GameTree (
       GameTree
     , Player(..)
     , Assignment(..)
+    , Move(..)
     , opponent
     , makeAssignment
     , gtNew
     , gtRank
-    , gtCopy
-    , gtMoves
-    , gtChildMoves
     , gtBaseRank
+    , gtMoves
+    , gtMovesFor
+    , gtChildMoves
     , gtLeaves
     , assignmentToExpression
     , appendChild
@@ -32,9 +33,10 @@ instance Show Assignment where
     show (Assignment Pos v) = show v
     show (Assignment Neg v) = '-' : show v
 
+type Move = Maybe [Assignment]
+
 data GTNode = GTNode {
-    copy        :: Int,
-    childNodes  :: [([Assignment], GTNode)]
+    childNodes  :: [(Move, GTNode)]
     } deriving (Show, Eq)
 
 data GameTree = GameTree {
@@ -50,7 +52,7 @@ gtNew :: Player -> Int -> GameTree
 gtNew p r = GameTree {
       player    = p
     , baserank  = r
-    , root      = GTNode { copy = 0, childNodes = [] }
+    , root      = GTNode { childNodes = [] }
     , crumb     = []
     }
 
@@ -61,6 +63,10 @@ gtRank tr = if player tr == Existential
     then baserank tr - (length (crumb tr) `quot` 2)
     else baserank tr - ((length (crumb tr) + 1) `quot` 2)
 
+-- |Returns the root node of the tree
+gtBaseRank :: GameTree -> Int
+gtBaseRank = baserank
+
 -- |Follows crumb to a node
 followCrumb :: GameTree -> GTNode
 followCrumb tr = follow (root tr) (crumb tr)
@@ -68,24 +74,24 @@ followCrumb tr = follow (root tr) (crumb tr)
         follow t []     = t
         follow t (c:cs) = follow (snd $ childNodes t !! c) cs
 
--- |Gets the copy id of a node
-gtCopy :: GameTree -> Int
-gtCopy = copy . followCrumb
-
 -- |Gets all the moves leading to a node
-gtMoves :: GameTree -> [[Assignment]]
+gtMoves :: GameTree -> [Move]
 gtMoves tr = follow (root tr) (crumb tr)
     where
         follow _ []     = []
         follow n (c:cs) = let (m, n') = childNodes n !! c in m : (follow n' cs)
 
--- |Gets all outgoing moves of a node
-gtChildMoves :: GameTree -> [[Assignment]]
-gtChildMoves = (map fst) . childNodes . followCrumb
+-- |Gets all the moves for a player leading to a node
+gtMovesFor :: Player -> GameTree -> [Move]
+gtMovesFor p tr 
+    | p == Existential && player tr == Existential  = everyEven (gtMoves tr)
+    | p == Existential && player tr == Universal    = everyOdd (gtMoves tr)
+    | p == Universal && player tr == Existential    = everyOdd (gtMoves tr)
+    | p == Universal && player tr == Universal      = everyEven (gtMoves tr)
 
--- |Returns the root node of the tree
-gtBaseRank :: GameTree -> Int
-gtBaseRank = baserank
+-- |Gets all outgoing moves of a node
+gtChildMoves :: GameTree -> [Move]
+gtChildMoves = (map fst) . childNodes . followCrumb
 
 -- |Updates a node in the tree
 update :: (GTNode -> GTNode) -> GameTree -> GameTree
@@ -104,13 +110,13 @@ getLeaves gt = if null (childNodes gt)
                 then [[]]
                 else foldr (\(c, n) x -> (map (c :) (getLeaves n)) ++ x) [] (zip [0..] (map snd (childNodes gt)))
 
-appendChild :: GameTree -> [Assignment] -> GameTree
+appendChild :: GameTree -> Move -> GameTree
 appendChild tr a = update insert tr
     where
         insert g    = g {childNodes = (childNodes g) ++ [(a, child)]}
-        child       = GTNode { copy = 0, childNodes = [] }
+        child       = GTNode { childNodes = [] }
 
-appendChildAt :: GameTree -> [Int] -> [Assignment] -> GameTree
+appendChildAt :: GameTree -> [Int] -> Move -> GameTree
 appendChildAt tr c a = tr { root = root (appendChild (tr { crumb = c }) a) }
 
 -- |Contructs an assignment from a model-var pair

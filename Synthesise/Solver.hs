@@ -34,10 +34,12 @@ solveAbstract player spec s gt = do
         cex <- verify player spec s gt'
         if isJust cex
             then do
-                let block = lastMove (fromJust cex)
-                liftIO $ putStrLn ("CEX at rank " ++ show (gtRank gt) ++ " for " ++ show player ++ ": " ++ (printMove block))
-                let gt'' = blockMove gt block
-                solveAbstract player spec s gt''
+                liftIO $ putStrLn $ "CEX: " ++ (show cex)
+---                let block = lastMove (fromJust cex)
+---                liftIO $ putStrLn ("CEX at rank " ++ show (gtRank gt) ++ " for " ++ show player ++ ": " ++ (printMove block))
+---                let gt'' = blockMove gt block
+---                solveAbstract player spec s gt''
+                return Nothing
             else do
                 liftIO $ putStrLn ("Verified candidate for " ++ show player ++ "  (rank " ++ show (gtRank gt) ++ ")")
                 return cand
@@ -77,32 +79,38 @@ driverFml spec player s gt       = makeFml spec player s gt rootToLeafD
 environmentFml spec player s gt  = makeFml spec player s gt rootToLeafE
 
 makeFml spec player s gt rootToLeaf = do
-    let rank = treerank (gtroot gt)
+    let rank = gtBaseRank gt
     let leaves = gtLeaves gt
 
     base <- rootToLeaf spec rank
     fmls <- mapM (renameAndFix spec player s base) leaves
-    let copyMap = zip (map snd leaves) (map fst fmls)
+    let copyMap = zip (map gtMoves leaves) (map fst fmls)
     f <- conjunct (map snd fmls)
     return (copyMap, f)
 
 -- Ensures that a player can't force the other player into an invalid move
-makeMove (move, valid) = do
-    move_hat <- setHatVar move
-    valid_hat <- setHatVar valid
-    imp <- implicate valid_hat move
-    conjunct [move_hat, imp]
+makeHatMove (m, valid) = do
+    if isJust m
+    then do
+        let (Just m') = m
+        move <- assignmentToExpression m'
+        move_hat <- setHatVar move
+        valid_hat <- setHatVar valid
+        imp <- implicate valid_hat move
+        c <- conjunct [move_hat, imp]
+        return (Just c)
+    else
+        return Nothing
 
 renameAndFix spec player fml s leaf = do
-    let assignments = if player == Existential 
-        then zip (everyEven (gtMoves leaf)) (reverse (vu spec))
-        else zip (everyOdd (gtMoves leaf)) (reverse (vc spec))
+    let vs = if player == Existential 
+        then reverse (vu spec)
+        else reverse (vc spec)
 
-    moves <- mapM (\(a, v) -> do a' <- assignmentToExpression a; return (a', v)) assignments
-    vmoves <- mapM makeMove moves
----    block <- mapM blockingExpression (gtblocked leaf)
-
-    conj <- conjunct ([s, fml] ++ vmoves)
+    myMoves <- mapM assignmentToExpression (catMaybes (gtMovesFor player leaf))
+    let oppMoves' = gtMovesFor (opponent player) leaf
+    oppMoves <- mapM makeHatMove (zip oppMoves' vs)
+    conj <- conjunct ([s, fml] ++ myMoves ++ (catMaybes oppMoves))
     makeCopy conj
 
 rootToLeafD spec rank = do
@@ -141,12 +149,14 @@ saveMove player spec dMap copyMap model gt = do
     else do
         let vars = if player == Existential then cont spec else ucont spec
         move <- getMove vars gt dMap copyMap model
-        return $ Just (snd gt, move)
+---        return $ Just (snd gt, move)
+        return Nothing
+
 
 getMove vars gt dMap copyMap model = do
     let rnk = gtRank gt
-    let maxrnk = treerank (gtroot gt)
-    let (Just cpy) = lookup (snd gt) copyMap
+    let maxrnk = gtBaseRank gt
+    let (Just cpy) = lookup (gtMoves gt) copyMap
     r <- mapM (getMoveAtRank vars dMap cpy model) [rnk..maxrnk]
     liftIO $ putStrLn (show r)
     return (head r)
@@ -166,7 +176,7 @@ getMoveAtRank vars dMap cpy model rnk = do
 
 isMoveValid gt vs dMap copyMap model = do
     let r = gtRank gt
-    let (Just c) = lookup (snd gt) copyMap
+    let (Just c) = lookup (gtMoves gt) copyMap
     let vi = index (vs !! (r - 1))
     v <- lookupExpression vi
     let d = fromJust $ Map.lookup (c, index (fromJust v)) dMap
@@ -176,8 +186,9 @@ isMoveValid gt vs dMap copyMap model = do
 throwError :: Monad m => String -> ExpressionT m a
 throwError = lift . left
 
-printMove :: [Assignment] -> String
-printMove as = intercalate "," (map printVar vs)
+printMove :: Move -> String
+printMove Nothing   = ""
+printMove (Just as) = intercalate "," (map printVar vs)
     where
         vs = groupBy f as
         f (Assignment _ x) (Assignment _ y) = varname x == varname y
