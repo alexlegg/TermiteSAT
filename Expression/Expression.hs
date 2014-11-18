@@ -254,10 +254,10 @@ toDimacs :: Monad m => Expression -> ExpressionT m (Map.Map (Int, Int) Int, [[In
 toDimacs e = do
     copies <- partitionCopies e
     let exprs = concatMap (\(c, es) -> map (\e -> (c, e)) (Set.toList es)) copies
-    let eMap = Map.fromList (zip (map (mapSnd index) exprs) [1..])
-    dimacs <- concatMapM (exprToDimacs eMap) exprs
-    let (Just de) = Map.lookup (baseExpr e) eMap
-    return $ (eMap, [de] : dimacs)
+    let dMap = Map.fromList (zip (map (mapSnd index) exprs) [1..])
+    dimacs <- concatMapM (exprToDimacs dMap) exprs
+    let (Just de) = Map.lookup (baseExpr e) dMap
+    return $ (dMap, [de] : dimacs)
 
 exprToDimacs m (c, e) = do
     let ind = fromJust $ Map.lookup (c, (index e)) m

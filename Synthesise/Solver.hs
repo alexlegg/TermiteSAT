@@ -17,63 +17,77 @@ import Synthesise.GameTree
 import SatSolver.SatSolver
 import Utils.Utils
 
+checkRank :: CompiledSpec -> Int -> Expression -> ExpressionT IO Bool
 checkRank spec rnk s = do
     r <- solveAbstract Existential spec s (gtNew Existential rnk)
     return (isJust r)
 
+solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> ExpressionT IO (Maybe GameTree)
 solveAbstract player spec s gt = do
-    liftIO $ putStrLn ("Solve abstract for " ++ show player ++ " at rank " ++ show (gtRank gt))
-
+    liftIO $ putStrLn ("Solve abstract for " ++ show player)
+    liftIO $ putStrLn (printTree gt)
     cand <- findCandidate player spec s gt
+    refinementLoop player spec s cand gt gt
 
+refinementLoop :: Player -> CompiledSpec -> Expression -> Maybe GameTree -> GameTree -> GameTree -> ExpressionT IO (Maybe GameTree)
+refinementLoop player spec s cand origGT absGT = do
     if isJust cand
     then do
-        let gt' = fromJust cand
-        let cMoves = gtChildMoves gt'
-        liftIO $ putStrLn ("Candidate for " ++ show player ++ " at rank " ++ show (gtRank gt) ++ ": " ++ show (map printMove cMoves))
-        cex <- verify player spec s gt'
+        cex <- verify player spec s origGT (fromJust cand)
+
         if isJust cex
             then do
-                liftIO $ putStrLn $ "CEX: " ++ (show cex)
----                let block = lastMove (fromJust cex)
----                liftIO $ putStrLn ("CEX at rank " ++ show (gtRank gt) ++ " for " ++ show player ++ ": " ++ (printMove block))
----                let gt'' = blockMove gt block
----                solveAbstract player spec s gt''
-                return Nothing
+                liftIO $ putStrLn ("Counterexample found against " ++ show player)
+                absGT' <- refine absGT (fromJust cex)
+                liftIO $ putStrLn (printTree absGT)
+                liftIO $ putStrLn (printTree absGT')
+                cand' <- solveAbstract player spec s absGT'
+                refinementLoop player spec s cand' origGT absGT'
             else do
-                liftIO $ putStrLn ("Verified candidate for " ++ show player ++ "  (rank " ++ show (gtRank gt) ++ ")")
+                liftIO $ putStrLn ("Verified candidate for " ++ show player)
                 return cand
     else do
-        liftIO $ putStrLn ("Could not find a candidate for " ++ show player ++ " (rank " ++ show (gtRank gt) ++ ")")
+        liftIO $ putStrLn ("Could not find a candidate for " ++ show player)
         return Nothing
+    
 
+findCandidate :: Player -> CompiledSpec -> Expression -> GameTree -> ExpressionT IO (Maybe GameTree)
 findCandidate player spec s gt = do
     let CompiledSpec{..} = spec
-    let r = gtRank gt
 
     (copyMap, fml) <- if player == Existential
          then driverFml spec player s gt
          else environmentFml spec player s gt
 
     (dMap, dimacs) <- toDimacs fml
-    mi <- getMaxIndex --FIXME
-    res <- liftIO $ satSolve mi dimacs
+    res <- liftIO $ satSolve (maximum $ Map.elems dMap) dimacs
 
     if satisfiable res
     then do
         let m = fromJust (model res)
-        let leaves = gtLeaves gt
-        newchildren <- (liftM catMaybes) (mapM (saveMove player spec dMap copyMap m) leaves)
-
-        return $ if length newchildren == 0
-            then Nothing
-            else Just (foldl (\x -> uncurry (appendChildAt x)) gt newchildren)
+        let leaves = map makePathTree (gtLeaves gt)
+        moves <- mapM (getMove player spec dMap copyMap m) leaves
+        let paths = map (uncurry (fixPlayerMoves player)) (zip leaves moves)
+        let cand = merge paths
+        return (Just cand)
     else do
         return Nothing
 
-verify player spec s gt = do
-    let leaves = filter ((/= 0) . gtRank) (gtLeaves gt)
-    mapMUntilJust (solveAbstract (opponent player) spec s) leaves
+merge (t:[]) = t
+merge (t:ts) = foldl mergeTrees t ts
+
+verify :: Player -> CompiledSpec -> Expression -> GameTree -> GameTree -> ExpressionT IO (Maybe GameTree)
+verify player spec s gt cand = do
+    let leaves = map makePathTree (gtLeaves cand)
+    let oppGames = map (\l -> appendChild l Nothing) leaves
+    mapMUntilJust (solveAbstract (opponent player) spec s) oppGames
+
+refine :: GameTree -> GameTree -> ExpressionT IO GameTree
+refine gt cex = do
+    let moves = gtPathMoves cex
+    if isJust moves
+    then return $ appendNextMove gt (fromJust moves)
+    else throwError "Non-path cex given to refine"
 
 driverFml spec player s gt       = makeFml spec player s gt rootToLeafD
 environmentFml spec player s gt  = makeFml spec player s gt rootToLeafE
@@ -143,23 +157,17 @@ rootToLeafE spec rank = do
 saveMove player spec dMap copyMap model gt = do
     let vs = if player == Existential then vc spec else vu spec
     valid <- isMoveValid gt vs dMap copyMap model
----    liftIO $ putStrLn ("Move valid? " ++ (show valid))
     if not valid
     then return Nothing
     else do
-        let vars = if player == Existential then cont spec else ucont spec
-        move <- getMove vars gt dMap copyMap model
----        return $ Just (snd gt, move)
-        return Nothing
+        move <- getMove player spec dMap copyMap model gt
+        return $ Just (gtCrumb gt, Just move)
 
-
-getMove vars gt dMap copyMap model = do
-    let rnk = gtRank gt
+getMove player spec dMap copyMap model gt = do
+    let vars = if player == Existential then cont spec else ucont spec
     let maxrnk = gtBaseRank gt
     let (Just cpy) = lookup (gtMoves gt) copyMap
-    r <- mapM (getMoveAtRank vars dMap cpy model) [rnk..maxrnk]
-    liftIO $ putStrLn (show r)
-    return (head r)
+    mapM (getMoveAtRank vars dMap cpy model) (reverse [1..maxrnk])
 
 getMoveAtRank vars dMap cpy model rnk = do
     -- Change the rank 0/copy 0 vars to the vars we need

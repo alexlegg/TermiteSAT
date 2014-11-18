@@ -5,12 +5,16 @@ module Utils.Utils (
     , mapSnd
     , concatMapM
     , mapMUntilJust
+    , liftMSnd
+    , liftMFst
     , everyOdd
     , everyEven
     , adjust
+    , lookupIndex
     ) where
 
 import Data.Maybe
+import Data.List
 import Control.Monad
 
 zipMaybe1 :: [Maybe a] -> [b] -> [(a, b)]
@@ -44,6 +48,16 @@ mapMUntilJust f (a:as)  = do
     then return b
     else mapMUntilJust f as
 
+liftMFst :: Monad m => m a -> b -> m (a, b)
+liftMFst a b = do
+    a' <- a
+    return (a', b)
+
+liftMSnd :: Monad m => a -> m b -> m (a, b)
+liftMSnd a b = do
+    b' <- b
+    return (a, b')
+
 everyOdd :: [a] -> [a]
 everyOdd []         = []
 everyOdd (a:[])     = [a]
@@ -60,3 +74,5 @@ adjust f k (m:ms)
     | k == 0    = (f m) : ms
     | otherwise = m : (adjust f (k-1) ms)
 
+lookupIndex :: Eq a => a -> [(a, b)] -> Maybe Int
+lookupIndex x = findIndex (\(a, b) -> a == x)
