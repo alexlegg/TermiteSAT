@@ -198,7 +198,10 @@ appendNextMove' (m:ms) n
     | isJust mi             = n { childNodes = adjust (mapSnd (appendNextMove' ms)) (fromJust mi) (childNodes n) }
     | otherwise             = n { childNodes = childNodes n ++ [(m, GTNode { childNodes = [(Nothing, emptyNode)] } )] }
     where
-        mi = lookupIndex m (childNodes n)
+        unsetMove   = lookupIndex Nothing (childNodes n)
+        mi          = if isJust unsetMove
+                        then unsetMove
+                        else lookupIndex m (childNodes n)
 
 -- |Contructs an assignment from a model-var pair
 makeAssignment :: (Int, ExprVar) -> Assignment

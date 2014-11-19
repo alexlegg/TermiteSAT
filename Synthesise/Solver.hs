@@ -25,7 +25,7 @@ checkRank spec rnk s = do
 solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> ExpressionT IO (Maybe GameTree)
 solveAbstract player spec s gt = do
     liftIO $ putStrLn ("Solve abstract for " ++ show player)
-    liftIO $ putStrLn (printTree gt)
+---    liftIO $ putStrLn (printTree gt)
     cand <- findCandidate player spec s gt
     refinementLoop player spec s cand gt gt
 
@@ -39,8 +39,8 @@ refinementLoop player spec s cand origGT absGT = do
             then do
                 liftIO $ putStrLn ("Counterexample found against " ++ show player)
                 absGT' <- refine absGT (fromJust cex)
-                liftIO $ putStrLn (printTree absGT)
-                liftIO $ putStrLn (printTree absGT')
+---                liftIO $ putStrLn (printTree absGT)
+---                liftIO $ putStrLn (printTree absGT')
                 cand' <- solveAbstract player spec s absGT'
                 refinementLoop player spec s cand' origGT absGT'
             else do
