@@ -11,3 +11,8 @@ div.trace {
 .Universal {
     background: #FF675E;
 }
+
+h3 {
+    padding: 0;
+    margin: 0;
+}

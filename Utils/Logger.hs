@@ -35,14 +35,21 @@ printLog logger = do
     writeFile "debug.html" (htmlHeader ++ outputHTML trace ++ htmlFooter)
     return r
 
-htmlHeader = "<html><head><link rel=\"stylesheet\" href=\"debug.css\"></head><body>"
+htmlHeader = "<html><head>"
+    ++ "<link rel=\"stylesheet\" href=\"debug.css\">"
+    ++ "<script src=\"http://code.jquery.com/jquery-1.11.0.min.js\"></script>"
+    ++ "<script src=\"http://code.jquery.com/jquery-migrate-1.2.1.min.js\"></script>"
+    ++ "<script src=\"debug.js\"></script>"
+    ++ "</head><body>"
 
 htmlFooter = "</body></html>"
 
+
 outputHTML trace = "<div class=\"trace " ++ show (player trace) ++ "\">"
-    ++ "<div class=\"gametree\"><h3>Input GT</h3><pre>\n" ++ printTree (input trace) ++ "</pre></div>"
-    ++ "<div class=\"gametree\"><h3>Candidate</h3><pre>\n" ++ maybe "Nothing" printTree (candidate trace) ++ "</pre></div>"
-    ++ "<div class=\"gametree\"><h3>Result</h3><pre>\n" ++ maybe "Nothing" printTree (result trace) ++ "</pre></div>"
+    ++ "<h3><button type=\"button\" class=\"shrink\">-</button> Trace for " ++ (show (player trace)) ++ "</h3><hr />"
+    ++ "<div class=\"gametree\"><h3>Input GT</h3><pre>" ++ printTree (input trace) ++ "</pre></div>"
+    ++ "<div class=\"gametree\"><h3>Candidate</h3><pre>" ++ maybe "Nothing" printTree (candidate trace) ++ "</pre></div>"
+    ++ "<div class=\"gametree\"><h3>Result</h3><pre>" ++ maybe "Nothing" printTree (result trace) ++ "</pre></div>"
     ++ "<div class=\"verification\"><h3>Verification</h3>" ++ interMap "<br/>" outputHTML (verification trace) ++ "</div>"
     ++ "<div class=\"refinement\"><h3>Refinement</h3>" ++ interMap "<br />" outputHTML (refinement trace) ++ "</div>"
     ++ "</div>"
