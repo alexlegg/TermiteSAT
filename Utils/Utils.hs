@@ -11,6 +11,7 @@ module Utils.Utils (
     , everyEven
     , adjust
     , lookupIndex
+    , interMap
     ) where
 
 import Data.Maybe
@@ -76,3 +77,6 @@ adjust f k (m:ms)
 
 lookupIndex :: Eq a => a -> [(a, b)] -> Maybe Int
 lookupIndex x = findIndex (\(a, b) -> a == x)
+
+interMap :: [a] -> (b -> [a]) -> [b] -> [a]
+interMap x f bs = intercalate x (map f bs)

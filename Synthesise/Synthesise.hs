@@ -6,12 +6,13 @@ module Synthesise.Synthesise (
 import Control.Monad.State
 import Control.Monad.Trans.Either
 
+import Utils.Logger
 import Expression.Parse
 import Expression.Compile
 import Expression.Expression
 import Synthesise.Solver
 
-synthesise :: Int -> ParsedSpec -> EitherT String IO Bool
+synthesise :: Int -> ParsedSpec -> EitherT String (LoggerT IO) Bool
 synthesise k spec = evalStateT (synthesise' k spec) emptyManager
 
 synthesise' k spec = do

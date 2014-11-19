@@ -222,4 +222,18 @@ printTree gt = "---\n" ++ printNode (root gt) 0 ++ "---"
 
 printNode n ind = concatMap printChildren (childNodes n)
     where
-        printChildren (m, n') = (replicate (ind*2) ' ') ++ show m ++ "\n" ++ printNode n' (ind+1)
+        printChildren (m, n') = (replicate (ind*2) ' ') ++ printMove m ++ "\n" ++ printNode n' (ind+1)
+
+printMove :: Move -> String
+printMove Nothing   = "Nothing"
+printMove (Just as) = intercalate "," (map printVar vs)
+    where
+        vs = groupBy f as
+        f (Assignment _ x) (Assignment _ y) = varname x == varname y
+
+printVar :: [Assignment] -> String
+printVar as = nm (head as) ++ " = " ++ show (sum (map val as))
+    where
+        val (Assignment Pos v)  = 2 ^ (bit v)
+        val (Assignment Neg v)  = 0
+        nm (Assignment _ v)     = varname v ++ show (rank v)

@@ -15,21 +15,24 @@ import Expression.Compile
 import Expression.Expression
 import Synthesise.GameTree
 import SatSolver.SatSolver
+import Utils.Logger
 import Utils.Utils
 
-checkRank :: CompiledSpec -> Int -> Expression -> ExpressionT IO Bool
+checkRank :: CompiledSpec -> Int -> Expression -> ExpressionT (LoggerT IO) Bool
 checkRank spec rnk s = do
     r <- solveAbstract Existential spec s (gtNew Existential rnk)
     return (isJust r)
 
-solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> ExpressionT IO (Maybe GameTree)
+solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> ExpressionT (LoggerT IO) (Maybe GameTree)
 solveAbstract player spec s gt = do
     liftIO $ putStrLn ("Solve abstract for " ++ show player)
----    liftIO $ putStrLn (printTree gt)
     cand <- findCandidate player spec s gt
-    refinementLoop player spec s cand gt gt
+    lift $ lift $ logSolve gt cand player
+    res <- refinementLoop player spec s cand gt gt
+    lift $ lift $ logSolveComplete res
+    return res
 
-refinementLoop :: Player -> CompiledSpec -> Expression -> Maybe GameTree -> GameTree -> GameTree -> ExpressionT IO (Maybe GameTree)
+refinementLoop :: Player -> CompiledSpec -> Expression -> Maybe GameTree -> GameTree -> GameTree -> ExpressionT (LoggerT IO) (Maybe GameTree)
 refinementLoop player spec s cand origGT absGT = do
     if isJust cand
     then do
@@ -37,21 +40,20 @@ refinementLoop player spec s cand origGT absGT = do
 
         if isJust cex
             then do
-                liftIO $ putStrLn ("Counterexample found against " ++ show player)
+---                liftIO $ putStrLn ("Counterexample found against " ++ show player)
                 absGT' <- refine absGT (fromJust cex)
----                liftIO $ putStrLn (printTree absGT)
----                liftIO $ putStrLn (printTree absGT')
+                lift $ lift $ logRefine
                 cand' <- solveAbstract player spec s absGT'
                 refinementLoop player spec s cand' origGT absGT'
             else do
-                liftIO $ putStrLn ("Verified candidate for " ++ show player)
+---                liftIO $ putStrLn ("Verified candidate for " ++ show player)
                 return cand
     else do
-        liftIO $ putStrLn ("Could not find a candidate for " ++ show player)
+---        liftIO $ putStrLn ("Could not find a candidate for " ++ show player)
         return Nothing
     
 
-findCandidate :: Player -> CompiledSpec -> Expression -> GameTree -> ExpressionT IO (Maybe GameTree)
+findCandidate :: Player -> CompiledSpec -> Expression -> GameTree -> ExpressionT (LoggerT IO) (Maybe GameTree)
 findCandidate player spec s gt = do
     let CompiledSpec{..} = spec
 
@@ -76,13 +78,14 @@ findCandidate player spec s gt = do
 merge (t:[]) = t
 merge (t:ts) = foldl mergeTrees t ts
 
-verify :: Player -> CompiledSpec -> Expression -> GameTree -> GameTree -> ExpressionT IO (Maybe GameTree)
+verify :: Player -> CompiledSpec -> Expression -> GameTree -> GameTree -> ExpressionT (LoggerT IO) (Maybe GameTree)
 verify player spec s gt cand = do
     let leaves = map makePathTree (gtLeaves cand)
     let oppGames = map (\l -> appendChild l Nothing) leaves
+    lift $ lift $ logVerify
     mapMUntilJust (solveAbstract (opponent player) spec s) oppGames
 
-refine :: GameTree -> GameTree -> ExpressionT IO GameTree
+refine :: GameTree -> GameTree -> ExpressionT (LoggerT IO) GameTree
 refine gt cex = do
     let moves = gtPathMoves cex
     if isJust moves
@@ -193,17 +196,3 @@ isMoveValid gt vs dMap copyMap model = do
 
 throwError :: Monad m => String -> ExpressionT m a
 throwError = lift . left
-
-printMove :: Move -> String
-printMove Nothing   = ""
-printMove (Just as) = intercalate "," (map printVar vs)
-    where
-        vs = groupBy f as
-        f (Assignment _ x) (Assignment _ y) = varname x == varname y
-
-printVar :: [Assignment] -> String
-printVar as = nm (head as) ++ " = " ++ show (sum (map val as))
-    where
-        val (Assignment Pos v)  = 2 ^ (bit v)
-        val (Assignment Neg v)  = 0
-        nm (Assignment _ v)     = varname v

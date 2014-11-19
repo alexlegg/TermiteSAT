@@ -7,6 +7,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Error
 
+import Utils.Logger
 import Expression.Expression
 import Expression.Parse
 import Synthesise.Synthesise
@@ -36,7 +37,8 @@ main = do
         Left e -> return $ Left e
         Right config -> do
             f <- readFile (tslFile config)
-            runEitherT (run config f)
+            let log = runEitherT (run config f)
+            printLog log
 
     case res of
         Left s  -> putStrLn s
