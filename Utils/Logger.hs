@@ -56,6 +56,14 @@ outputHTML trace = "<div class=\"trace " ++ show (player trace) ++ "\">"
 
 insertAt :: SynthTrace -> [TraceCrumb] -> SynthTrace -> SynthTrace
 insertAt x [] t             = x
+insertAt x ((VerifyCrumb c):[]) t
+    | c == length (verification t)  = t { verification = verification t ++ [x] }
+    | c < length (verification t)   = t { verification = adjust (\_ -> x) c (verification t) }
+    | otherwise                     = error $ "Error in Logger"
+insertAt x ((RefineCrumb c):[]) t
+    | c == length (refinement t)  = t { refinement = refinement t ++ [x] }
+    | c < length (refinement t)   = t { refinement = adjust (\_ -> x) c (refinement t) }
+    | otherwise                     = error $ "Error in Logger"
 insertAt x ((VerifyCrumb c):cs) t
     | null (verification t) = t { verification = [x] }
     | otherwise             = t { verification = adjust (insertAt x cs) c (verification t) }

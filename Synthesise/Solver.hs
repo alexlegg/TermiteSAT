@@ -41,7 +41,7 @@ refinementLoop player spec s cand origGT absGT = do
         if isJust cex
             then do
 ---                liftIO $ putStrLn ("Counterexample found against " ++ show player)
-                absGT' <- refine absGT (fromJust cex)
+                absGT' <- refine player absGT (fromJust cex)
                 lift $ lift $ logRefine
                 cand' <- solveAbstract player spec s absGT'
                 refinementLoop player spec s cand' origGT absGT'
@@ -78,15 +78,21 @@ findCandidate player spec s gt = do
 merge (t:[]) = t
 merge (t:ts) = foldl mergeTrees t ts
 
-verify :: Player -> CompiledSpec -> Expression -> GameTree -> GameTree -> ExpressionT (LoggerT IO) (Maybe GameTree)
 verify player spec s gt cand = do
-    let leaves = map makePathTree (gtLeaves cand)
+    let og = projectMoves gt cand
+    when (not (isJust og)) $ throwError "Error projecting, moves didn't match"
+    let leaves = filter ((/= 0) . gtRank) (map makePathTree (gtLeaves (fromJust og)))
     let oppGames = map (\l -> appendChild l Nothing) leaves
-    lift $ lift $ logVerify
+    lift $ lift $ when (length oppGames > 0) logVerify
     mapMUntilJust (solveAbstract (opponent player) spec s) oppGames
 
-refine :: GameTree -> GameTree -> ExpressionT (LoggerT IO) GameTree
-refine gt cex = do
+---playOpponent player spec s gt = do
+---    res <- solveAbstract (opponent player) spec s gt
+---    if isJust res
+---    then return $ Just (gt, fromJust res)
+---    else return Nothing
+
+refine player gt cex = do
     let moves = gtPathMoves cex
     if isJust moves
     then return $ appendNextMove gt (fromJust moves)

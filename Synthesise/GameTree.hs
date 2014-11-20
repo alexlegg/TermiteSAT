@@ -5,7 +5,9 @@ module Synthesise.GameTree (
     , Move(..)
     , opponent
     , makeAssignment
-    , gtNew
+    , assignmentToExpression
+
+    -- Queries on GameTrees
     , gtRank
     , gtBaseRank
     , gtCrumb
@@ -13,16 +15,17 @@ module Synthesise.GameTree (
     , gtPathMoves
     , gtMovesFor
     , gtChildMoves
+    , printTree
+
+    -- Modifiers
+    , gtNew
     , gtLeaves
     , makePathTree
-    , fixMoves
     , fixPlayerMoves
+    , projectMoves
     , mergeTrees
-    , assignmentToExpression
     , appendChild
-    , appendChildAt
     , appendNextMove
-    , printTree
     ) where
 
 import Data.Maybe
@@ -65,7 +68,7 @@ gtNew :: Player -> Int -> GameTree
 gtNew p r = GameTree {
       player    = p
     , baserank  = r
-    , root      = emptyNode
+    , root      = GTNode { childNodes = [(Nothing, emptyNode)] }
     , crumb     = []
     }
 
@@ -141,16 +144,6 @@ makePathTree gt = gt { root = makePathNodes (root gt) (crumb gt), crumb = replic
 makePathNodes n []      = n
 makePathNodes n (c:cs)  = let (m, n') = (childNodes n) !! c in n { childNodes = [(m, makePathNodes n' cs)] }
 
--- |Fix moves in a GameTree (ignores crumb)
-fixMoves :: GameTree -> [[Assignment]] -> GameTree
-fixMoves gt as = gt { root = fixMoveNode as (root gt) }
-
-fixMoveNode [] n        = n
-fixMoveNode (a:as) n    = let n' = findIndex (\x -> Just a == fst x) (childNodes n) in
-    if isJust n'
-    then n { childNodes = adjust (mapSnd (fixMoveNode as)) (fromJust n') (childNodes n) }
-    else n { childNodes = childNodes n ++ [(Just a, fixMoveNode as emptyNode)] }
-
 -- |Fix moves for one player in a path tree only
 fixPlayerMoves :: Player -> GameTree -> [[Assignment]] -> GameTree
 fixPlayerMoves p gt as
@@ -166,6 +159,20 @@ fpmSet n [] = n
 fpmSet n (a:as)
     | null (childNodes n) = n { childNodes = [(Just a, emptyNode)] }
     | otherwise           = let (_, n') = head (childNodes n) in n { childNodes = [(Just a, fpmSkip n' as)] }
+
+projectMoves :: GameTree -> GameTree -> Maybe GameTree
+projectMoves gt proj = fmap (\r -> gt { root = r }) (projectNodes (root gt) (root proj))
+
+projectNodes x y
+    | null (childNodes x)   = Just x
+    | otherwise             = do
+        cs <- mapM match (zip (childNodes x) (childNodes y))
+        return $ x { childNodes = cs }
+    where
+        match ((m1, n1), (m2, n2))
+            | m1 == m2      = fmap (\n' -> (m1, n')) (projectNodes n1 n2)
+            | m1 == Nothing = fmap (\n' -> (m2, n')) (projectNodes n1 n2)
+            | otherwise     = Nothing
 
 mergeTrees :: GameTree -> GameTree -> GameTree
 mergeTrees x y = if player x == player y && baserank x == baserank y
@@ -185,9 +192,6 @@ appendChild tr a = update insert tr
     where
         insert g    = g {childNodes = (childNodes g) ++ [(a, child)]}
         child       = GTNode { childNodes = [] }
-
-appendChildAt :: GameTree -> [Int] -> Move -> GameTree
-appendChildAt tr c a = tr { root = root (appendChild (tr { crumb = c }) a) }
 
 appendNextMove :: GameTree -> [Move] -> GameTree
 appendNextMove gt ms = gt { root = appendNextMove' ms (root gt) }
