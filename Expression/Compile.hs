@@ -114,8 +114,8 @@ compile (HAST.EqVar a b) = do
     a' <- compileHVar a
     b' <- compileHVar b
     when (length a' /= length b') $ throwError ("Attempted equality of unequally sized vars (" ++ show a' ++ " & " ++ show b' ++ ")")
-    as <- mapM ((`addExpression` []) . ELit) a'
-    bs <- mapM ((`addExpression` []) . ELit) b'
+    as <- mapM literal a'
+    bs <- mapM literal b'
     eqs <- mapM (uncurry equate) (zip as bs)
     conjunct eqs
 

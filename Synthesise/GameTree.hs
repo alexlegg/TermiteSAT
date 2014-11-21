@@ -1,11 +1,8 @@
 module Synthesise.GameTree (
       GameTree
     , Player(..)
-    , Assignment(..)
     , Move(..)
     , opponent
-    , makeAssignment
-    , assignmentToExpression
 
     -- Queries on GameTrees
     , gtRank
@@ -33,8 +30,6 @@ import Data.List
 import Utils.Utils
 import Expression.Expression
 import Debug.Trace
-
-data Assignment = Assignment Sign ExprVar deriving (Eq, Ord)
 
 data Player = Existential | Universal deriving (Show, Eq)
 
@@ -206,20 +201,6 @@ appendNextMove' (m:ms) n
         mi          = if isJust unsetMove
                         then unsetMove
                         else lookupIndex m (childNodes n)
-
--- |Contructs an assignment from a model-var pair
-makeAssignment :: (Int, ExprVar) -> Assignment
-makeAssignment (m, v) = Assignment (if m > 0 then Pos else Neg) v
-
--- |Constructs an expression from assignments
-assignmentToExpression :: Monad m => [Assignment] -> ExpressionT m Expression
-assignmentToExpression as = do
-    vs <- mapM f as
-    addExpression EConjunct vs
-    where
-        f (Assignment s v) = do
-            e <- addExpression (ELit v) []
-            return $ Var s (index e)
 
 printTree :: GameTree -> String
 printTree gt = "---\n" ++ printNode (root gt) 0 ++ "---"

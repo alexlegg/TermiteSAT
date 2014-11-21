@@ -26,6 +26,7 @@ checkRank spec rnk s = do
 solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> ExpressionT (LoggerT IO) (Maybe GameTree)
 solveAbstract player spec s gt = do
     liftIO $ putStrLn ("Solve abstract for " ++ show player)
+    liftIO $ putStrLn (printTree gt)
     cand <- findCandidate player spec s gt
     lift $ lift $ logSolve gt cand player
     res <- refinementLoop player spec s cand gt gt
@@ -62,7 +63,11 @@ findCandidate player spec s gt = do
          else environmentFml spec player s gt
 
     (dMap, dimacs) <- toDimacs fml
+    fp <- printExpression fml
+    liftIO $ putStrLn fp
+---    liftIO $ putStrLn (interMap "\n" (interMap " " show) dimacs)
     res <- liftIO $ satSolve (maximum $ Map.elems dMap) dimacs
+---    liftIO $ putStrLn (show res)
 
     if satisfiable res
     then do
@@ -183,10 +188,10 @@ getMoveAtRank vars dMap cpy model rnk = do
     let vars' = map (\v -> v {rank = rnk}) vars
 
     -- Lookup the indices of these vars in the Expression monad
-    ve <- mapM (\v -> addExpression (ELit v) []) vars'
+    ve <- mapM lookupVar vars'
 
     -- Lookup the dimacs equivalents to these indices
-    let vd = zipMaybe1 (map (\v -> Map.lookup (cpy, index v) dMap) ve) vars'
+    let vd = zipMaybe1 (map (\v -> Map.lookup (cpy, exprIndex v) dMap) (catMaybes ve)) vars'
 
     -- Finally, construct assignments
     return $ map (makeAssignment . (mapFst (\i -> model !! (i-1)))) vd
@@ -194,9 +199,9 @@ getMoveAtRank vars dMap cpy model rnk = do
 isMoveValid gt vs dMap copyMap model = do
     let r = gtRank gt
     let (Just c) = lookup (gtMoves gt) copyMap
-    let vi = index (vs !! (r - 1))
+    let vi = exprIndex (vs !! (r - 1))
     v <- lookupExpression vi
-    let d = fromJust $ Map.lookup (c, index (fromJust v)) dMap
+    let d = fromJust $ Map.lookup (c, exprIndex (fromJust v)) dMap
     let m = model !! (d - 1)
     return $ m > 0
 
