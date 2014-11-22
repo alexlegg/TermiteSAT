@@ -63,8 +63,8 @@ findCandidate player spec s gt = do
          else environmentFml spec player s gt
 
     (dMap, dimacs) <- toDimacs fml
-    fp <- printExpression fml
-    liftIO $ putStrLn fp
+---    fp <- printExpression fml
+---    liftIO $ putStrLn fp
 ---    liftIO $ putStrLn (interMap "\n" (interMap " " show) dimacs)
     res <- liftIO $ satSolve (maximum $ Map.elems dMap) dimacs
 ---    liftIO $ putStrLn (show res)

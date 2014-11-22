@@ -102,6 +102,16 @@ children (EEquals x y)      = [x, y]
 children (EConjunct vs)     = vs
 children (EDisjunct vs)     = vs
 
+setChildren :: Expr -> [Var] -> Expr
+setChildren (ETrue) _           = ETrue
+setChildren (EFalse) _          = EFalse
+setChildren (ELit l) _          = ELit l
+setChildren (ENot _) vs         = ENot (head vs)
+setChildren (ECopy c _) vs      = ECopy c (head vs)
+setChildren (EEquals _ _) vs    = let (x:y:[]) = vs in EEquals x y
+setChildren (EConjunct _) vs    = EConjunct vs
+setChildren (EDisjunct _) vs    = EDisjunct vs
+
 data ExprManager = ExprManager {
     maxIndex        :: Int,
     exprMap         :: Map.Map Int Expr,
@@ -170,10 +180,10 @@ traverseExpression f e = do
     cs <- getChildren e
     cs' <- mapM (traverseExpression f) cs
     let cs'' = map (uncurry Var) (zip signs (map index cs'))
-    addExpression (applyToVars f (expr e)) -- WRONG
+    addExpression (applyToVars f (expr e) cs'')
     where
-        applyToVars f (ELit v)  = ELit (f v)
-        applyToVars f x         = x
+        applyToVars f (ELit v) _ = ELit (f v)
+        applyToVars f x ncs      = setChildren x ncs
 
 setRank :: Monad m => Int -> Expression -> ExpressionT m Expression
 setRank r = traverseExpression (setVarRank r)
