@@ -24,6 +24,7 @@ synthesise' k spec = do
     g <- setRank 0 g'
     u <- compile ucont
 
+    let svars = concatMap compileVar stateVars
     let uvars = concatMap compileVar ucontVars
     let cvars = concatMap compileVar contVars
 
@@ -47,6 +48,7 @@ synthesise' k spec = do
         , vu    = vus
         , cont  = cvars
         , ucont = uvars
+        , svars = svars
         }
 
     init <- compile init

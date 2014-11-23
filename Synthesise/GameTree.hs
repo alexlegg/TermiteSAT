@@ -6,12 +6,14 @@ module Synthesise.GameTree (
 
     -- Queries on GameTrees
     , gtRank
+    , gtRoot
     , gtBaseRank
     , gtCrumb
     , gtMoves
     , gtPathMoves
     , gtMovesFor
     , gtChildMoves
+    , gtChildren
     , printTree
 
     -- Modifiers
@@ -78,6 +80,9 @@ gtRank tr = if player tr == Existential
 gtBaseRank :: GameTree -> Int
 gtBaseRank = baserank
 
+gtRoot :: GameTree -> GameTree
+gtRoot gt = gt { crumb = [] }
+
 -- |Follows crumb to a node
 followCrumb :: GameTree -> GTNode
 followCrumb tr = follow (root tr) (crumb tr)
@@ -114,6 +119,10 @@ gtMovesFor p tr
 -- |Gets all outgoing moves of a node
 gtChildMoves :: GameTree -> [Move]
 gtChildMoves = (map fst) . childNodes . followCrumb
+
+gtChildren :: GameTree -> [(Move, GameTree)]
+gtChildren gt = map (\(m, c) -> (m, gt {crumb = crumb gt ++ [fromJust $ lookupIndex m children]})) children
+    where children = childNodes (followCrumb gt)
 
 -- |Updates a node in the tree
 update :: (GTNode -> GTNode) -> GameTree -> GameTree

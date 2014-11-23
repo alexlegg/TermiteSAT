@@ -34,6 +34,7 @@ module Expression.Expression (
     , printExpression
     , makeAssignment
     , assignmentToExpression
+    , setVarRank
     ) where
 
 import Control.Monad.State
@@ -339,4 +340,3 @@ assignmentToExpression as = do
         f (Assignment s v) = do
             e <- addExpression (ELit v)
             return $ Var s (index e)
-

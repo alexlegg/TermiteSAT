@@ -22,6 +22,7 @@ data CompiledSpec = CompiledSpec {
     , vu      :: [Expression]
     , cont    :: [ExprVar]
     , ucont   :: [ExprVar]
+    , svars   :: [ExprVar]
     }
 
 throwError :: Monad m => String -> ExpressionT m a

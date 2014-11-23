@@ -26,7 +26,7 @@ checkRank spec rnk s = do
 solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> ExpressionT (LoggerT IO) (Maybe GameTree)
 solveAbstract player spec s gt = do
     liftIO $ putStrLn ("Solve abstract for " ++ show player)
-    liftIO $ putStrLn (printTree gt)
+---    liftIO $ putStrLn (printTree gt)
     cand <- findCandidate player spec s gt
     lift $ lift $ logSolve gt cand player
     res <- refinementLoop player spec s cand gt gt
@@ -112,9 +112,46 @@ makeFml spec player s gt rootToLeaf = do
 
     base <- rootToLeaf spec rank
     fmls <- mapM (renameAndFix spec player s base) leaves
+    chains <- makeChains spec (gtRoot gt)
+    liftIO $ putStrLn (printTree gt)
+    liftIO $ putStrLn (show chains)
     let copyMap = zip (map gtMoves leaves) (map fst fmls)
     f <- conjunct (map snd fmls)
     return (copyMap, f)
+
+moveToExpression :: Monad m => Move -> ExpressionT m (Maybe Expression)
+moveToExpression Nothing    = return Nothing
+moveToExpression (Just a)   = do
+    e <- assignmentToExpression a
+    return (Just e)
+
+makeChains spec gt = let rank = gtRank gt in
+    case gtChildren gt of
+        []  -> if rank == 0
+            then return $ (g spec) !! 0
+            else rootToLeafD spec rank
+        cs  -> do
+            steps <- mapM (uncurry (makeStep rank spec)) cs
+            let (first : rest) = steps
+
+            let dontRename = map (setVarRank rank) (svars spec)
+            liftIO $ putStrLn ("DO NOT RENAME: " ++ show dontRename)
+            --TODO rename
+
+            conjunct (first : rest)
+
+
+makeStep rank spec m c = do
+    let CompiledSpec{..} = spec
+    let i = rank - 1
+            
+    next <- makeChains spec c
+    goal <- disjunct [next, (g !! i)]
+    m' <- moveToExpression m
+    move <- case m' of
+        (Just move) -> return move
+        Nothing     -> trueExpr
+    conjunct [t !! i, vu !! i, vc !! i, goal, move]
 
 -- Ensures that a player can't force the other player into an invalid move
 makeHatMove (m, valid) = do
