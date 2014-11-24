@@ -79,7 +79,7 @@ data Expr   = ETrue
             | EFalse
             | ELit ExprVar
             | ENot Var
-            | ECopy Int Var
+            | ECopy Int [ExprVar] Var
             | EEquals Var Var
             | EConjunct [Var]
             | EDisjunct [Var]
@@ -98,7 +98,7 @@ children (ETrue)            = []
 children (EFalse)           = []
 children (ELit _)           = []
 children (ENot v)           = [v]
-children (ECopy c v)        = [v]
+children (ECopy c _ v)      = [v]
 children (EEquals x y)      = [x, y]
 children (EConjunct vs)     = vs
 children (EDisjunct vs)     = vs
@@ -108,7 +108,7 @@ setChildren (ETrue) _           = ETrue
 setChildren (EFalse) _          = EFalse
 setChildren (ELit l) _          = ELit l
 setChildren (ENot _) vs         = ENot (head vs)
-setChildren (ECopy c _) vs      = ECopy c (head vs)
+setChildren (ECopy c d _) vs    = ECopy c d (head vs)
 setChildren (EEquals _ _) vs    = let (x:y:[]) = vs in EEquals x y
 setChildren (EConjunct _) vs    = EConjunct vs
 setChildren (EDisjunct _) vs    = EDisjunct vs
@@ -253,21 +253,60 @@ falseExpr = addExpression EFalse
 literal :: Monad m => ExprVar -> ExpressionT m Expression
 literal = addExpression . ELit
 
+data CopyTree = CopyTree {
+      copyId        :: Int
+    , dontRename    :: [ExprVar]
+    , expressions   :: Set.Set Expression
+    , childCopies   :: [CopyTree]
+}
+
+emptyCopyTree id r = CopyTree {
+      copyId        = id
+    , dontRename    = r
+    , expressions   = Set.empty
+    , childCopies   = []
+}
+
+insertNode t n = t { childCopies = childCopies t ++ [n] }
+
+insertExpression t e = t { expressions = Set.insert e (expressions t) }
+
+unTree t = (copyId t, expressions t) : concatMap unTree (childCopies t)
+
 -- Takes an expression tree and paritions it into sets of espressions of the same copy
-partitionCopies :: Monad m => Expression -> ExpressionT m ([(Int, Set.Set Expression)])
-partitionCopies e = foldrExpression f [(0, Set.empty)] e
+partitionCopies :: Monad m => Expression -> ExpressionT m CopyTree
+partitionCopies = partition (emptyCopyTree 0 [])
     where 
-    f e sets@(s:ss) = case expr e of
-        (ECopy c _) -> (c, Set.empty) : sets
-        _           -> (fst s, Set.insert e (snd s)) : ss
+        partition t e = case expr e of
+            (ECopy c d e)  -> do
+                let newNode = emptyCopyTree c d
+                e' <- lookupExpression (var e)
+                n <- partition newNode (fromJust e')
+                return $ insertNode t n
+            e'              -> do
+                let t' = insertExpression t e
+                cs <- getChildren e
+                foldlM partition t' cs
+
+pushUpNoRenames :: CopyTree -> (Set.Set Expression, CopyTree)
+pushUpNoRenames t = (push, t { expressions = left, childCopies = tc })
+    where
+        (pushed, tc)    = unzip $ map pushUpNoRenames (childCopies t)
+        (push, left)    = Set.partition isNoRename (Set.unions ((expressions t) : pushed))
+
+        isNoRename Expression { expr = (ELit v) }   = v `elem` (dontRename t)
+        isNoRename _                                = False
 
 baseExpr e = case expr e of
-    (ECopy c v) -> (c, var v)
-    _           -> (0, index e)
+    (ECopy c _ v)   -> (c, var v)
+    _               -> (0, index e)
         
+-- This needs a refactor
 toDimacs :: Monad m => Expression -> ExpressionT m (Map.Map (Int, Int) Int, [[Int]])
 toDimacs e = do
-    copies <- partitionCopies e
+    copyTree <- partitionCopies e
+    let (_, ct) = pushUpNoRenames copyTree
+    let copies = unTree ct
     let exprs = concatMap (\(c, es) -> map (\e -> (c, e)) (Set.toList es)) copies
     let dMap = Map.fromList (zip (map (mapSnd index) exprs) [1..])
     dimacs <- concatMapM (exprToDimacs dMap) exprs
@@ -283,7 +322,7 @@ makeChildVar m c (Var s i) = do
     e <- (liftM fromJust) (lookupExpression i)
     -- If the var is a copy we need to skip past it
     case expr e of
-        (ECopy c' v)    -> do
+        (ECopy c' d v)  -> do
             (Var s' i') <- makeChildVar m c' v
             return $ Var (if (s == s') then Pos else Neg) i'
         _               -> return $ Var s (fromJust (Map.lookup (c, i) m))
@@ -316,15 +355,15 @@ printExpression' tabs s e = do
         (EDisjunct _)   -> "disj {\n" ++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}"
         (EEquals _ _)   -> "eq {\n" ++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}"
         (ENot _)        -> "not {\n"++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}" 
-        (ECopy c _)     -> "copy " ++ show c ++ " {" ++ head pcs ++ "}"
+        (ECopy c d _)   -> "copy " ++ show c ++ " {" ++ head pcs ++ "}"
         (ELit v)        -> show v
 
-makeCopy :: Monad m => Expression -> ExpressionT m (Int, Expression)
-makeCopy e = do
+makeCopy :: Monad m => [ExprVar] -> Expression -> ExpressionT m (Int, Expression)
+makeCopy d e = do
     m@ExprManager{..} <- get
     let newCopy = copyIndex + 1
     put m { copyIndex = newCopy }
-    e' <- addExpression (ECopy newCopy (Var Pos (index e)))
+    e' <- addExpression (ECopy newCopy d (Var Pos (index e)))
     return (newCopy, e')
     
 -- |Contructs an assignment from a model-var pair

@@ -133,12 +133,9 @@ makeChains spec gt = let rank = gtRank gt in
         cs  -> do
             steps <- mapM (uncurry (makeStep rank spec)) cs
             let (first : rest) = steps
-
             let dontRename = map (setVarRank rank) (svars spec)
-            liftIO $ putStrLn ("DO NOT RENAME: " ++ show dontRename)
-            --TODO rename
-
-            conjunct (first : rest)
+            rest' <- mapM (makeCopy dontRename) rest
+            conjunct (first : map snd rest')
 
 
 makeStep rank spec m c = do
@@ -176,7 +173,7 @@ renameAndFix spec player fml s leaf = do
     let oppMoves' = gtMovesFor (opponent player) leaf
     oppMoves <- mapM makeHatMove (zip oppMoves' vs)
     conj <- conjunct ([s, fml] ++ myMoves ++ (catMaybes oppMoves))
-    makeCopy conj
+    makeCopy [] conj 
 
 rootToLeafD spec rank = do
     let CompiledSpec{..} = spec
