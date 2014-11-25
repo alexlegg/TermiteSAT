@@ -13,6 +13,7 @@ module Utils.Utils (
     , lookupIndex
     , interMap
     , ungroupZip
+    , paddedZip
     ) where
 
 import Data.Maybe
@@ -84,3 +85,8 @@ interMap x f bs = intercalate x (map f bs)
 
 ungroupZip :: [(a, [b])] -> [(a, b)]
 ungroupZip = concatMap (\(a, bs) -> map (\b -> (a, b)) bs)
+
+paddedZip :: [a] -> [b] -> [(a, Maybe b)]
+paddedZip [] _          = []
+paddedZip (a:as) []     = (a, Nothing) : paddedZip as []
+paddedZip (a:as) (b:bs) = (a, Just b) : paddedZip as bs

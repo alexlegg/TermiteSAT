@@ -44,15 +44,21 @@ htmlHeader = "<html><head>"
 
 htmlFooter = "</body></html>"
 
-
 outputHTML trace = "<div class=\"trace " ++ show (player trace) ++ "\">"
     ++ "<h3><button type=\"button\" class=\"shrink\">-</button> Trace for " ++ (show (player trace)) ++ "</h3><hr />"
     ++ "<div class=\"input gametree\"><h3>Input GT</h3><pre>" ++ printTree (input trace) ++ "</pre></div>"
     ++ "<div class=\"candidate gametree\"><h3>Candidate</h3><pre>" ++ maybe "Nothing" printTree (candidate trace) ++ "</pre></div>"
+    ++ "<div class=\"verifyRefineLoop\">" ++ verifyRefineLoopHTML (paddedZip (verification trace) (refinement trace)) ++ "</div>"
     ++ "<div class=\"result gametree\"><h3>Result</h3><pre>" ++ maybe "Nothing" printTree (result trace) ++ "</pre></div>"
-    ++ "<div class=\"verification\"><h3>Verification</h3>" ++ interMap "<br/>" outputHTML (verification trace) ++ "</div>"
-    ++ "<div class=\"refinement\"><h3>Refinement</h3>" ++ interMap "<br />" outputHTML (refinement trace) ++ "</div>"
     ++ "</div>"
+
+verifyRefineLoopHTML [] = ""
+verifyRefineLoopHTML ((v, r):vrs)   = "<hr />"
+    ++ "<div class=\"verification\"><h3>Verification</h3>" ++ outputHTML v ++ "</div>"
+    ++ maybe "" (\x -> "<div class=\"refinement\"><h3>Refinement</h3>" ++ outputHTML x ++ "</div>") r
+    ++ "<hr />"
+    ++ verifyRefineLoopHTML vrs
+
 
 insertAt :: SynthTrace -> [TraceCrumb] -> SynthTrace -> SynthTrace
 insertAt x [] t             = x
