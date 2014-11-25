@@ -25,7 +25,7 @@ checkRank spec rnk s = do
 
 solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> ExpressionT (LoggerT IO) (Maybe GameTree)
 solveAbstract player spec s gt = do
-    liftIO $ putStrLn ("Solve abstract for " ++ show player)
+---    liftIO $ putStrLn ("Solve abstract for " ++ show player)
 ---    liftIO $ putStrLn (printTree gt)
     cand <- findCandidate player spec s gt
     lift $ lift $ logSolve gt cand player
@@ -58,16 +58,9 @@ findCandidate :: Player -> CompiledSpec -> Expression -> GameTree -> ExpressionT
 findCandidate player spec s gt = do
     let CompiledSpec{..} = spec
 
-    (copyMap, fml) <- if player == Existential
-         then driverFml spec player s gt
-         else environmentFml spec player s gt
-
+    (copyMap, fml) <- makeFml spec player s gt
     (dMap, dimacs) <- toDimacs fml
----    fp <- printExpression fml
----    liftIO $ putStrLn fp
----    liftIO $ putStrLn (interMap "\n" (interMap " " show) dimacs)
     res <- liftIO $ satSolve (maximum $ Map.elems dMap) dimacs
----    liftIO $ putStrLn (show res)
 
     if satisfiable res
     then do
@@ -91,33 +84,32 @@ verify player spec s gt cand = do
     lift $ lift $ when (length oppGames > 0) logVerify
     mapMUntilJust (solveAbstract (opponent player) spec s) oppGames
 
----playOpponent player spec s gt = do
----    res <- solveAbstract (opponent player) spec s gt
----    if isJust res
----    then return $ Just (gt, fromJust res)
----    else return Nothing
-
 refine player gt cex = do
     let moves = gtPathMoves cex
     if isJust moves
     then return $ appendNextMove gt (fromJust moves)
     else throwError "Non-path cex given to refine"
 
-driverFml spec player s gt       = makeFml spec player s gt rootToLeafD
-environmentFml spec player s gt  = makeFml spec player s gt rootToLeafE
+makeFml spec player s gt = do
+    (fml, cMap) <- makeChains spec player (gtRoot gt)
+    fml' <- conjunct [fml, s]
+    return (cMap, fml')
 
-makeFml spec player s gt rootToLeaf = do
-    let rank = gtBaseRank gt
-    let leaves = gtLeaves gt
+makeChains spec player gt = let rank = gtRank gt in
+    case gtChildren gt of
+        []  -> do
+            f <- leafToBottom spec player rank
+            return (f, [])
+        cs  -> do
+            steps <- mapM (makeStep rank spec player (gtFirstPlayer gt)) (movePairs gt)
 
-    base <- rootToLeaf spec rank
-    fmls <- mapM (renameAndFix spec player s base) leaves
-    chains <- makeChains spec (gtRoot gt)
-    liftIO $ putStrLn (printTree gt)
-    liftIO $ putStrLn (show chains)
-    let copyMap = zip (map gtMoves leaves) (map fst fmls)
-    f <- conjunct (map snd fmls)
-    return (copyMap, f)
+            let (first : rest) = map fst steps
+            let dontRename = map (setVarRank rank) (svars spec)
+            -- No need to copy the first fml
+            rest' <- mapM (makeCopy dontRename) rest
+            f <- conjunct (first : map snd rest')
+            let cMap = zip (map (gtCrumb . snd) (tail cs)) (map fst rest') ++ concatMap snd steps
+            return (f, cMap)
 
 moveToExpression :: Monad m => Move -> ExpressionT m (Maybe Expression)
 moveToExpression Nothing    = return Nothing
@@ -125,33 +117,44 @@ moveToExpression (Just a)   = do
     e <- assignmentToExpression a
     return (Just e)
 
-makeChains spec gt = let rank = gtRank gt in
-    case gtChildren gt of
-        []  -> if rank == 0
-            then return $ (g spec) !! 0
-            else rootToLeafD spec rank
-        cs  -> do
-            steps <- mapM (uncurry (makeStep rank spec)) cs
-            let (first : rest) = steps
-            let dontRename = map (setVarRank rank) (svars spec)
-            rest' <- mapM (makeCopy dontRename) rest
-            conjunct (first : map snd rest')
+movePairs gt = concatMap makePairs (gtChildren gt)
+    where
+    makePairs (m, c) = case gtChildren c of
+        []  -> [(m, Nothing, Nothing)]
+        cs  -> map (appendTuple m) cs
+    appendTuple m (m', c') = (m, m', Just c')
 
-
-makeStep rank spec m c = do
+makeStep rank spec player first (m1, m2, c) = do
     let CompiledSpec{..} = spec
     let i = rank - 1
-            
-    next <- makeChains spec c
-    goal <- disjunct [next, (g !! i)]
-    m' <- moveToExpression m
-    move <- case m' of
-        (Just move) -> return move
-        Nothing     -> trueExpr
-    conjunct [t !! i, vu !! i, vc !! i, goal, move]
+
+    (next, cmap) <- if isJust c
+        then makeChains spec player (fromJust c)
+        else do
+            f <- leafToBottom spec player (rank-1)
+            return (f, [])
+
+    g' <- goalFor player (g !! i)
+    goal <- if player == Existential
+        then disjunct [next, g']
+        else conjunct [next, g']
+
+    let vh = if player == Existential then vu else vc
+
+    m1' <- if player == first
+        then moveToExpression m1
+        else makeHatMove (vh !! i) m1
+
+    m2' <- if player == first
+        then makeHatMove (vh !! i) m2
+        else moveToExpression m2
+
+    let moves = catMaybes [m1', m2']
+    s <- conjunct ([t !! i, vu !! i, vc !! i, goal] ++ moves)
+    return (s, cmap)
 
 -- Ensures that a player can't force the other player into an invalid move
-makeHatMove (m, valid) = do
+makeHatMove valid m = do
     if isJust m
     then do
         let (Just m') = m
@@ -164,80 +167,42 @@ makeHatMove (m, valid) = do
     else
         return Nothing
 
-renameAndFix spec player fml s leaf = do
-    let vs = if player == Existential 
-        then reverse (vu spec)
-        else reverse (vc spec)
+goalFor Existential g   = return g
+goalFor Universal g     = negation g
 
-    myMoves <- mapM assignmentToExpression (catMaybes (gtMovesFor player leaf))
-    let oppMoves' = gtMovesFor (opponent player) leaf
-    oppMoves <- mapM makeHatMove (zip oppMoves' vs)
-    conj <- conjunct ([s, fml] ++ myMoves ++ (catMaybes oppMoves))
-    makeCopy [] conj 
-
-rootToLeafD spec rank = do
+leafToBottom spec player rank = do
     let CompiledSpec{..} = spec
-
     let i = rank - 1
 
-    goal <- if rank == 1
-        then return (g !! i)
-        else do
-            next <- rootToLeafD spec (rank-1)
-            disjunct [next, (g !! i)]
-
-    conjunct [t !! i, vu !! i, vc !! i, goal]
-
-rootToLeafE spec rank = do
-    let CompiledSpec{..} = spec
-
-    let i = rank - 1
-
-    goal <- if rank == 1
-        then negation (g !! i)
-        else do
-            ng <- negation (g !! i)
-            next <- rootToLeafE spec (rank-1)
-            conjunct [next, ng]
-
-    conjunct [t !! i, vu !! i, vc !! i, goal]
-
-saveMove player spec dMap copyMap model gt = do
-    let vs = if player == Existential then vc spec else vu spec
-    valid <- isMoveValid gt vs dMap copyMap model
-    if not valid
-    then return Nothing
+    if rank == 0
+    then goalFor player (g !! 0)
     else do
-        move <- getMove player spec dMap copyMap model gt
-        return $ Just (gtCrumb gt, Just move)
+        goal <- if rank == 1
+            then goalFor player (g !! i)
+            else do
+                next <- leafToBottom spec player (rank-1)
+                g' <- goalFor player (g !! i)
+                if player == Existential
+                    then disjunct [next, g']
+                    else conjunct [next, g']
+
+        conjunct [t !! i, vu !! i, vc !! i, goal]
 
 getMove player spec dMap copyMap model gt = do
     let vars = if player == Existential then cont spec else ucont spec
     let maxrnk = gtBaseRank gt
-    let (Just cpy) = lookup (gtMoves gt) copyMap
+    let cpy = case lookup (gtCrumb gt) copyMap of
+            (Just c)    -> c
+            Nothing     -> 0
     mapM (getMoveAtRank vars dMap cpy model) (reverse [1..maxrnk])
 
 getMoveAtRank vars dMap cpy model rnk = do
-    -- Change the rank 0/copy 0 vars to the vars we need
     let vars' = map (\v -> v {rank = rnk}) vars
-
-    -- Lookup the indices of these vars in the Expression monad
     ve <- mapM lookupVar vars'
-
-    -- Lookup the dimacs equivalents to these indices
+    -- Lookup the dimacs equivalents
     let vd = zipMaybe1 (map (\v -> Map.lookup (cpy, exprIndex v) dMap) (catMaybes ve)) vars'
-
-    -- Finally, construct assignments
+    -- Construct assignments
     return $ map (makeAssignment . (mapFst (\i -> model !! (i-1)))) vd
-
-isMoveValid gt vs dMap copyMap model = do
-    let r = gtRank gt
-    let (Just c) = lookup (gtMoves gt) copyMap
-    let vi = exprIndex (vs !! (r - 1))
-    v <- lookupExpression vi
-    let d = fromJust $ Map.lookup (c, exprIndex (fromJust v)) dMap
-    let m = model !! (d - 1)
-    return $ m > 0
 
 throwError :: Monad m => String -> ExpressionT m a
 throwError = lift . left

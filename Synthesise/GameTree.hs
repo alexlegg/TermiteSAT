@@ -8,6 +8,7 @@ module Synthesise.GameTree (
     , gtRank
     , gtRoot
     , gtBaseRank
+    , gtFirstPlayer
     , gtCrumb
     , gtMoves
     , gtPathMoves
@@ -79,6 +80,9 @@ gtRank tr = if player tr == Existential
 -- |Returns the root node of the tree
 gtBaseRank :: GameTree -> Int
 gtBaseRank = baserank
+
+gtFirstPlayer :: GameTree -> Player
+gtFirstPlayer = player
 
 gtRoot :: GameTree -> GameTree
 gtRoot gt = gt { crumb = [] }

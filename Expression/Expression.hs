@@ -255,7 +255,7 @@ literal = addExpression . ELit
 
 data CopyTree = CopyTree {
       copyId        :: Int
-    , dontRename    :: [ExprVar]
+    , dontRename    :: [Expression]
     , expressions   :: Set.Set Expression
     , childCopies   :: [CopyTree]
 }
@@ -271,7 +271,7 @@ insertNode t n = t { childCopies = childCopies t ++ [n] }
 
 insertExpression t e = t { expressions = Set.insert e (expressions t) }
 
-unTree t = (copyId t, expressions t) : concatMap unTree (childCopies t)
+unTree t = (copyId t, Set.toList (expressions t)) : concatMap unTree (childCopies t)
 
 -- Takes an expression tree and paritions it into sets of espressions of the same copy
 partitionCopies :: Monad m => Expression -> ExpressionT m CopyTree
@@ -279,9 +279,10 @@ partitionCopies = partition (emptyCopyTree 0 [])
     where 
         partition t e = case expr e of
             (ECopy c d e)  -> do
-                let newNode = emptyCopyTree c d
-                e' <- lookupExpression (var e)
-                n <- partition newNode (fromJust e')
+                d' <- mapM lookupVar d
+                let newNode = emptyCopyTree c (catMaybes d')
+                (Just e') <- lookupExpression (var e)
+                n <- partition newNode e'
                 return $ insertNode t n
             e'              -> do
                 let t' = insertExpression t e
@@ -289,43 +290,47 @@ partitionCopies = partition (emptyCopyTree 0 [])
                 foldlM partition t' cs
 
 pushUpNoRenames :: CopyTree -> (Set.Set Expression, CopyTree)
-pushUpNoRenames t = (push, t { expressions = left, childCopies = tc })
+pushUpNoRenames t = (push, t { expressions = Set.unions (left : pushed), childCopies = tc })
     where
         (pushed, tc)    = unzip $ map pushUpNoRenames (childCopies t)
-        (push, left)    = Set.partition isNoRename (Set.unions ((expressions t) : pushed))
-
-        isNoRename Expression { expr = (ELit v) }   = v `elem` (dontRename t)
-        isNoRename _                                = False
+        (push, left)    = Set.partition isNoRename (expressions t)
+        isNoRename e    = e `elem` (dontRename t)
 
 baseExpr e = case expr e of
     (ECopy c _ v)   -> (c, var v)
     _               -> (0, index e)
+
+linkNoRenames pc dMap ct = foldl (linkNoRenames (copyId ct)) dMap' (childCopies ct)
+    where
+        dMap' = dMap ++ map (\(c, i) -> ((copyId ct, i), fromJust (lookup (c, i) dMap))) pushed
+        pushed = map (\e -> (pc, index e)) (dontRename ct)
         
--- This needs a refactor
 toDimacs :: Monad m => Expression -> ExpressionT m (Map.Map (Int, Int) Int, [[Int]])
 toDimacs e = do
-    copyTree <- partitionCopies e
-    let (_, ct) = pushUpNoRenames copyTree
-    let copies = unTree ct
-    let exprs = concatMap (\(c, es) -> map (\e -> (c, e)) (Set.toList es)) copies
-    let dMap = Map.fromList (zip (map (mapSnd index) exprs) [1..])
+    ct <- partitionCopies e
+    let (_, copyTree) = pushUpNoRenames ct
+    let exprs = ungroupZip (unTree copyTree)
+
+    let dMap' = zip (map (mapSnd index) exprs) [1..]
+    let dMap = Map.fromList $ linkNoRenames 0 dMap' copyTree
     dimacs <- concatMapM (exprToDimacs dMap) exprs
+
     let (Just de) = Map.lookup (baseExpr e) dMap
     return $ (dMap, [de] : dimacs)
 
 exprToDimacs m (c, e) = do
-    let ind = fromJust $ Map.lookup (c, (index e)) m
+    let (Just ind) = Map.lookup (c, (index e)) m
     cs <- mapM (makeChildVar m c) (children (expr e))
     return $ makeDimacs (expr e) ind cs
 
 makeChildVar m c (Var s i) = do
-    e <- (liftM fromJust) (lookupExpression i)
+    (Just e) <- lookupExpression i
     -- If the var is a copy we need to skip past it
     case expr e of
         (ECopy c' d v)  -> do
             (Var s' i') <- makeChildVar m c' v
             return $ Var (if (s == s') then Pos else Neg) i'
-        _               -> return $ Var s (fromJust (Map.lookup (c, i) m))
+        _               -> let (Just i') = Map.lookup (c, i) m in return $ Var s i'
 
 makeDimacs e i cs = case e of
     (ETrue)         -> [[i]]

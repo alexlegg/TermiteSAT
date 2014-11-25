@@ -12,6 +12,7 @@ module Utils.Utils (
     , adjust
     , lookupIndex
     , interMap
+    , ungroupZip
     ) where
 
 import Data.Maybe
@@ -80,3 +81,6 @@ lookupIndex x = findIndex (\(a, b) -> a == x)
 
 interMap :: [a] -> (b -> [a]) -> [b] -> [a]
 interMap x f bs = intercalate x (map f bs)
+
+ungroupZip :: [(a, [b])] -> [(a, b)]
+ungroupZip = concatMap (\(a, bs) -> map (\b -> (a, b)) bs)
