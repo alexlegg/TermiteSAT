@@ -6,6 +6,7 @@ module Synthesise.Solver (
 import Data.Maybe
 import Data.List
 import Data.Tuple.Update
+import System.IO
 import Control.Monad.State
 import Control.Monad.Trans.Either
 import Control.Monad.Loops
@@ -58,7 +59,7 @@ findCandidate :: Player -> CompiledSpec -> Expression -> GameTree -> ExpressionT
 findCandidate player spec s gt = do
     let CompiledSpec{..} = spec
 
-    (copyMap, fml) <- makeFml spec player s gt
+    (fml, copyMap) <- makeFml spec player s gt
     (dMap, dimacs) <- toDimacs fml
     res <- liftIO $ satSolve (maximum $ Map.elems dMap) dimacs
 
@@ -68,9 +69,16 @@ findCandidate player spec s gt = do
         let leaves = map makePathTree (gtLeaves gt)
         moves <- mapM (getMove player spec dMap copyMap m) leaves
         let paths = map (uncurry (fixPlayerMoves player)) (zip leaves moves)
-        let cand = merge paths
-        return (Just cand)
+        return (Just (merge paths))
     else do
+        liftIO $ putStrLn "unsat"
+        liftIO $ putStrLn (printTree gt)
+
+---        liftIO $ withFile "debug_dimacs" WriteMode $ \h -> do
+---            hPutStrLn h $ "p cnf " ++ (show (maximum (Map.elems dMap))) ++ " " ++ (show (length dimacs))
+---            mapM ((hPutStrLn h) . (\x -> x ++ " 0") . (interMap " " show)) dimacs
+
+        liftIO $ putStrLn (show (conflicts res))
         return Nothing
 
 merge (t:[]) = t
@@ -93,7 +101,7 @@ refine player gt cex = do
 makeFml spec player s gt = do
     (fml, cMap) <- makeChains spec player (gtRoot gt)
     fml' <- conjunct [fml, s]
-    return (cMap, fml')
+    return (fml', cMap)
 
 makeChains spec player gt = let rank = gtRank gt in
     case gtChildren gt of
@@ -194,9 +202,11 @@ getMove player spec dMap copyMap model gt = do
     let cpy = case lookup (gtCrumb gt) copyMap of
             (Just c)    -> c
             Nothing     -> 0
-    mapM (getMoveAtRank vars dMap cpy model) (reverse [1..maxrnk])
+    s <- mapM (getVarsAtRank (svars spec) dMap cpy model) (reverse [1..maxrnk])
+    liftIO $ putStrLn (show s)
+    mapM (getVarsAtRank vars dMap cpy model) (reverse [1..maxrnk])
 
-getMoveAtRank vars dMap cpy model rnk = do
+getVarsAtRank vars dMap cpy model rnk = do
     let vars' = map (\v -> v {rank = rnk}) vars
     ve <- mapM lookupVar vars'
     -- Lookup the dimacs equivalents
