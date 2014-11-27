@@ -17,6 +17,7 @@ module Synthesise.GameTree (
     , gtPathMoves
     , gtChildMoves
     , gtChildren
+    , gtMovePairs
     , printTree
 
     -- Modifiers
@@ -34,6 +35,7 @@ import Data.Maybe
 import Data.List
 import Utils.Utils
 import Expression.Expression
+import Debug.Trace
 
 data Player = Existential | Universal deriving (Show, Eq)
 
@@ -165,8 +167,8 @@ gtPathMoves gt = let leaves = gtLeaves gt in
 followCrumb :: GameTree -> SNode
 followCrumb gt = follow (crumb gt) (root gt)
     where
-        follow [] n        = n
-        follow (c:cs) n    = follow cs (children n !! c)
+        follow [] n     = n
+        follow (c:cs) n = follow cs (children n !! c)
 
 -- |Gets all outgoing moves of a node
 gtChildMoves :: GameTree -> [Move]
@@ -177,6 +179,11 @@ gtChildren gt = map f (zip (children (followCrumb gt)) [0..])
     where
         f (n, i) = (snodeMove n, updateCrumb gt ((crumb gt) ++ [i]))
 
+-- |Groups moves by rank
+gtMovePairs :: GameTree -> [(Move, Move, Maybe GameTree)]
+gtMovePairs gt = case gtChildren gt of
+    []  -> [(snodeMove (followCrumb gt), Nothing, Nothing)]
+    cs  -> map (\(x, y) -> (snodeMove (followCrumb gt), x, Just y)) cs
 
 -- |Filters moves not in the crumb out
 makePathTree :: GameTree -> GameTree
@@ -193,6 +200,7 @@ fixPlayerMoves p gt as = updateRoot gt (fpm p as)
     where
         fpm Existential (a:as) (SNode (E _ ns)) = SNode (E (Just a) (mapNodes (fpm p as) ns))
         fpm Universal (a:as) (SNode (U _ s ns)) = SNode (U (Just a) s (mapNodes (fpm p as) ns))
+        fpm p as n                              = setChildren n (map (fpm p as) (children n))
 
 -- |Project moves from one game tree onto another
 projectMoves :: GameTree -> GameTree -> Maybe GameTree
@@ -228,11 +236,15 @@ mergeNodes (SNode (U mx s xs)) (Just (SNode (U my _ ys))) = if mx == my
     else error $ "Could not merge trees"
 
 appendChild :: GameTree -> GameTree
-appendChild gt = update gt f
-    where
-        f :: SNode -> SNode
-        f (SNode (E m ns))      = SNode (E m (ns ++ [U Nothing Nothing []]))
-        f (SNode (U m s ns))    = SNode (U m s (ns ++ [E Nothing []]))
+appendChild gt = update gt (appendNode Nothing Nothing)
+
+appendNode :: Move -> Move -> SNode -> SNode
+appendNode m' s' (SNode (E m ns))   = SNode (E m (ns ++ [U m' s' []]))
+appendNode m' _ (SNode (U m s ns))  = SNode (U m s (ns ++ [E m' []]))
+
+append2Nodes :: Move -> Move -> SNode -> SNode
+append2Nodes m' s' (SNode (E m ns))     = SNode (E m (ns ++ [U m' s' [E Nothing []]]))
+append2Nodes m' _ (SNode (U m s ns))    = SNode (U m s (ns ++ [E m' [U Nothing Nothing []]]))
 
 -- |Updates a node in the tree
 update :: GameTree -> (SNode -> SNode) -> GameTree
@@ -242,37 +254,40 @@ update gt f = updateRoot gt (doUpdate f (crumb gt))
         doUpdate f [] n     = f n
         doUpdate f (c:cs) n = setChildren n (adjust (doUpdate f cs) c (children n))
 
----appendNextMove :: GameTree -> [Move] -> GameTree
----appendNextMove gt m = gt { root = appendNextMove' ms (root gt) }
+-- |Appends the first move in the list that is not already in the tree
+appendNextMove :: GameTree -> [Move] -> GameTree
+appendNextMove gt ms = updateRoot gt (appendMove ms)
 
----appendNextMove' [] n = n
----appendNextMove' (m:ms) n
----    | null (childNodes n)   = n { childNodes = [(m, GTNode { childNodes = [(Nothing, emptyNode)] } )] }
----    | isJust mi             = n { childNodes = adjust (mapSnd (appendNextMove' ms)) (fromJust mi) (childNodes n) }
----    | otherwise             = n { childNodes = childNodes n ++ [(m, GTNode { childNodes = [(Nothing, emptyNode)] } )] }
----    where
----        unsetMove   = lookupIndex Nothing (childNodes n)
----        mi          = if isJust unsetMove
----                        then unsetMove
----                        else lookupIndex m (childNodes n)
+appendMove :: [Move] -> SNode -> SNode
+appendMove (m:ms) n = case mi of
+    (Just i)    -> setChildren n (adjust (appendMove ms) i (children n))
+    Nothing     -> append2Nodes m Nothing n
+    where
+        m2n         = zip (map snodeMove (children n)) (children n)
+        unsetMove   = lookupIndex Nothing m2n
+        mi          = if isJust unsetMove
+                        then unsetMove
+                        else lookupIndex m m2n
 
----printTree :: GameTree -> String
----printTree gt = "---\n" ++ printNode (root gt) 0 ++ "---"
+printTree :: GameTree -> String
+printTree gt = "---\n" ++ printNode 0 (root gt) ++ "---"
 
----printNode n ind = concatMap printChildren (childNodes n)
----    where
----        printChildren (m, n') = (replicate (ind*2) ' ') ++ printMove m ++ "\n" ++ printNode n' (ind+1)
+printNode :: Int -> SNode -> String
+printNode t (SNode (E m cs))    = tab t ++ "E " ++ printMove m ++ "\n" ++ concatMap (printNode (t+1)) (map SNode cs)
+printNode t (SNode (U m s cs))  = tab t ++ "U " ++ printMove m ++ " | " ++ printMove s ++ "\n" ++ concatMap (printNode (t+1)) (map SNode cs)
 
----printMove :: Move -> String
----printMove Nothing   = "Nothing"
----printMove (Just as) = intercalate "," (map printVar vs)
----    where
----        vs = groupBy f as
----        f (Assignment _ x) (Assignment _ y) = varname x == varname y
+tab ind = replicate (ind*2) ' '
 
----printVar :: [Assignment] -> String
----printVar as = nm (head as) ++ " = " ++ show (sum (map val as))
----    where
----        val (Assignment Pos v)  = 2 ^ (bit v)
----        val (Assignment Neg v)  = 0
----        nm (Assignment _ v)     = varname v ++ show (rank v)
+printMove :: Move -> String
+printMove Nothing   = "Nothing"
+printMove (Just as) = intercalate "," (map printVar vs)
+    where
+        vs = groupBy f as
+        f (Assignment _ x) (Assignment _ y) = varname x == varname y
+
+printVar :: [Assignment] -> String
+printVar as = nm (head as) ++ " = " ++ show (sum (map val as))
+    where
+        val (Assignment Pos v)  = 2 ^ (bit v)
+        val (Assignment Neg v)  = 0
+        nm (Assignment _ v)     = varname v ++ show (rank v)

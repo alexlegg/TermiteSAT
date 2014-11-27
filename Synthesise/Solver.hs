@@ -26,9 +26,10 @@ checkRank spec rnk s = do
 
 solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> ExpressionT (LoggerT IO) (Maybe GameTree)
 solveAbstract player spec s gt = do
----    liftIO $ putStrLn ("Solve abstract for " ++ show player)
----    liftIO $ putStrLn (printTree gt)
+    liftIO $ putStrLn ("Solve abstract for " ++ show player)
+    liftIO $ putStrLn (printTree gt)
     cand <- findCandidate player spec s gt
+    liftIO $ putStrLn (maybe "Nothing" printTree cand)
     lift $ lift $ logSolve gt cand player
     res <- refinementLoop player spec s cand gt gt
     lift $ lift $ logSolveComplete res
@@ -71,14 +72,14 @@ findCandidate player spec s gt = do
         let paths = map (uncurry (fixPlayerMoves player)) (zip leaves moves)
         return (Just (merge paths))
     else do
-        liftIO $ putStrLn "unsat"
-        liftIO $ putStrLn (printTree gt)
+---        liftIO $ putStrLn "unsat"
+---        liftIO $ putStrLn (printTree gt)
 
 ---        liftIO $ withFile "debug_dimacs" WriteMode $ \h -> do
 ---            hPutStrLn h $ "p cnf " ++ (show (maximum (Map.elems dMap))) ++ " " ++ (show (length dimacs))
 ---            mapM ((hPutStrLn h) . (\x -> x ++ " 0") . (interMap " " show)) dimacs
 
-        liftIO $ putStrLn (show (conflicts res))
+---        liftIO $ putStrLn (show (conflicts res))
         return Nothing
 
 merge (t:[]) = t
@@ -88,7 +89,7 @@ verify player spec s gt cand = do
     let og = projectMoves gt cand
     when (not (isJust og)) $ throwError "Error projecting, moves didn't match"
     let leaves = filter ((/= 0) . gtRank) (map makePathTree (gtLeaves (fromJust og)))
-    let oppGames = map (\l -> appendChild l Nothing) leaves
+    let oppGames = map appendChild leaves
     lift $ lift $ when (length oppGames > 0) logVerify
     mapMUntilJust (solveAbstract (opponent player) spec s) oppGames
 
@@ -103,21 +104,20 @@ makeFml spec player s gt = do
     fml' <- conjunct [fml, s]
     return (fml', cMap)
 
-makeChains spec player gt = let rank = gtRank gt in
-    case gtChildren gt of
-        []  -> do
-            f <- leafToBottom spec player rank
-            return (f, [])
-        cs  -> do
-            steps <- mapM (makeStep rank spec player (gtFirstPlayer gt)) (movePairs gt)
+makeChains spec player gt = do
+    let rank = gtRank gt
+    let cs = gtMovePairs gt
+    liftIO $ putStrLn $ (show (map fst3 cs)) ++ (show (map snd3 cs))
+    steps <- mapM (makeStep rank spec player (gtFirstPlayer gt)) cs
 
-            let (first : rest) = map fst steps
-            let dontRename = map (setVarRank rank) (svars spec)
-            -- No need to copy the first fml
-            rest' <- mapM (makeCopy dontRename) rest
-            f <- conjunct (first : map snd rest')
-            let cMap = zip (map (gtCrumb . snd) (tail cs)) (map fst rest') ++ concatMap snd steps
-            return (f, cMap)
+    let (first : rest) = map fst steps
+    let dontRename = map (setVarRank rank) (svars spec)
+    -- No need to copy the first fml
+    rest' <- mapM (makeCopy dontRename) rest
+    f <- conjunct (first : map snd rest')
+    let cMap = zip (map (gtCrumb . fromJust . thd3) (tail cs)) (map fst rest') ++ concatMap snd steps
+---    liftIO $ putStrLn ("cMap: " ++ (show cMap))
+    return (f, cMap)
 
 moveToExpression :: Monad m => Move -> ExpressionT m (Maybe Expression)
 moveToExpression Nothing    = return Nothing
@@ -125,12 +125,12 @@ moveToExpression (Just a)   = do
     e <- assignmentToExpression a
     return (Just e)
 
-movePairs gt = concatMap makePairs (gtChildren gt)
-    where
-    makePairs (m, c) = case gtChildren c of
-        []  -> [(m, Nothing, Nothing)]
-        cs  -> map (appendTuple m) cs
-    appendTuple m (m', c') = (m, m', Just c')
+---movePairs gt = concatMap makePairs (gtChildren gt)
+---    where
+---    makePairs (m, c) = case gtChildren c of
+---        []  -> [(m, Nothing, Nothing)]
+---        cs  -> map (appendTuple m) cs
+---    appendTuple m (m', c') = (m, m', Just c')
 
 makeStep rank spec player first (m1, m2, c) = do
     let CompiledSpec{..} = spec
@@ -203,7 +203,7 @@ getMove player spec dMap copyMap model gt = do
             (Just c)    -> c
             Nothing     -> 0
     s <- mapM (getVarsAtRank (svars spec) dMap cpy model) (reverse [1..maxrnk])
-    liftIO $ putStrLn (show s)
+---    liftIO $ putStrLn (show s)
     mapM (getVarsAtRank vars dMap cpy model) (reverse [1..maxrnk])
 
 getVarsAtRank vars dMap cpy model rnk = do

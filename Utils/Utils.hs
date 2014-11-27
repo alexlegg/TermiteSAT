@@ -14,6 +14,9 @@ module Utils.Utils (
     , interMap
     , ungroupZip
     , paddedZip
+    , fst3 
+    , snd3
+    , thd3
     ) where
 
 import Data.Maybe
@@ -90,3 +93,12 @@ paddedZip :: [a] -> [b] -> [(a, Maybe b)]
 paddedZip [] _          = []
 paddedZip (a:as) []     = (a, Nothing) : paddedZip as []
 paddedZip (a:as) (b:bs) = (a, Just b) : paddedZip as bs
+
+fst3 :: (a, b, c) -> a
+fst3 (a, b, c) = a
+
+snd3 :: (a, b, c) -> b
+snd3 (a, b, c) = b
+
+thd3 :: (a, b, c) -> c
+thd3 (a, b, c) = c

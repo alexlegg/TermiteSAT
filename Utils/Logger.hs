@@ -19,7 +19,7 @@ data SynthTrace = SynthTrace {
     , result            :: Maybe GameTree
     , verification      :: [SynthTrace]
     , refinement        :: [SynthTrace]
-} deriving (Eq)
+}
 
 instance Show SynthTrace where
     show st = "{ ver: " ++ concatMap show (verification st) ++ ", ref: " ++ concatMap show (refinement st) ++ "}"
