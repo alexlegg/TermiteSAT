@@ -27,9 +27,9 @@ checkRank spec rnk s = do
 solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> ExpressionT (LoggerT IO) (Maybe GameTree)
 solveAbstract player spec s gt = do
     liftIO $ putStrLn ("Solve abstract for " ++ show player)
-    liftIO $ putStrLn (printTree gt)
+---    liftIO $ putStrLn (printTree gt)
     cand <- findCandidate player spec s gt
-    liftIO $ putStrLn (maybe "Nothing" printTree cand)
+---    liftIO $ putStrLn (maybe "Nothing" printTree cand)
     lift $ lift $ logSolve gt cand player
     res <- refinementLoop player spec s cand gt gt
     lift $ lift $ logSolveComplete res
@@ -70,6 +70,8 @@ findCandidate player spec s gt = do
         let leaves = map makePathTree (gtLeaves gt)
         moves <- mapM (getMove player spec dMap copyMap m) leaves
         let paths = map (uncurry (fixPlayerMoves player)) (zip leaves moves)
+---        liftIO $ putStrLn (concatMap (\m -> (concatMap (\x -> printMove (Just x) ++ " ") m) ++ ", ") moves)
+---        liftIO $ mapM (putStrLn . (\(x, y) -> printTree x ++ printTree y ++ "\n")) (zip leaves paths)
         return (Just (merge paths))
     else do
 ---        liftIO $ putStrLn "unsat"
@@ -96,7 +98,16 @@ verify player spec s gt cand = do
 refine player gt cex = do
     let moves = gtPathMoves cex
     if isJust moves
-    then return $ appendNextMove gt (fromJust moves)
+    then do
+        let r = appendNextMove gt (fromJust moves)
+        liftIO $ putStrLn "========================================================="
+        liftIO $ putStrLn (printTree cex)
+        liftIO $ putStrLn (show player)
+        liftIO $ putStrLn (show moves)
+        liftIO $ putStrLn (printTree gt)
+        liftIO $ putStrLn (printTree r)
+        liftIO $ putStrLn "========================================================="
+        return $ r
     else throwError "Non-path cex given to refine"
 
 makeFml spec player s gt = do
@@ -107,17 +118,28 @@ makeFml spec player s gt = do
 makeChains spec player gt = do
     let rank = gtRank gt
     let cs = gtMovePairs gt
-    liftIO $ putStrLn $ (show (map fst3 cs)) ++ (show (map snd3 cs))
+---    liftIO $ putStrLn $ (show (map fst3 cs)) ++ (show (map snd3 cs))
     steps <- mapM (makeStep rank spec player (gtFirstPlayer gt)) cs
+    (f, cMap) <- mergeRenamed spec rank (map (fromJust . thd3) cs) (map fst steps)
+    let cMap' = cMap ++ concatMap snd steps
+    return (f, cMap')
 
-    let (first : rest) = map fst steps
-    let dontRename = map (setVarRank rank) (svars spec)
-    -- No need to copy the first fml
-    rest' <- mapM (makeCopy dontRename) rest
-    f <- conjunct (first : map snd rest')
-    let cMap = zip (map (gtCrumb . fromJust . thd3) (tail cs)) (map fst rest') ++ concatMap snd steps
+---    let (first : rest) = map fst steps
+---    let dontRename = map (setVarRank rank) (svars spec)
+---    -- No need to copy the first fml
+---    rest' <- mapM (makeCopy dontRename) rest
+---    f <- conjunct (first : map snd rest')
+---    let cMap = zip (map (gtCrumb . fromJust . thd3) (tail cs)) (map fst rest') ++ concatMap snd steps
 ---    liftIO $ putStrLn ("cMap: " ++ (show cMap))
-    return (f, cMap)
+---    return (f, cMap)
+
+mergeRenamed spec rank gts fmls = do
+    let (first : rest) = fmls
+    let dontRename = map (setVarRank rank) (svars spec)
+    (copies, rest') <- (liftM unzip) $ mapM (makeCopy dontRename) rest
+    f <- conjunct (first : rest')
+    let cMap = zip (map gtCrumb (tail gts)) copies
+    return $ (f, cMap)
 
 moveToExpression :: Monad m => Move -> ExpressionT m (Maybe Expression)
 moveToExpression Nothing    = return Nothing
@@ -125,19 +147,22 @@ moveToExpression (Just a)   = do
     e <- assignmentToExpression a
     return (Just e)
 
----movePairs gt = concatMap makePairs (gtChildren gt)
----    where
----    makePairs (m, c) = case gtChildren c of
----        []  -> [(m, Nothing, Nothing)]
----        cs  -> map (appendTuple m) cs
----    appendTuple m (m', c') = (m, m', Just c')
-
 makeStep rank spec player first (m1, m2, c) = do
     let CompiledSpec{..} = spec
     let i = rank - 1
 
     (next, cmap) <- if isJust c
-        then makeChains spec player (fromJust c)
+        then do
+            let cs = concatMap (gtMovePairs . snd) (gtChildren (fromJust c))
+            if length cs == 0
+            then do
+                f <- leafToBottom spec player (rank-1)
+                return (f, [])
+            else do
+---                liftIO $ putStrLn (concatMap (\(x, y, _) -> show x ++ show y ++ " ") cs)
+                steps <- mapM (makeStep (rank-1) spec player first) cs
+                (f, cMap') <- mergeRenamed spec (rank-1) (map (fromJust . thd3) cs) (map fst steps)
+                return (f, concatMap snd steps ++ cMap')
         else do
             f <- leafToBottom spec player (rank-1)
             return (f, [])

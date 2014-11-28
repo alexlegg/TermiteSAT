@@ -5,6 +5,7 @@ module Synthesise.GameTree (
       GameTree
     , Player(..)
     , Move(..)
+    , printMove
     , opponent
 
     -- Queries on GameTrees
@@ -85,6 +86,10 @@ snodeMove :: SNode -> Move
 snodeMove (SNode (U m _ _))     = m
 snodeMove (SNode (E m _))       = m
 
+setMove :: Move -> SNode -> SNode
+setMove m (SNode (U _ s n'))    = SNode (U m s n')
+setMove m (SNode (E _ n'))      = SNode (E m n')
+
 data GameTree where
     ETree   :: Int -> [Int] -> Node Existential -> GameTree
     UTree   :: Int -> [Int] -> Node Universal -> GameTree
@@ -139,13 +144,11 @@ gtCrumb = crumb
 
 -- |Gets all the moves leading to a node
 gtMoves :: GameTree -> [Move]
-gtMoves (ETree _ c n) = nodeMoves c n
-gtMoves (UTree _ c n) = nodeMoves c n
+gtMoves gt = nodeMoves (crumb gt) (root gt)
 
-nodeMoves :: [Int] -> (Node p) -> [Move]
-nodeMoves [] _              = []
-nodeMoves (c:cs) (U m _ ns) = m : nodeMoves cs (ns !! c)
-nodeMoves (c:cs) (E m ns)   = m : nodeMoves cs (ns !! c)
+nodeMoves :: [Int] -> SNode -> [Move]
+nodeMoves [] n      = [snodeMove n]
+nodeMoves (c:cs) n  = snodeMove n : nodeMoves cs (children n !! c)
 
 -- |Builds a list of trees containing all the leaves of the original tree
 gtLeaves :: GameTree -> [GameTree]
@@ -242,10 +245,6 @@ appendNode :: Move -> Move -> SNode -> SNode
 appendNode m' s' (SNode (E m ns))   = SNode (E m (ns ++ [U m' s' []]))
 appendNode m' _ (SNode (U m s ns))  = SNode (U m s (ns ++ [E m' []]))
 
-append2Nodes :: Move -> Move -> SNode -> SNode
-append2Nodes m' s' (SNode (E m ns))     = SNode (E m (ns ++ [U m' s' [E Nothing []]]))
-append2Nodes m' _ (SNode (U m s ns))    = SNode (U m s (ns ++ [E m' [U Nothing Nothing []]]))
-
 -- |Updates a node in the tree
 update :: GameTree -> (SNode -> SNode) -> GameTree
 update gt f = updateRoot gt (doUpdate f (crumb gt))
@@ -259,15 +258,21 @@ appendNextMove :: GameTree -> [Move] -> GameTree
 appendNextMove gt ms = updateRoot gt (appendMove ms)
 
 appendMove :: [Move] -> SNode -> SNode
-appendMove (m:ms) n = case mi of
-    (Just i)    -> setChildren n (adjust (appendMove ms) i (children n))
-    Nothing     -> append2Nodes m Nothing n
+appendMove [] n         = n
+appendMove (m:ms) n 
+    | null (children n) = append2Nodes (head ms) Nothing n
+    | isJust mi         = setChildren n (adjust (appendMove ms) (fromJust mi) (children n))
+---    | otherwise         = n
     where
         m2n         = zip (map snodeMove (children n)) (children n)
         unsetMove   = lookupIndex Nothing m2n
         mi          = if isJust unsetMove
                         then unsetMove
                         else lookupIndex m m2n
+
+append2Nodes :: Move -> Move -> SNode -> SNode
+append2Nodes m' s' (SNode (E m ns))   = SNode (E m (ns ++ [U m' s' [E Nothing []]]))
+append2Nodes m' _ (SNode (U m s ns))  = SNode (U m s (ns ++ [E m' [U Nothing Nothing []]]))
 
 printTree :: GameTree -> String
 printTree gt = "---\n" ++ printNode 0 (root gt) ++ "---"
