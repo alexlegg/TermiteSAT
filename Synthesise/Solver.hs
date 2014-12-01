@@ -26,8 +26,8 @@ checkRank spec rnk s = do
 
 solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> ExpressionT (LoggerT IO) (Maybe GameTree)
 solveAbstract player spec s gt = do
-    liftIO $ putStrLn ("Solve abstract for " ++ show player)
-    liftIO $ putStrLn (printTree gt)
+---    liftIO $ putStrLn ("Solve abstract for " ++ show player)
+---    liftIO $ putStrLn (printTree gt)
     cand <- findCandidate player spec s gt
     lift $ lift $ logSolve gt cand player
     res <- refinementLoop player spec s cand gt gt
@@ -117,6 +117,7 @@ mergeRenamed spec rank gts fmls = do
     (copies, rest') <- (liftM unzip) $ mapM (makeCopy dontRename) rest
     f <- conjunct (first : rest')
     let cMap = zip (map gtCrumb (tail gts)) copies
+---    liftIO $ putStrLn (show cMap)
     return $ (f, cMap)
 
 moveToExpression :: Monad m => Move -> ExpressionT m (Maybe Expression)
@@ -184,6 +185,8 @@ leafToBottom spec player rank = do
     let CompiledSpec{..} = spec
     let i = rank - 1
 
+    when (rank < 0) $ throwError "leafToBottom called on a tree that's too long"
+
     if rank == 0
     then goalFor player (g !! 0)
     else do
@@ -201,6 +204,7 @@ leafToBottom spec player rank = do
 getMove player spec dMap copyMap model gt = do
     let vars = if player == Existential then cont spec else ucont spec
     let maxrnk = gtBaseRank gt
+    liftIO $ putStrLn (show copyMap)
     let cpy = case lookup (gtCrumb gt) copyMap of
             (Just c)    -> c
             Nothing     -> 0

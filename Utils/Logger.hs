@@ -31,8 +31,8 @@ type LoggerT m = StateT (Maybe SynthTrace, [TraceCrumb]) m
 
 printLog :: LoggerT IO a -> IO (a)
 printLog logger = do
-    (r, (Just trace, _)) <- runStateT logger (Nothing, [])
-    writeFile "debug.html" (htmlHeader ++ outputHTML trace ++ htmlFooter)
+    (r, (trace, _)) <- runStateT logger (Nothing, [])
+    when (isJust trace) $ writeFile "debug.html" (htmlHeader ++ outputHTML (fromJust trace) ++ htmlFooter)
     return r
 
 htmlHeader = "<html><head>"

@@ -255,14 +255,15 @@ update gt f = updateRoot gt (doUpdate f (crumb gt))
 
 -- |Appends the first move in the list that is not already in the tree
 appendNextMove :: GameTree -> [Move] -> GameTree
-appendNextMove gt (m:ms) = updateRoot gt (appendMove ms)
+appendNextMove gt (m:ms) = updateRoot gt (appendMove ((baseRank gt) * 2) ms)
 
-appendMove :: [Move] -> SNode -> SNode
-appendMove [] n         = n
-appendMove (m:ms) n 
-    | null (children n) = append2Nodes m Nothing n
-    | isJust mi         = setChildren n (adjust (appendMove ms) (fromJust mi) (children n))
-    | otherwise         = append2Nodes m Nothing n
+appendMove :: Int -> [Move] -> SNode -> SNode
+appendMove r [] n         = n
+appendMove r (m:ms) n 
+    | isJust mi         = setChildren n (adjust (appendMove (r-1) ms) (fromJust mi) (children n))
+    | otherwise         = if r <= 2 
+                            then appendNode m Nothing n 
+                            else append2Nodes m Nothing n
     where
         m2n         = zip (map snodeMove (children n)) (children n)
         unsetMove   = lookupIndex Nothing m2n
