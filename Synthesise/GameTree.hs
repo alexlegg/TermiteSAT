@@ -122,7 +122,7 @@ gtNew Universal r   = UTree r [] (U Nothing Nothing [])
 -- |Calculates rank of a node (based on base rank)
 -- TODO: Needs to be fixed for swapping player order
 gtRank :: GameTree -> Int
-gtRank (ETree r c _)   = r - (length c `quot` 2)
+gtRank (ETree r c _)   = r - ((length c + 1) `quot` 2)
 gtRank (UTree r c _)   = r - ((length c + 1) `quot` 2)
 
 -- |Returns the root node of the tree
@@ -255,14 +255,14 @@ update gt f = updateRoot gt (doUpdate f (crumb gt))
 
 -- |Appends the first move in the list that is not already in the tree
 appendNextMove :: GameTree -> [Move] -> GameTree
-appendNextMove gt ms = updateRoot gt (appendMove ms)
+appendNextMove gt (m:ms) = updateRoot gt (appendMove ms)
 
 appendMove :: [Move] -> SNode -> SNode
 appendMove [] n         = n
 appendMove (m:ms) n 
-    | null (children n) = append2Nodes (head ms) Nothing n
+    | null (children n) = append2Nodes m Nothing n
     | isJust mi         = setChildren n (adjust (appendMove ms) (fromJust mi) (children n))
----    | otherwise         = n
+    | otherwise         = append2Nodes m Nothing n
     where
         m2n         = zip (map snodeMove (children n)) (children n)
         unsetMove   = lookupIndex Nothing m2n
