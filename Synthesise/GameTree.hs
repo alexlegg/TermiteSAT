@@ -200,12 +200,12 @@ makePathTree gt = updateCrumb (updateRoot gt (makePN (crumb gt))) (replicate (le
         makePN (c:cs) (SNode (U m s ns))    = SNode (U m s [viaSNode (makePN cs) (ns !! c)])
 
 -- |Fix moves for one player in a path tree only
-fixPlayerMoves :: Player -> GameTree -> [[Assignment]] -> GameTree
+fixPlayerMoves :: Player -> GameTree -> [([Assignment], [Assignment])] -> GameTree
 fixPlayerMoves p gt as = updateRoot gt (fpm p as)
     where
-        fpm Existential (a:as) (SNode (E _ ns)) = SNode (E (Just a) (mapNodes (fpm p as) ns))
-        fpm Universal (a:as) (SNode (U _ s ns)) = SNode (U (Just a) s (mapNodes (fpm p as) ns))
-        fpm p as n                              = setChildren n (map (fpm p as) (children n))
+        fpm Existential ((m,_):as) (SNode (E _ ns))     = SNode (E (Just m) (mapNodes (fpm p as) ns))
+        fpm Universal ((m,s):as) (SNode (U _ _ ns))     = SNode (U (Just m) (Just s) (mapNodes (fpm p as) ns))
+        fpm p as n                                      = setChildren n (map (fpm p as) (children n))
 
 -- |Project moves from one game tree onto another
 projectMoves :: GameTree -> GameTree -> Maybe GameTree
@@ -218,10 +218,10 @@ projectMoves (UTree r c n) (UTree _ _ pn)   = do
 projectMoves _ _                            = Nothing
 
 projectNodes :: SNode -> SNode -> Maybe SNode
-projectNodes (SNode (E Nothing ns))     (SNode (E mp ps))   = maybeProject (SNode (E mp [])) ns ps
-projectNodes (SNode (E m ns))           (SNode (E mp ps))   = if m == mp then maybeProject (SNode (E m [])) ns ps else Nothing
-projectNodes (SNode (U Nothing s ns))   (SNode (U mp _ ps)) = maybeProject (SNode (U mp s [])) ns ps
-projectNodes (SNode (U m s ns))         (SNode (U mp _ ps)) = if m == mp then maybeProject (SNode (U m s [])) ns ps else Nothing
+projectNodes (SNode (E Nothing ns))     (SNode (E mp ps))       = maybeProject (SNode (E mp [])) ns ps
+projectNodes (SNode (E m ns))           (SNode (E mp ps))       = if m == mp then maybeProject (SNode (E m [])) ns ps else Nothing
+projectNodes (SNode (U Nothing s ns))   (SNode (U mp sp ps))    = maybeProject (SNode (U mp sp [])) ns ps
+projectNodes (SNode (U m s ns))         (SNode (U mp sp ps))    = if m == mp then maybeProject (SNode (U m s [])) ns ps else Nothing
 
 maybeProject :: SNode -> [Node p] -> [Node p] -> Maybe SNode
 maybeProject s ns ps = do
@@ -296,7 +296,7 @@ tab ind = replicate (ind*2) ' '
 
 printMove :: Move -> String
 printMove Nothing   = "Nothing"
-printMove (Just as) = intercalate "," (map printVar vs)
+printMove (Just as) = interMap ", " printVar vs
     where
         vs = groupBy f as
         f (Assignment _ x) (Assignment _ y) = varname x == varname y

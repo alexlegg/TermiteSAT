@@ -209,7 +209,9 @@ getMove player spec dMap copyMap model gt = do
     let maxrnk = gtBaseRank gt
     let copies = tail $ foldl getCpy [0] (tail (inits (groupCrumb (gtCrumb gt))))
     let rankCopies = zip (copies ++ replicate (maxrnk - (length copies)) 0) (reverse [1..maxrnk])
-    mapM (uncurry (getVarsAtRank vars dMap model)) rankCopies
+    states <- mapM (uncurry (getVarsAtRank (svars spec) dMap model)) (map (mapSnd (\r -> r - 1)) rankCopies)
+    moves <- mapM (uncurry (getVarsAtRank vars dMap model)) rankCopies
+    return $ zip moves states
     where
         getCpy p crumb = p ++ [fromMaybe (last p) (lookup crumb copyMap)]
 
