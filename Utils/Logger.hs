@@ -18,14 +18,14 @@ data SynthTrace = SynthTrace {
     , candidate         :: Maybe GameTree
     , player            :: Player
     , result            :: Maybe GameTree
-    , verification      :: [SynthTrace]
+    , verification      :: [[SynthTrace]]
     , refinement        :: [SynthTrace]
 }
 
 instance Show SynthTrace where
     show st = "{ ver: " ++ concatMap show (verification st) ++ ", ref: " ++ concatMap show (refinement st) ++ "}"
 
-data TraceCrumb = VerifyCrumb Int | RefineCrumb Int
+data TraceCrumb = VerifyCrumb Int Int | RefineCrumb Int
     deriving (Show, Eq)
 
 type LoggerT m = StateT (Maybe SynthTrace, [TraceCrumb]) m
@@ -59,37 +59,45 @@ outputHTML trace = "<div class=\"trace " ++ show (player trace) ++ "\">"
     ++ "</div>"
 
 verifyRefineLoopHTML [] = ""
-verifyRefineLoopHTML ((v, r):vrs)   = "<hr />"
-    ++ "<div class=\"verification\"><h3>Verification</h3>" ++ outputHTML v ++ "</div>"
+verifyRefineLoopHTML ((vs, r):vrs)   = "<hr />"
+    ++ verifyLoopHTML 1 vs
     ++ maybe "" (\x -> "<div class=\"refinement\"><h3>Refinement</h3>" ++ outputHTML x ++ "</div>") r
     ++ "<hr />"
     ++ verifyRefineLoopHTML vrs
 
+verifyLoopHTML _ []     = ""
+verifyLoopHTML i (v:vs) = "<div class=\"verification\"><h3>Verification " ++ show i ++ "</h3>" 
+    ++ outputHTML v ++ "</div>" ++ verifyLoopHTML (i+1) vs
 
 insertAt :: SynthTrace -> [TraceCrumb] -> SynthTrace -> SynthTrace
 insertAt x [] t             = x
-insertAt x ((VerifyCrumb c):[]) t
-    | c == length (verification t)  = t { verification = verification t ++ [x] }
-    | c < length (verification t)   = t { verification = adjust (\_ -> x) c (verification t) }
+insertAt x ((VerifyCrumb c i):[]) t
+    | c == length (verification t)  = t { verification = verification t ++ [[x]] }
+    | c < length (verification t)   = t { verification = adjust (insVerify x i) c (verification t) }
     | otherwise                     = error $ "Error in Logger"
 insertAt x ((RefineCrumb c):[]) t
-    | c == length (refinement t)  = t { refinement = refinement t ++ [x] }
-    | c < length (refinement t)   = t { refinement = adjust (\_ -> x) c (refinement t) }
+    | c == length (refinement t)    = t { refinement = refinement t ++ [x] }
+    | c < length (refinement t)     = t { refinement = adjust (\_ -> x) c (refinement t) }
     | otherwise                     = error $ "Error in Logger"
-insertAt x ((VerifyCrumb c):cs) t
-    | null (verification t) = t { verification = [x] }
-    | otherwise             = t { verification = adjust (insertAt x cs) c (verification t) }
+insertAt x ((VerifyCrumb c i):cs) t
+    | null (verification t) = t { verification = [[x]] }
+    | otherwise             = t { verification = adjust (adjust (insertAt x cs) i) c (verification t) }
 insertAt x ((RefineCrumb c):cs) t   
     | null (refinement t)   = t { refinement = [x] }
     | otherwise             = t { refinement = adjust (insertAt x cs) c (refinement t) }
 
+insVerify x i vs
+    | i == length vs    = vs ++ [x]
+    | i < length vs     = adjust (\_ -> x) i vs
+    | otherwise         = error $ "Error in Logger"
+
 follow trace []                     = trace
-follow trace ((VerifyCrumb c):cs)   = follow (verification trace !! c) cs
+follow trace ((VerifyCrumb c i):cs) = follow ((verification trace !! c) !! i) cs
 follow trace ((RefineCrumb c):cs)   = follow (refinement trace !! c) cs
     
 updateAt :: (SynthTrace -> SynthTrace) -> [TraceCrumb] -> SynthTrace -> SynthTrace
 updateAt f [] t                     = f t
-updateAt f ((VerifyCrumb c):cs) t   = t { verification = adjust (updateAt f cs) c (verification t) }
+updateAt f ((VerifyCrumb c i):cs) t = t { verification = adjust (adjust (updateAt f cs) i) c (verification t) }
 updateAt f ((RefineCrumb c):cs) t   = t { refinement = adjust (updateAt f cs) c (refinement t) }
 
 logSolve :: Monad m => GameTree -> Maybe GameTree -> Player -> LoggerT m ()
@@ -114,11 +122,15 @@ logSolveComplete gt = do
     let trace' = updateAt (\x -> x { result = gt }) crumb (fromJust trace)
     put (Just trace', if null crumb then [] else init crumb)
 
-logVerify :: Monad m => LoggerT m ()
-logVerify = do
+logVerify :: Monad m => Int -> LoggerT m ()
+logVerify i = do
     (trace, crumb) <- get
     let currentTrace = follow (fromJust trace) crumb
-    put (trace, crumb ++ [VerifyCrumb (length (verification currentTrace))])
+    if i > 0
+    then do
+        put (trace, crumb ++ [VerifyCrumb ((length (verification currentTrace))-1) i])
+    else do
+        put (trace, crumb ++ [VerifyCrumb (length (verification currentTrace)) i])
 
 logRefine :: Monad m => LoggerT m ()
 logRefine = do

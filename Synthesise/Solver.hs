@@ -26,7 +26,7 @@ checkRank spec rnk s = do
 
 solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> ExpressionT (LoggerT IO) (Maybe GameTree)
 solveAbstract player spec s gt = do
-    liftIO $ putStrLn ("Solve abstract for " ++ show player)
+---    liftIO $ putStrLn ("Solve abstract for " ++ show player)
     cand <- findCandidate player spec s gt
     lift $ lift $ logSolve gt cand player
     res <- refinementLoop player spec s cand gt gt
@@ -42,16 +42,16 @@ refinementLoop player spec s cand origGT absGT = do
 
         if isJust cex
             then do
-                liftIO $ putStrLn ("Counterexample found against " ++ show player)
+---                liftIO $ putStrLn ("Counterexample found against " ++ show player)
                 absGT' <- refine player absGT (fromJust cex)
                 lift $ lift $ logRefine
                 cand' <- solveAbstract player spec s absGT'
                 refinementLoop player spec s cand' origGT absGT'
             else do
-                liftIO $ putStrLn ("Verified candidate for " ++ show player)
+---                liftIO $ putStrLn ("Verified candidate for " ++ show player)
                 return cand
     else do
-        liftIO $ putStrLn ("Could not find a candidate for " ++ show player)
+---        liftIO $ putStrLn ("Could not find a candidate for " ++ show player)
         return Nothing
     
 
@@ -88,13 +88,13 @@ verify player spec s gt cand = do
     let og = projectMoves gt cand
     when (not (isJust og)) $ throwError "Error projecting, moves didn't match"
     let leaves = filter ((/= 0) . gtRank) (map makePathTree (gtLeaves (fromJust og)))
-    let oppGames = map appendChild leaves
-    mapMUntilJust (verifyLoop (opponent player) spec s) oppGames
+    mapMUntilJust (verifyLoop (opponent player) spec s) (zip [0..] leaves)
 
-verifyLoop player spec s gt = do
-    lift $ lift $ logVerify
-    when (not (validTree gt)) $ throwError $ "verify invalid tree:\n" ++ printTree gt
-    solveAbstract player spec s gt
+verifyLoop player spec s (i, gt) = do
+---    liftIO $ putStrLn $ "Verification " ++ show i
+    lift $ lift $ logVerify i
+    let oppGame = appendChild gt
+    solveAbstract player spec s oppGame
 
 refine player gt cex = do
     let moves = gtPathMoves cex
