@@ -5,6 +5,7 @@ module Utils.Logger (
     , logSolveComplete
     , logVerify
     , logRefine
+    , logDumpLog
     ) where
 
 import Synthesise.GameTree
@@ -34,6 +35,11 @@ printLog logger = do
     (r, (trace, _)) <- runStateT logger (Nothing, [])
     when (isJust trace) $ writeFile "debug.html" (htmlHeader ++ outputHTML (fromJust trace) ++ htmlFooter)
     return r
+
+logDumpLog :: LoggerT IO ()
+logDumpLog = do
+    (trace, _) <- get
+    when (isJust trace) $ liftIO $ writeFile "debug_dump.html" (htmlHeader ++ outputHTML (fromJust trace) ++ htmlFooter)
 
 htmlHeader = "<html><head>"
     ++ "<link rel=\"stylesheet\" href=\"debug.css\">"

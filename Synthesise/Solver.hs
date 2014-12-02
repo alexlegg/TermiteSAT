@@ -26,12 +26,12 @@ checkRank spec rnk s = do
 
 solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> ExpressionT (LoggerT IO) (Maybe GameTree)
 solveAbstract player spec s gt = do
----    liftIO $ putStrLn ("Solve abstract for " ++ show player)
----    liftIO $ putStrLn (printTree gt)
+    liftIO $ putStrLn ("Solve abstract for " ++ show player)
     cand <- findCandidate player spec s gt
     lift $ lift $ logSolve gt cand player
     res <- refinementLoop player spec s cand gt gt
     lift $ lift $ logSolveComplete res
+---    lift $ lift $ logDumpLog
     return res
 
 refinementLoop :: Player -> CompiledSpec -> Expression -> Maybe GameTree -> GameTree -> GameTree -> ExpressionT (LoggerT IO) (Maybe GameTree)
@@ -42,16 +42,16 @@ refinementLoop player spec s cand origGT absGT = do
 
         if isJust cex
             then do
----                liftIO $ putStrLn ("Counterexample found against " ++ show player)
+                liftIO $ putStrLn ("Counterexample found against " ++ show player)
                 absGT' <- refine player absGT (fromJust cex)
                 lift $ lift $ logRefine
                 cand' <- solveAbstract player spec s absGT'
                 refinementLoop player spec s cand' origGT absGT'
             else do
----                liftIO $ putStrLn ("Verified candidate for " ++ show player)
+                liftIO $ putStrLn ("Verified candidate for " ++ show player)
                 return cand
     else do
----        liftIO $ putStrLn ("Could not find a candidate for " ++ show player)
+        liftIO $ putStrLn ("Could not find a candidate for " ++ show player)
         return Nothing
     
 
@@ -66,9 +66,9 @@ findCandidate player spec s gt = do
     if satisfiable res
     then do
         let m = fromJust (model res)
-        let leaves = map makePathTree (gtLeaves gt)
+        let leaves = gtLeaves gt
         moves <- mapM (getMove player spec dMap copyMap m) leaves
-        let paths = map (uncurry (fixPlayerMoves player)) (zip leaves moves)
+        let paths = map (uncurry (fixPlayerMoves player)) (zip (map makePathTree leaves) moves)
         return (Just (merge paths))
     else do
 ---        liftIO $ putStrLn "unsat"
@@ -89,8 +89,12 @@ verify player spec s gt cand = do
     when (not (isJust og)) $ throwError "Error projecting, moves didn't match"
     let leaves = filter ((/= 0) . gtRank) (map makePathTree (gtLeaves (fromJust og)))
     let oppGames = map appendChild leaves
-    lift $ lift $ when (length oppGames > 0) logVerify
-    mapMUntilJust (solveAbstract (opponent player) spec s) oppGames
+    mapMUntilJust (verifyLoop (opponent player) spec s) oppGames
+
+verifyLoop player spec s gt = do
+    lift $ lift $ logVerify
+    when (not (validTree gt)) $ throwError $ "verify invalid tree:\n" ++ printTree gt
+    solveAbstract player spec s gt
 
 refine player gt cex = do
     let moves = gtPathMoves cex
@@ -116,8 +120,7 @@ mergeRenamed spec rank gts fmls = do
     let dontRename = map (setVarRank rank) (svars spec)
     (copies, rest') <- (liftM unzip) $ mapM (makeCopy dontRename) rest
     f <- conjunct (first : rest')
-    let cMap = zip (map gtCrumb (tail gts)) copies
----    liftIO $ putStrLn (show cMap)
+    let cMap = zip (map (groupCrumb . gtCrumb) (tail gts)) copies
     return $ (f, cMap)
 
 moveToExpression :: Monad m => Move -> ExpressionT m (Maybe Expression)
@@ -204,14 +207,19 @@ leafToBottom spec player rank = do
 getMove player spec dMap copyMap model gt = do
     let vars = if player == Existential then cont spec else ucont spec
     let maxrnk = gtBaseRank gt
-    liftIO $ putStrLn (show copyMap)
-    let cpy = case lookup (gtCrumb gt) copyMap of
-            (Just c)    -> c
-            Nothing     -> 0
-    s <- mapM (getVarsAtRank (svars spec) dMap cpy model) (reverse [1..maxrnk])
-    mapM (getVarsAtRank vars dMap cpy model) (reverse [1..maxrnk])
+    let copies = tail $ foldl getCpy [0] (tail (inits (groupCrumb (gtCrumb gt))))
+    let rankCopies = zip (copies ++ replicate (maxrnk - (length copies)) 0) (reverse [1..maxrnk])
+    mapM (uncurry (getVarsAtRank vars dMap model)) rankCopies
+    where
+        getCpy p crumb = p ++ [fromMaybe (last p) (lookup crumb copyMap)]
 
-getVarsAtRank vars dMap cpy model rnk = do
+groupCrumb []           = []
+groupCrumb (m:ms)       = (0, m) : groupCrumb' ms
+groupCrumb' []          = []
+groupCrumb' (m1:[])     = [(m1,0)]
+groupCrumb' (m1:m2:ms)  = (m1,m2) : groupCrumb' ms
+
+getVarsAtRank vars dMap model cpy rnk = do
     let vars' = map (\v -> v {rank = rnk}) vars
     ve <- mapM lookupVar vars'
     -- Lookup the dimacs equivalents

@@ -20,6 +20,7 @@ module Synthesise.GameTree (
     , gtChildren
     , gtMovePairs
     , printTree
+    , validTree
 
     -- Modifiers
     , gtNew
@@ -188,9 +189,10 @@ gtMovePairs gt = case gtChildren gt of
     []  -> [(snodeMove (followCrumb gt), Nothing, Nothing)]
     cs  -> map (\(x, y) -> (snodeMove (followCrumb gt), x, Just y)) cs
 
+
 -- |Filters moves not in the crumb out
 makePathTree :: GameTree -> GameTree
-makePathTree gt = updateRoot gt (makePN (crumb gt))
+makePathTree gt = updateCrumb (updateRoot gt (makePN (crumb gt))) (replicate (length (crumb gt)) 0)
     where
         makePN :: [Int] -> SNode -> SNode
         makePN [] n = n
@@ -227,16 +229,24 @@ maybeProject s ns ps = do
     return $ setChildren s ns'
 
 mergeTrees :: GameTree -> GameTree -> GameTree
-mergeTrees (ETree r c x) (ETree _ _ y) = ETree r c x
-mergeTrees (UTree r c x) (UTree _ _ y) = UTree r c y
+mergeTrees (ETree r c x) (ETree _ _ y) = ETree r [] (toNode (mergeNodes (SNode x) (Just (SNode y))))
+mergeTrees (UTree r c x) (UTree _ _ y) = UTree r [] (toNode (mergeNodes (SNode x) (Just (SNode y))))
 
 mergeNodes :: SNode -> Maybe SNode -> SNode
 mergeNodes (SNode (E mx xs)) (Just (SNode (E my ys))) = if mx == my
-    then SNode $ E mx (map (toNode . (uncurry mergeNodes)) (paddedZip (map SNode xs) (map SNode ys)))
+    then SNode $ E mx (map (toNode . (uncurry mergeNodes)) (zipChildren (map SNode xs) (map SNode ys)))
     else error $ "Could not merge trees"
 mergeNodes (SNode (U mx s xs)) (Just (SNode (U my _ ys))) = if mx == my 
-    then SNode $ U mx s (map (toNode . (uncurry mergeNodes)) (paddedZip (map SNode xs) (map SNode ys)))
+    then SNode $ U mx s (map (toNode . (uncurry mergeNodes)) (zipChildren (map SNode xs) (map SNode ys)))
     else error $ "Could not merge trees"
+mergeNodes n Nothing = n
+
+zipChildren :: [SNode] -> [SNode] -> [(SNode, Maybe SNode)]
+zipChildren xs []           = map (\x -> (x, Nothing)) xs
+zipChildren [] ys           = map (\y -> (y, Nothing)) ys
+zipChildren (x:xs) (y:ys)   = if snodeMove x == snodeMove y
+    then (x, Just y) : zipChildren xs ys
+    else (x, Nothing) : zipChildren xs (y:ys)
 
 appendChild :: GameTree -> GameTree
 appendChild gt = update gt (appendNode Nothing Nothing)
@@ -258,7 +268,7 @@ appendNextMove :: GameTree -> [Move] -> GameTree
 appendNextMove gt (m:ms) = updateRoot gt (appendMove ((baseRank gt) * 2) ms)
 
 appendMove :: Int -> [Move] -> SNode -> SNode
-appendMove r [] n         = n
+appendMove r [] n       = n
 appendMove r (m:ms) n 
     | isJust mi         = setChildren n (adjust (appendMove (r-1) ms) (fromJust mi) (children n))
     | otherwise         = if r <= 2 
@@ -297,3 +307,6 @@ printVar as = nm (head as) ++ " = " ++ show (sum (map val as))
         val (Assignment Pos v)  = 2 ^ (bit v)
         val (Assignment Neg v)  = 0
         nm (Assignment _ v)     = varname v ++ show (rank v)
+
+validTree :: GameTree -> Bool
+validTree gt = null $ filter ((/= Nothing) . snodeMove) $ map followCrumb (gtLeaves gt)
