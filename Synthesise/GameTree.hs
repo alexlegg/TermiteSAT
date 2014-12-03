@@ -26,6 +26,7 @@ module Synthesise.GameTree (
     , gtLeaves
     , makePathTree
     , fixPlayerMoves
+    , fixInitState
     , projectMoves
     , mergeTrees
     , appendChild
@@ -222,6 +223,12 @@ fixPlayerMoves p gt as = setRoot gt (fpm p as)
         fpm Existential ((m,_):as) (SNode (E _ ns))     = SNode (E (Just m) (mapNodes (fpm p as) ns))
         fpm Universal ((m,s):as) (SNode (U _ _ ns))     = SNode (U (Just m) (Just s) (mapNodes (fpm p as) ns))
         fpm p as n                                      = setChildren n (map (fpm p as) (children n))
+
+fixInitState :: [Assignment] -> GameTree -> GameTree
+fixInitState s gt = setRoot gt fsi
+    where
+        fsi (SNode (SU _ ns))   = SNode (SU (Just s) ns)
+        fsi (SNode (SE _ ns))   = SNode (SE (Just s) ns)
 
 -- |Project moves from one game tree onto another
 projectMoves :: GameTree -> GameTree -> Maybe GameTree

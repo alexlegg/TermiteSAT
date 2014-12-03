@@ -26,7 +26,7 @@ checkRank spec rnk s = do
 
 solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> ExpressionT (LoggerT IO) (Maybe GameTree)
 solveAbstract player spec s gt = do
-    liftIO $ putStrLn ("Solve abstract for " ++ show player)
+---    liftIO $ putStrLn ("Solve abstract for " ++ show player)
     cand <- findCandidate player spec s gt
     liftLog $ logSolve gt cand player
     res <- refinementLoop player spec s cand gt gt
@@ -36,26 +36,24 @@ solveAbstract player spec s gt = do
 
 refinementLoop :: Player -> CompiledSpec -> Expression -> Maybe GameTree -> GameTree -> GameTree -> ExpressionT (LoggerT IO) (Maybe GameTree)
 refinementLoop player spec s Nothing origGT absGt = do
-    liftIO $ putStrLn ("Could not find a candidate for " ++ show player)
+---    liftIO $ putStrLn ("Could not find a candidate for " ++ show player)
     return Nothing
 refinementLoop player spec s (Just cand) origGT absGT = do
     v <- verify player spec s origGT cand
     case v of
         (Just cex) -> do
-            liftIO $ putStrLn ("Counterexample found against " ++ show player)
+---            liftIO $ putStrLn ("Counterexample found against " ++ show player)
             absGT' <- refine absGT cex
             liftLog $ logRefine
             cand' <- solveAbstract player spec s absGT'
             refinementLoop player spec s cand' origGT absGT'
         Nothing -> do
-            liftIO $ putStrLn ("Verified candidate for " ++ show player)
+---            liftIO $ putStrLn ("Verified candidate for " ++ show player)
             return (Just cand)
     
 
 findCandidate :: Player -> CompiledSpec -> Expression -> GameTree -> ExpressionT (LoggerT IO) (Maybe GameTree)
 findCandidate player spec s gt = do
-    let CompiledSpec{..} = spec
-
     (fml, copyMap) <- makeFml spec player s gt
     (dMap, dimacs) <- toDimacs fml
     res <- liftIO $ satSolve (maximum $ Map.elems dMap) dimacs
@@ -64,9 +62,10 @@ findCandidate player spec s gt = do
     then do
         let (Just m)    = model res
         let leaves      = gtLeaves gt
+        init            <- getVarsAtRank (svars spec) dMap m 0 (gtBaseRank gt)
         moves           <- mapM (getMove player spec dMap copyMap m) leaves
         let paths       = zipWith (fixPlayerMoves player) (map makePathTree leaves) moves
-        return (Just (merge paths))
+        return (Just (merge (map (fixInitState init) paths)))
     else do
 ---        liftIO $ putStrLn "unsat"
 ---        liftIO $ putStrLn (printTree gt)
