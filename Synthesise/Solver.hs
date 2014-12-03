@@ -21,12 +21,12 @@ import Utils.Utils
 
 checkRank :: CompiledSpec -> Int -> Expression -> ExpressionT (LoggerT IO) Bool
 checkRank spec rnk s = do
-    r <- solveAbstract Existential spec s (gtNew Existential rnk)
-    return (isJust r)
+    r <- solveAbstract Universal spec s (gtNew Existential rnk)
+    return (isNothing r)
 
 solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> ExpressionT (LoggerT IO) (Maybe GameTree)
 solveAbstract player spec s gt = do
----    liftIO $ putStrLn ("Solve abstract for " ++ show player)
+    liftIO $ putStrLn ("Solve abstract for " ++ show player)
     cand <- findCandidate player spec s gt
     liftLog $ logSolve gt cand player
     res <- refinementLoop player spec s cand gt gt
@@ -35,24 +35,21 @@ solveAbstract player spec s gt = do
     return res
 
 refinementLoop :: Player -> CompiledSpec -> Expression -> Maybe GameTree -> GameTree -> GameTree -> ExpressionT (LoggerT IO) (Maybe GameTree)
-refinementLoop player spec s cand origGT absGT = do
-    if isJust cand
-    then do
-        cex <- verify player spec s origGT (fromJust cand)
-
-        if isJust cex
-            then do
----                liftIO $ putStrLn ("Counterexample found against " ++ show player)
-                absGT' <- refine absGT (fromJust cex)
-                liftLog $ logRefine
-                cand' <- solveAbstract player spec s absGT'
-                refinementLoop player spec s cand' origGT absGT'
-            else do
----                liftIO $ putStrLn ("Verified candidate for " ++ show player)
-                return cand
-    else do
----        liftIO $ putStrLn ("Could not find a candidate for " ++ show player)
-        return Nothing
+refinementLoop player spec s Nothing origGT absGt = do
+    liftIO $ putStrLn ("Could not find a candidate for " ++ show player)
+    return Nothing
+refinementLoop player spec s (Just cand) origGT absGT = do
+    v <- verify player spec s origGT cand
+    case v of
+        (Just cex) -> do
+            liftIO $ putStrLn ("Counterexample found against " ++ show player)
+            absGT' <- refine absGT cex
+            liftLog $ logRefine
+            cand' <- solveAbstract player spec s absGT'
+            refinementLoop player spec s cand' origGT absGT'
+        Nothing -> do
+            liftIO $ putStrLn ("Verified candidate for " ++ show player)
+            return (Just cand)
     
 
 findCandidate :: Player -> CompiledSpec -> Expression -> GameTree -> ExpressionT (LoggerT IO) (Maybe GameTree)
@@ -65,10 +62,10 @@ findCandidate player spec s gt = do
 
     if satisfiable res
     then do
-        let m = fromJust (model res)
-        let leaves = gtLeaves gt
-        moves <- mapM (getMove player spec dMap copyMap m) leaves
-        let paths = map (uncurry (fixPlayerMoves player)) (zip (map makePathTree leaves) moves)
+        let (Just m)    = model res
+        let leaves      = gtLeaves gt
+        moves           <- mapM (getMove player spec dMap copyMap m) leaves
+        let paths       = zipWith (fixPlayerMoves player) (map makePathTree leaves) moves
         return (Just (merge paths))
     else do
 ---        liftIO $ putStrLn "unsat"
@@ -100,21 +97,32 @@ refine gt cex = case (gtPathMoves cex) of
     Nothing         -> throwError "Non-path cex given to refine"
 
 makeFml spec player s gt = do
-    let rank    = gtRank (gtRoot gt)
-    let cs      = gtMovePairs (gtRoot gt)
+    let root    = gtRoot gt
+    let rank    = gtRank root
+    initMove    <- moveToExpression (gtMove root)
+    s'          <- maybeM s (\i -> conjunct [s, i]) initMove
 
-    steps       <- mapM (makeStep rank spec player (gtFirstPlayer gt)) cs
-    (fml, cMap) <- mergeRenamed spec rank (map (fromJust . thd3) cs) (map fst steps)
-    fml'        <- conjunct [fml, s]
+    if null (gtChildren root)
+    then do
+        fml         <- leafToBottom spec player rank
+        fml'        <- conjunct [fml, s']
 
-    return (fml', cMap ++ concatMap snd steps)
+        return (fml', [])
+    else do
+        let cs      = concatMap (gtMovePairs . snd) (gtChildren root)
+        steps       <- mapM (makeStep rank spec player (gtFirstPlayer gt)) cs
+        (fml, cMap) <- mergeRenamed spec rank (map thd3 cs) (map fst steps)
+        fml'        <- conjunct [fml, s']
 
+        return (fml', cMap ++ concatMap snd steps)
+
+mergeRenamed spec rank gts (f:[]) = return (f, [])
 mergeRenamed spec rank gts (f:fs) = do
     let dontRename  = map (setVarRank rank) (svars spec)
     (copies, fs')   <- unzipM (mapM (makeCopy dontRename) fs)
     fml             <- conjunct (f : fs')
 
-    let cMap = zip (map (groupCrumb . gtCrumb) (tail gts)) copies
+    let cMap = zip (map (groupCrumb . gtCrumb) (map fromJust (tail gts))) copies
     return (fml, cMap)
 
 makeStep rank spec player first (m1, m2, c) = do
@@ -124,13 +132,13 @@ makeStep rank spec player first (m1, m2, c) = do
     (next, cmap) <- if isJust c
         then do
             let cs = concatMap (gtMovePairs . snd) (gtChildren (fromJust c))
-            if length cs == 0
+            if null cs
             then do
                 f <- leafToBottom spec player (rank-1)
                 return (f, [])
             else do
                 steps <- mapM (makeStep (rank-1) spec player first) cs
-                (f, cMap') <- mergeRenamed spec (rank-1) (map (fromJust . thd3) cs) (map fst steps)
+                (f, cMap') <- mergeRenamed spec (rank-1) (map thd3 cs) (map fst steps)
                 return (f, concatMap snd steps ++ cMap')
         else do
             f <- leafToBottom spec player (rank-1)
@@ -210,11 +218,9 @@ getMove player spec dMap copyMap model gt = do
     where
         getCpy p crumb = p ++ [fromMaybe (last p) (lookup crumb copyMap)]
 
-groupCrumb []           = []
-groupCrumb (m:ms)       = (0, m) : groupCrumb' ms
-groupCrumb' []          = []
-groupCrumb' (m1:[])     = [(m1,0)]
-groupCrumb' (m1:m2:ms)  = (m1,m2) : groupCrumb' ms
+groupCrumb []          = []
+groupCrumb (m1:[])     = [(m1,0)]
+groupCrumb (m1:m2:ms)  = (m1,m2) : groupCrumb ms
 
 getVarsAtRank vars dMap model cpy rnk = do
     let vars' = map (\v -> v {rank = rnk}) vars

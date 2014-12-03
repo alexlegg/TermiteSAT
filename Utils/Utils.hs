@@ -18,6 +18,7 @@ module Utils.Utils (
     , snd3
     , thd3
     , unzipM
+    , maybeM
     ) where
 
 import Data.Maybe
@@ -106,3 +107,7 @@ thd3 (a, b, c) = c
 
 unzipM :: Monad m => m [(a, b)] -> m ([a], [b])
 unzipM = liftM unzip
+
+maybeM :: Monad m => b -> (a -> m b) -> Maybe a -> m b
+maybeM _ f (Just a) = f a
+maybeM b f Nothing  = return b
