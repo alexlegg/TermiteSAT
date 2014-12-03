@@ -17,6 +17,7 @@ module Utils.Utils (
     , fst3 
     , snd3
     , thd3
+    , unzipM
     ) where
 
 import Data.Maybe
@@ -102,3 +103,6 @@ snd3 (a, b, c) = b
 
 thd3 :: (a, b, c) -> c
 thd3 (a, b, c) = c
+
+unzipM :: Monad m => m [(a, b)] -> m ([a], [b])
+unzipM = liftM unzip

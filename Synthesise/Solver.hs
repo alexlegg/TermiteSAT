@@ -28,10 +28,10 @@ solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> ExpressionT
 solveAbstract player spec s gt = do
 ---    liftIO $ putStrLn ("Solve abstract for " ++ show player)
     cand <- findCandidate player spec s gt
-    lift $ lift $ logSolve gt cand player
+    liftLog $ logSolve gt cand player
     res <- refinementLoop player spec s cand gt gt
-    lift $ lift $ logSolveComplete res
----    lift $ lift $ logDumpLog
+    liftLog $ logSolveComplete res
+---    liftLog $ logDumpLog
     return res
 
 refinementLoop :: Player -> CompiledSpec -> Expression -> Maybe GameTree -> GameTree -> GameTree -> ExpressionT (LoggerT IO) (Maybe GameTree)
@@ -43,8 +43,8 @@ refinementLoop player spec s cand origGT absGT = do
         if isJust cex
             then do
 ---                liftIO $ putStrLn ("Counterexample found against " ++ show player)
-                absGT' <- refine player absGT (fromJust cex)
-                lift $ lift $ logRefine
+                absGT' <- refine absGT (fromJust cex)
+                liftLog $ logRefine
                 cand' <- solveAbstract player spec s absGT'
                 refinementLoop player spec s cand' origGT absGT'
             else do
@@ -91,43 +91,31 @@ verify player spec s gt cand = do
     mapMUntilJust (verifyLoop (opponent player) spec s) (zip [0..] leaves)
 
 verifyLoop player spec s (i, gt) = do
----    liftIO $ putStrLn $ "Verification " ++ show i
-    lift $ lift $ logVerify i
+    liftLog $ logVerify i
     let oppGame = appendChild gt
     solveAbstract player spec s oppGame
 
-refine player gt cex = do
-    let moves = gtPathMoves cex
-    if isJust moves
-    then return $ appendNextMove gt (fromJust moves)
-    else throwError "Non-path cex given to refine"
+refine gt cex = case (gtPathMoves cex) of
+    (Just moves)    -> return $ appendNextMove gt moves
+    Nothing         -> throwError "Non-path cex given to refine"
 
 makeFml spec player s gt = do
-    (fml, cMap) <- makeChains spec player (gtRoot gt)
-    fml' <- conjunct [fml, s]
-    return (fml', cMap)
+    let rank    = gtRank (gtRoot gt)
+    let cs      = gtMovePairs (gtRoot gt)
 
-makeChains spec player gt = do
-    let rank = gtRank gt
-    let cs = gtMovePairs gt
-    steps <- mapM (makeStep rank spec player (gtFirstPlayer gt)) cs
-    (f, cMap) <- mergeRenamed spec rank (map (fromJust . thd3) cs) (map fst steps)
-    let cMap' = cMap ++ concatMap snd steps
-    return (f, cMap')
+    steps       <- mapM (makeStep rank spec player (gtFirstPlayer gt)) cs
+    (fml, cMap) <- mergeRenamed spec rank (map (fromJust . thd3) cs) (map fst steps)
+    fml'        <- conjunct [fml, s]
 
-mergeRenamed spec rank gts fmls = do
-    let (first : rest) = fmls
-    let dontRename = map (setVarRank rank) (svars spec)
-    (copies, rest') <- (liftM unzip) $ mapM (makeCopy dontRename) rest
-    f <- conjunct (first : rest')
+    return (fml', cMap ++ concatMap snd steps)
+
+mergeRenamed spec rank gts (f:fs) = do
+    let dontRename  = map (setVarRank rank) (svars spec)
+    (copies, fs')   <- unzipM (mapM (makeCopy dontRename) fs)
+    fml             <- conjunct (f : fs')
+
     let cMap = zip (map (groupCrumb . gtCrumb) (tail gts)) copies
-    return $ (f, cMap)
-
-moveToExpression :: Monad m => Move -> ExpressionT m (Maybe Expression)
-moveToExpression Nothing    = return Nothing
-moveToExpression (Just a)   = do
-    e <- assignmentToExpression a
-    return (Just e)
+    return (fml, cMap)
 
 makeStep rank spec player first (m1, m2, c) = do
     let CompiledSpec{..} = spec
@@ -166,6 +154,13 @@ makeStep rank spec player first (m1, m2, c) = do
     let moves = catMaybes [m1', m2']
     s <- conjunct ([t !! i, vu !! i, vc !! i, goal] ++ moves)
     return (s, cmap)
+
+moveToExpression :: Monad m => Move -> ExpressionT m (Maybe Expression)
+moveToExpression Nothing    = return Nothing
+moveToExpression (Just a)   = do
+    e <- assignmentToExpression a
+    return (Just e)
+
 
 -- Ensures that a player can't force the other player into an invalid move
 makeHatMove valid m = do
@@ -231,3 +226,5 @@ getVarsAtRank vars dMap model cpy rnk = do
 
 throwError :: Monad m => String -> ExpressionT m a
 throwError = lift . left
+
+liftLog = lift . lift
