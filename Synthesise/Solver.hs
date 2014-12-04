@@ -84,7 +84,8 @@ learnStates spec player gt = do
     (fml, copyMap)  <- makeFml spec player fakes gt'
     (dMap, a, d)    <- toDimacs (Just s) fml
 
-    liftIO $ putStrLn (show a)
+    liftIO $ putStrLn (printMove (Just s))
+    liftIO $ putStrLn (printTree gt')
 
     res <- liftIO $ satSolve (maximum $ Map.elems dMap) a d
 

@@ -27,6 +27,9 @@ satSolve max assumptions clauses = do
     -- Add enough vars for our clause set
     replicateM_ max (c_glucose_addVar solver)
 
+    -- Add assumptions
+    addAssumptions solver assumptions
+
     -- Add the clauses
     allM (addClause solver) clauses
 
@@ -48,6 +51,9 @@ satSolve max assumptions clauses = do
         model = fmap (map fromIntegral) model,
         conflicts = fmap (map fromIntegral) conflicts
         }
+
+addAssumptions solver ass = do
+    forM_ ass (c_addAssumption solver . fromIntegral)
 
 addClause solver clause = do
     forM_ clause (c_addClause_addLit solver . fromIntegral)
@@ -73,6 +79,9 @@ foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h glucose_delete"
 
 foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h addVar"
     c_glucose_addVar :: Ptr GlucoseSolver -> IO ()
+
+foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h addAssumption"
+    c_addAssumption :: Ptr GlucoseSolver -> CInt -> IO ()
 
 foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h addClause_addLit"
     c_addClause_addLit :: Ptr GlucoseSolver -> CInt -> IO ()

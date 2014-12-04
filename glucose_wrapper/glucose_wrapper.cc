@@ -3,8 +3,8 @@
 using namespace Glucose;
 
 struct glucose_solver_t : public Solver {
-    vec<Lit> clause;
     vec<Lit> assumps;
+    vec<Lit> clause;
 };
 
 extern "C" {
@@ -13,6 +13,15 @@ extern "C" {
 
     glucose_solver  *glucose_new() { return new glucose_solver_t(); }
     void            glucose_delete(glucose_solver *s) {delete s; }
+
+    void addAssumption(glucose_solver *s, int lit)
+    {
+        if (lit > 0) {
+            s->assumps.push(mkLit(abs(lit), false));
+        } else {
+            s->assumps.push(mkLit(abs(lit), true));
+        }
+    }
 
     void addClause_addLit(glucose_solver *s, int lit)
     {
@@ -49,7 +58,7 @@ extern "C" {
 
     bool solve(glucose_solver *s)
     {
-        return s->solve();
+        return s->solve(s->assumps);
     }
 
     int *model(glucose_solver *s)
