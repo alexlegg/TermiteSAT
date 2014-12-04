@@ -305,18 +305,24 @@ linkNoRenames pc dMap ct = foldl (linkNoRenames (copyId ct)) dMap' (childCopies 
         dMap' = dMap ++ map (\(c, i) -> ((copyId ct, i), fromJust (lookup (c, i) dMap))) pushed
         pushed = map (\e -> (pc, index e)) (dontRename ct)
         
-toDimacs :: Monad m => Expression -> ExpressionT m (Map.Map (Int, Int) Int, [[Int]])
-toDimacs e = do
-    ct <- partitionCopies e
-    let (_, copyTree) = pushUpNoRenames ct
-    let exprs = ungroupZip (unTree copyTree)
+toDimacs :: Monad m => Maybe [Assignment] -> Expression -> ExpressionT m (Map.Map (Int, Int) Int, [Int], [[Int]])
+toDimacs a e = do
+    ct                  <- partitionCopies e
+    let (_, copyTree)   = pushUpNoRenames ct
+    let exprs           = ungroupZip (unTree copyTree)
 
-    let dMap' = zip (map (mapSnd index) exprs) [1..]
-    let dMap = Map.fromList $ linkNoRenames 0 dMap' copyTree
+    avs <- maybeM [] (mapM assignmentToVar) a
+
+    let dMap'   = zip (map (mapSnd index) exprs) [1..]
+    let dMap    = Map.fromList $ linkNoRenames 0 dMap' copyTree
+
+    let ad  = filter (isJust . fst) $ map (\v -> (Map.lookup (0, (var v)) dMap, v)) avs
+    let as  = map (\(Just d, v) -> if sign v == Pos then d else -d) ad
+
     dimacs <- concatMapM (exprToDimacs dMap) exprs
 
     let (Just de) = Map.lookup (baseExpr e) dMap
-    return $ (dMap, [de] : dimacs)
+    return $ (dMap, as, [de] : dimacs)
 
 exprToDimacs m (c, e) = do
     let (Just ind) = Map.lookup (c, (index e)) m
@@ -378,9 +384,10 @@ makeAssignment (m, v) = Assignment (if m > 0 then Pos else Neg) v
 -- |Constructs an expression from assignments
 assignmentToExpression :: Monad m => [Assignment] -> ExpressionT m Expression
 assignmentToExpression as = do
-    vs <- mapM f as
+    vs <- mapM assignmentToVar as
     addExpression (EConjunct vs)
-    where
-        f (Assignment s v) = do
-            e <- addExpression (ELit v)
-            return $ Var s (index e)
+
+assignmentToVar :: Monad m => Assignment -> ExpressionT m Var
+assignmentToVar (Assignment s v) = do
+    e <- addExpression (ELit v)
+    return $ Var s (index e)

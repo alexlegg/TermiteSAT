@@ -17,8 +17,8 @@ data SatResult = SatResult {
     conflicts       :: Maybe [Int]
     } deriving (Show, Eq)
 
-satSolve :: Int -> [[Int]] -> IO SatResult
-satSolve max clauses = do
+satSolve :: Int -> [Int] -> [[Int]] -> IO SatResult
+satSolve max assumptions clauses = do
     solver <- c_glucose_new
 
     -- Add one var so we can ignore 0

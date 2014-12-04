@@ -54,9 +54,9 @@ refinementLoop player spec s (Just cand) origGT absGT = do
 
 findCandidate :: Player -> CompiledSpec -> Expression -> GameTree -> ExpressionT (LoggerT IO) (Maybe GameTree)
 findCandidate player spec s gt = do
-    (fml, copyMap) <- makeFml spec player s gt
-    (dMap, dimacs) <- toDimacs fml
-    res <- liftIO $ satSolve (maximum $ Map.elems dMap) dimacs
+    (fml, copyMap)  <- makeFml spec player s gt
+    (dMap, _, d)    <- toDimacs Nothing fml
+    res             <- liftIO $ satSolve (maximum $ Map.elems dMap) [] d
 
     if satisfiable res
     then do
@@ -77,13 +77,16 @@ findCandidate player spec s gt = do
         return Nothing
 
 learnStates spec player gt = do
-    let ass = gtPrevState gt
-    let gt' = gtRebase gt
+    let gt'         = gtRebase gt
+    let (Just s)    = gtPrevState gt
 
-    fakes <- trueExpr
-    (fml, copyMap) <- makeFml spec player fakes gt'
-    (dMap, dimacs) <- toDimacs fml
-    res <- liftIO $ satSolve (maximum $ Map.elems dMap) dimacs
+    fakes           <- trueExpr
+    (fml, copyMap)  <- makeFml spec player fakes gt'
+    (dMap, a, d)    <- toDimacs (Just s) fml
+
+    liftIO $ putStrLn (show a)
+
+    res <- liftIO $ satSolve (maximum $ Map.elems dMap) a d
 
     liftIO $ putStrLn (show (satisfiable res))
 
