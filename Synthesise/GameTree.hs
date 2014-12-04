@@ -18,6 +18,9 @@ module Synthesise.GameTree (
     , gtChildMoves
     , gtChildren
     , gtMovePairs
+    , gtUnsetNodes
+    , gtPrevState
+    , gtRebase
     , printTree
     , validTree
 
@@ -38,6 +41,7 @@ import Data.List
 import Utils.Utils
 import Expression.Expression
 import Control.Monad
+import qualified Debug.Trace as D
 
 data Player = Existential | Universal deriving (Show, Eq)
 
@@ -106,6 +110,11 @@ setMove m (SNode (E _ n'))      = SNode (E m n')
 setMove s (SNode (SU _ n'))     = SNode (SU s n')
 setMove s (SNode (SE _ n'))     = SNode (SE s n')
 
+snodeState :: SNode -> Move
+snodeState (SNode (U _ s _))     = s
+snodeState (SNode (SE s _))      = s
+snodeState (SNode (SU s _))      = s
+
 data GameTree where
     ETree   :: Int -> [Int] -> Node RootNode Universal -> GameTree
     UTree   :: Int -> [Int] -> Node RootNode Existential -> GameTree
@@ -167,12 +176,31 @@ nodeMoves (c:cs) n  = snodeMove n : nodeMoves cs (children n !! c)
 
 -- |Returns the move at the current node
 gtMove :: GameTree -> Move
-gtMove gt = snodeMove (root gt)
+gtMove = snodeMove . followGTCrumb
+
+gtPrevState :: GameTree -> Move
+gtPrevState gt = snodeState $ prevStateNode gt (crumb gt)
+
+prevStateNode :: GameTree -> [Int] -> SNode
+prevStateNode gt cr = case followCrumb (root gt) cr of
+    (SNode (E _ _))     -> followCrumb (root gt) (init cr)
+    (SNode (U _ _ _))   -> followCrumb (root gt) (init (init cr))
+
+-- |Creates a new tree with the current node as its base
+gtRebase :: GameTree -> GameTree
+gtRebase gt = ETree newrank [] (SU Nothing [(toNode newroot)])
+    where
+        newcrumb    = alignCrumb (crumb gt)
+        newroot     = (followCrumb (root gt) newcrumb)
+        newrank     = baseRank gt - (length newcrumb `quot` 2)
+
+-- |Makes a crumb start at the beginning of a step
+alignCrumb :: [Int] -> [Int]
+alignCrumb cr = take (1 + floor2 (length cr - 1)) cr
 
 -- |Builds a list of trees containing all the leaves of the original tree
 gtLeaves :: GameTree -> [GameTree]
-gtLeaves (ETree r c n)    = map (\c' -> ETree r c' n) (getLeaves (SNode n))
-gtLeaves (UTree r c n)    = map (\c' -> UTree r c' n) (getLeaves (SNode n))
+gtLeaves gt = map (setCrumb gt) (getLeaves (root gt))
 
 getLeaves :: SNode -> [[Int]]
 getLeaves n 
@@ -186,24 +214,35 @@ gtPathMoves gt = let leaves = gtLeaves gt in
     then Just (gtMoves (head leaves))
     else Nothing
 
-followCrumb :: GameTree -> SNode
-followCrumb gt = foldl (\n c -> children n !! c) (root gt) (crumb gt)
+followGTCrumb :: GameTree -> SNode
+followGTCrumb gt = followCrumb (root gt) (crumb gt)
+
+followCrumb :: SNode -> [Int] -> SNode
+followCrumb r cr = foldl (\n c -> children n !! c) r cr
 
 -- |Gets all outgoing moves of a node
 gtChildMoves :: GameTree -> [Move]
-gtChildMoves gt = map snodeMove (children (followCrumb gt))
+gtChildMoves gt = map snodeMove (children (followGTCrumb gt))
 
 gtChildren :: GameTree -> [(Move, GameTree)]
-gtChildren gt = zipWith f (children (followCrumb gt)) [0..]
+gtChildren gt = zipWith f (children (followGTCrumb gt)) [0..]
     where
         f n i = (snodeMove n, setCrumb gt (crumb gt ++ [i]))
 
 -- |Groups moves by rank
 gtMovePairs :: GameTree -> [(Move, Move, Maybe GameTree)]
 gtMovePairs gt = case gtChildren gt of
-    []  -> [(snodeMove (followCrumb gt), Nothing, Nothing)]
-    cs  -> map (\(x, y) -> (snodeMove (followCrumb gt), x, Just y)) cs
+    []  -> [(snodeMove (followGTCrumb gt), Nothing, Nothing)]
+    cs  -> map (\(x, y) -> (snodeMove (followGTCrumb gt), x, Just y)) cs
 
+-- |Finds the first Nothing move
+gtUnsetNodes :: GameTree -> [GameTree]
+gtUnsetNodes gt = map (setCrumb gt) $ filter (not . null) $ map (firstUnsetNode (root gt) 0) (getLeaves (root gt))
+
+firstUnsetNode r cc cr
+    | cc == length cr + 1                                   = []
+    | isNothing (snodeMove (followCrumb r (take cc cr)))   = take cc cr
+    | otherwise                                             = firstUnsetNode r (cc + 1) cr
 
 -- |Filters moves not in the crumb out
 makePathTree :: GameTree -> GameTree
@@ -356,4 +395,4 @@ printVar as = nm (head as) ++ " = " ++ show (sum (map val as))
         nm (Assignment _ v)     = varname v ++ show (rank v)
 
 validTree :: GameTree -> Bool
-validTree gt = any ((/= Nothing) . snodeMove) $ map followCrumb (gtLeaves gt)
+validTree gt = any ((/= Nothing) . snodeMove) $ map followGTCrumb (gtLeaves gt)

@@ -67,8 +67,7 @@ findCandidate player spec s gt = do
         let paths       = zipWith (fixPlayerMoves player) (map makePathTree leaves) moves
         return (Just (merge (map (fixInitState init) paths)))
     else do
----        liftIO $ putStrLn "unsat"
----        liftIO $ putStrLn (printTree gt)
+        learning <- mapM (learnStates spec player) (gtUnsetNodes gt)
 
 ---        liftIO $ withFile "debug_dimacs" WriteMode $ \h -> do
 ---            hPutStrLn h $ "p cnf " ++ (show (maximum (Map.elems dMap))) ++ " " ++ (show (length dimacs))
@@ -76,6 +75,19 @@ findCandidate player spec s gt = do
 
 ---        liftIO $ putStrLn (show (conflicts res))
         return Nothing
+
+learnStates spec player gt = do
+    let ass = gtPrevState gt
+    let gt' = gtRebase gt
+
+    fakes <- trueExpr
+    (fml, copyMap) <- makeFml spec player fakes gt'
+    (dMap, dimacs) <- toDimacs fml
+    res <- liftIO $ satSolve (maximum $ Map.elems dMap) dimacs
+
+    liftIO $ putStrLn (show (satisfiable res))
+
+    return Nothing
 
 merge (t:[]) = t
 merge (t:ts) = foldl mergeTrees t ts

@@ -19,6 +19,7 @@ module Utils.Utils (
     , thd3
     , unzipM
     , maybeM
+    , floor2
     ) where
 
 import Data.Maybe
@@ -111,3 +112,6 @@ unzipM = liftM unzip
 maybeM :: Monad m => b -> (a -> m b) -> Maybe a -> m b
 maybeM _ f (Just a) = f a
 maybeM b f Nothing  = return b
+
+floor2 :: Int -> Int
+floor2 x = (quot x 2) * 2
