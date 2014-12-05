@@ -1,6 +1,8 @@
 {-# LANGUAGE RecordWildCards #-}
 module Synthesise.Solver (
       checkRank
+    , LearnedStates(..)
+    , emptyLearnedStates
     ) where
 
 import Data.Maybe
@@ -19,8 +21,18 @@ import SatSolver.SatSolver
 import Utils.Logger
 import Utils.Utils
 
-type SolverST m = StateT Int m
+type SolverST m = StateT LearnedStates m
 type SolverT = SolverST (ExpressionT (LoggerT IO))
+
+data LearnedStates = LearnedStates {
+      winningEx :: [[Assignment]]
+    , winningUn :: Map.Map Int [[Assignment]]
+}
+
+emptyLearnedStates = LearnedStates {
+      winningEx = []
+    , winningUn = Map.empty
+}
 
 throwError = lift . lift . left
 
@@ -87,17 +99,18 @@ findCandidate player spec s gt = do
 ---        liftIO $ putStrLn (show (conflicts res))
         return Nothing
 
-learnStates :: CompiledSpec -> Player -> GameTree -> SolverT (Maybe GameTree)
+learnStates :: CompiledSpec -> Player -> GameTree -> SolverT ()
 learnStates spec player gt = do
     let gt'         = gtRebase gt
     let (Just s)    = gtPrevState gt
+    let rank        = gtBaseRank gt'
 
     fakes           <- liftE $ trueExpr
     (fml, copyMap)  <- makeFml spec player fakes gt'
     (dMap, a, d)    <- liftE $ toDimacs (Just s) fml
 
-    liftIO $ putStrLn (printMove (Just s))
-    liftIO $ putStrLn (printTree gt')
+---    liftIO $ putStrLn (printMove (Just s))
+---    liftIO $ putStrLn (printTree gt')
 
     res <- liftIO $ satSolve (maximum $ Map.elems dMap) a d
 
@@ -108,14 +121,15 @@ learnStates spec player gt = do
 
         if (satisfiable noAssumps)
         then do
-            c <- getConflicts (svars spec) dMap (fromJust (conflicts res)) 0 (gtBaseRank gt')
-            liftIO $ putStrLn $ "conflict: " ++ (show c)
-            liftIO $ putStrLn "======="
-            return Nothing
+            c <- getConflicts (svars spec) dMap (fromJust (conflicts res)) 0 rank
+            ls <- get
+            if player == Existential
+            then put $ ls { winningUn = Map.alter (\x -> Just (fromMaybe [] x ++ [c])) rank (winningUn ls) }
+            else put $ ls { winningEx = winningEx ls ++ [c] }
+---            liftIO $ putStrLn $ (printMove (Just c)) ++ " is losing for " ++ show player
         else do
-            liftIO $ putStrLn "Losing for all states"
-            liftIO $ putStrLn "======="
-            return Nothing
+---            liftIO $ putStrLn "Losing for all states"
+            return ()
 
 merge (t:[]) = t
 merge (t:ts) = foldl mergeTrees t ts
@@ -200,15 +214,29 @@ makeStep rank spec player first (m1, m2, c) = do
         then liftE $ makeHatMove (vh !! i) m2
         else liftE $ moveToExpression m2
 
-    let moves = catMaybes [m1', m2']
+    block <- blockLosingStates rank player
+
+    let moves = catMaybes [m1', m2', block]
     s <- liftE $ conjunct ([t !! i, vu !! i, vc !! i, goal] ++ moves)
     return (s, cmap)
+
+blockLosingStates rank player = do
+    LearnedStates{..} <- get
+    let block = if player == Existential
+        then fromMaybe [] (Map.lookup rank winningUn)
+        else winningEx
+
+    if null block
+    then return Nothing
+    else do 
+        bs <- liftE $ mapM blockAssignment block
+        b <- liftE $ conjunct bs
+        return (Just b)
 
 moveToExpression Nothing    = return Nothing
 moveToExpression (Just a)   = do
     e <- assignmentToExpression a
     return (Just e)
-
 
 -- Ensures that a player can't force the other player into an invalid move
 makeHatMove valid m = do
@@ -246,7 +274,10 @@ leafToBottom spec player rank = do
                     then liftE $ disjunct [next, g']
                     else liftE $ conjunct [next, g']
 
-        liftE $ conjunct [t !! i, vu !! i, vc !! i, goal]
+        block <- blockLosingStates rank player
+        if isJust block
+        then liftE $ conjunct [t !! i, vu !! i, vc !! i, goal, fromJust block]
+        else liftE $ conjunct [t !! i, vu !! i, vc !! i, goal]
 
 getMove player spec dMap copyMap model gt = do
     let vars = if player == Existential then cont spec else ucont spec

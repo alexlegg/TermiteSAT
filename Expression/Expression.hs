@@ -34,6 +34,7 @@ module Expression.Expression (
     , printExpression
     , makeAssignment
     , assignmentToExpression
+    , blockAssignment
     , setVarRank
     ) where
 
@@ -386,6 +387,11 @@ assignmentToExpression :: Monad m => [Assignment] -> ExpressionT m Expression
 assignmentToExpression as = do
     vs <- mapM assignmentToVar as
     addExpression (EConjunct vs)
+
+blockAssignment :: Monad m => [Assignment] -> ExpressionT m Expression
+blockAssignment as = do
+    vs <- mapM assignmentToVar as
+    addExpression (EDisjunct vs)
 
 assignmentToVar :: Monad m => Assignment -> ExpressionT m Var
 assignmentToVar (Assignment s v) = do
