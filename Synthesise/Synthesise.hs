@@ -28,6 +28,8 @@ synthesise' k spec = do
     let uvars = concatMap compileVar ucontVars
     let cvars = concatMap compileVar contVars
 
+    let vinfo = stateVars ++ ucontVars ++ contVars
+
     u_idle <- equalsConstant (map (\v -> v {rank = 1}) uvars) 0
     c_idle <- equalsConstant (map (\v -> v {rank = 1}) cvars) 0
 
@@ -49,6 +51,7 @@ synthesise' k spec = do
         , cont  = cvars
         , ucont = uvars
         , svars = svars
+        , vinfo = vinfo
         }
 
     init <- compile init

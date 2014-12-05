@@ -16,6 +16,7 @@ import qualified Data.Map as Map
 
 import Expression.Compile
 import Expression.Expression
+import Expression.AST
 import Synthesise.GameTree
 import SatSolver.SatSolver
 import Utils.Logger
@@ -50,8 +51,9 @@ checkRank spec rnk s = do
 solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Maybe GameTree)
 solveAbstract player spec s gt = do
 ---    liftIO $ putStrLn ("Solve abstract for " ++ show player)
+    liftLog $ logSolve gt player
     cand <- findCandidate player spec s gt
-    liftLog $ logSolve gt cand player
+    liftLog $ logCandidate cand
     res <- refinementLoop player spec s cand gt gt
     liftLog $ logSolveComplete res
 ---    liftLog $ logDumpLog
@@ -90,14 +92,11 @@ findCandidate player spec s gt = do
         let paths       = zipWith (fixPlayerMoves player) (map makePathTree leaves) moves
         return (Just (merge (map (fixInitState init) paths)))
     else do
-        learning <- mapM (learnStates spec player) (gtUnsetNodes gt)
-
----        liftIO $ withFile "debug_dimacs" WriteMode $ \h -> do
----            hPutStrLn h $ "p cnf " ++ (show (maximum (Map.elems dMap))) ++ " " ++ (show (length dimacs))
----            mapM ((hPutStrLn h) . (\x -> x ++ " 0") . (interMap " " show)) dimacs
-
----        liftIO $ putStrLn (show (conflicts res))
+        mapM_ (learnStates spec player) (gtUnsetNodes gt)
         return Nothing
+
+merge (t:[]) = t
+merge (t:ts) = foldl mergeTrees t ts
 
 learnStates :: CompiledSpec -> Player -> GameTree -> SolverT ()
 learnStates spec player gt = do
@@ -108,9 +107,6 @@ learnStates spec player gt = do
     fakes           <- liftE $ trueExpr
     (fml, copyMap)  <- makeFml spec player fakes gt'
     (dMap, a, d)    <- liftE $ toDimacs (Just s) fml
-
----    liftIO $ putStrLn (printMove (Just s))
----    liftIO $ putStrLn (printTree gt')
 
     res <- liftIO $ satSolve (maximum $ Map.elems dMap) a d
 
@@ -123,16 +119,24 @@ learnStates spec player gt = do
         then do
             c <- getConflicts (svars spec) dMap (fromJust (conflicts res)) 0 rank
             ls <- get
+            liftLog $ logLosingState (printPartialAssignment (vinfo spec) c)
             if player == Existential
             then put $ ls { winningUn = Map.alter (\x -> Just (fromMaybe [] x ++ [c])) rank (winningUn ls) }
             else put $ ls { winningEx = winningEx ls ++ [c] }
----            liftIO $ putStrLn $ (printMove (Just c)) ++ " is losing for " ++ show player
         else do
----            liftIO $ putStrLn "Losing for all states"
+            -- Player loses for all states here
+            -- TODO Learn something
             return ()
 
-merge (t:[]) = t
-merge (t:ts) = foldl mergeTrees t ts
+printPartialAssignment :: [VarInfo] -> [Assignment] -> String
+printPartialAssignment vinfo as = interMap ", " (printPartialVar vinfo) (groupBy f as)
+    where f (Assignment _ x) (Assignment _ y) = varname x == varname y
+
+printPartialVar :: [VarInfo] -> [Assignment] -> String
+printPartialVar vinfo as = show size
+    where
+        size = sz (fromJust (find (\v -> name v == aname (head as)) vinfo))
+        aname (Assignment _ v)  = varname v
 
 verify :: Player -> CompiledSpec -> Expression -> GameTree -> GameTree -> SolverT (Maybe GameTree)
 verify player spec s gt cand = do
@@ -280,12 +284,13 @@ leafToBottom spec player rank = do
         else liftE $ conjunct [t !! i, vu !! i, vc !! i, goal]
 
 getMove player spec dMap copyMap model gt = do
-    let vars = if player == Existential then cont spec else ucont spec
-    let maxrnk = gtBaseRank gt
-    let copies = tail $ foldl getCpy [0] (tail (inits (groupCrumb (gtCrumb gt))))
-    let rankCopies = zip (copies ++ replicate (maxrnk - (length copies)) 0) (reverse [1..maxrnk])
-    states <- mapM (uncurry (getVarsAtRank (svars spec) dMap model)) (map (mapSnd (\r -> r - 1)) rankCopies)
-    moves <- mapM (uncurry (getVarsAtRank vars dMap model)) rankCopies
+    let vars    = if player == Existential then cont spec else ucont spec
+    let maxrnk  = gtBaseRank gt
+    let copies  = tail $ foldl getCpy [0] (tail (inits (groupCrumb (gtCrumb gt))))
+    let rCopies = zip (copies ++ replicate (maxrnk - (length copies)) 0) (reverse [1..maxrnk])
+    states      <- mapM (uncurry (getVarsAtRank (svars spec) dMap model)) (map (mapSnd (\r -> r - 1)) rCopies)
+    moves       <- mapM (uncurry (getVarsAtRank vars dMap model)) rCopies
+
     return $ zip moves states
     where
         getCpy p crumb = p ++ [fromMaybe (last p) (lookup crumb copyMap)]
