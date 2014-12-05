@@ -54,7 +54,7 @@ synthesise' k spec = do
     init <- compile init
     init <- setRank k init
 
-    checkRank cspec k init
+    evalStateT (checkRank cspec k init) 0
 
 iterateNM :: Monad m => Int -> (a -> m a) -> a -> m [a]
 iterateNM 0 f x = return [x]

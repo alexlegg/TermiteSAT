@@ -1,6 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 module Synthesise.Solver (
-    checkRank
+      checkRank
     ) where
 
 import Data.Maybe
@@ -19,12 +19,23 @@ import SatSolver.SatSolver
 import Utils.Logger
 import Utils.Utils
 
-checkRank :: CompiledSpec -> Int -> Expression -> ExpressionT (LoggerT IO) Bool
+type SolverST m = StateT Int m
+type SolverT = SolverST (ExpressionT (LoggerT IO))
+
+throwError = lift . lift . left
+
+liftLog :: LoggerT IO a -> SolverT a
+liftLog = lift . lift . lift
+
+liftE :: ExpressionT (LoggerT IO) a -> SolverT a
+liftE = lift
+
+checkRank :: CompiledSpec -> Int -> Expression -> SolverT Bool
 checkRank spec rnk s = do
     r <- solveAbstract Universal spec s (gtNew Existential rnk)
     return (isNothing r)
 
-solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> ExpressionT (LoggerT IO) (Maybe GameTree)
+solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Maybe GameTree)
 solveAbstract player spec s gt = do
 ---    liftIO $ putStrLn ("Solve abstract for " ++ show player)
     cand <- findCandidate player spec s gt
@@ -34,7 +45,7 @@ solveAbstract player spec s gt = do
 ---    liftLog $ logDumpLog
     return res
 
-refinementLoop :: Player -> CompiledSpec -> Expression -> Maybe GameTree -> GameTree -> GameTree -> ExpressionT (LoggerT IO) (Maybe GameTree)
+refinementLoop :: Player -> CompiledSpec -> Expression -> Maybe GameTree -> GameTree -> GameTree -> SolverT (Maybe GameTree)
 refinementLoop player spec s Nothing origGT absGt = do
 ---    liftIO $ putStrLn ("Could not find a candidate for " ++ show player)
     return Nothing
@@ -52,10 +63,10 @@ refinementLoop player spec s (Just cand) origGT absGT = do
             return (Just cand)
     
 
-findCandidate :: Player -> CompiledSpec -> Expression -> GameTree -> ExpressionT (LoggerT IO) (Maybe GameTree)
+findCandidate :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Maybe GameTree)
 findCandidate player spec s gt = do
     (fml, copyMap)  <- makeFml spec player s gt
-    (dMap, _, d)    <- toDimacs Nothing fml
+    (dMap, _, d)    <- liftE $ toDimacs Nothing fml
     res             <- liftIO $ satSolve (maximum $ Map.elems dMap) [] d
 
     if satisfiable res
@@ -76,32 +87,47 @@ findCandidate player spec s gt = do
 ---        liftIO $ putStrLn (show (conflicts res))
         return Nothing
 
+learnStates :: CompiledSpec -> Player -> GameTree -> SolverT (Maybe GameTree)
 learnStates spec player gt = do
     let gt'         = gtRebase gt
     let (Just s)    = gtPrevState gt
 
-    fakes           <- trueExpr
+    fakes           <- liftE $ trueExpr
     (fml, copyMap)  <- makeFml spec player fakes gt'
-    (dMap, a, d)    <- toDimacs (Just s) fml
+    (dMap, a, d)    <- liftE $ toDimacs (Just s) fml
 
     liftIO $ putStrLn (printMove (Just s))
     liftIO $ putStrLn (printTree gt')
 
     res <- liftIO $ satSolve (maximum $ Map.elems dMap) a d
 
-    liftIO $ putStrLn (show (satisfiable res))
+    if satisfiable res
+    then throwError $ "Not handling this case yet"
+    else do
+        noAssumps <- liftIO $ satSolve (maximum $ Map.elems dMap) [] d
 
-    return Nothing
+        if (satisfiable noAssumps)
+        then do
+            c <- getConflicts (svars spec) dMap (fromJust (conflicts res)) 0 (gtBaseRank gt')
+            liftIO $ putStrLn $ "conflict: " ++ (show c)
+            liftIO $ putStrLn "======="
+            return Nothing
+        else do
+            liftIO $ putStrLn "Losing for all states"
+            liftIO $ putStrLn "======="
+            return Nothing
 
 merge (t:[]) = t
 merge (t:ts) = foldl mergeTrees t ts
 
+verify :: Player -> CompiledSpec -> Expression -> GameTree -> GameTree -> SolverT (Maybe GameTree)
 verify player spec s gt cand = do
     let og = projectMoves gt cand
     when (not (isJust og)) $ throwError "Error projecting, moves didn't match"
     let leaves = filter ((/= 0) . gtRank) (map makePathTree (gtLeaves (fromJust og)))
     mapMUntilJust (verifyLoop (opponent player) spec s) (zip [0..] leaves)
 
+verifyLoop :: Player -> CompiledSpec -> Expression -> (Int, GameTree) -> SolverT (Maybe GameTree)
 verifyLoop player spec s (i, gt) = do
     liftLog $ logVerify i
     let oppGame = appendChild gt
@@ -114,28 +140,28 @@ refine gt cex = case (gtPathMoves cex) of
 makeFml spec player s gt = do
     let root    = gtRoot gt
     let rank    = gtRank root
-    initMove    <- moveToExpression (gtMove root)
-    s'          <- maybeM s (\i -> conjunct [s, i]) initMove
+    initMove    <- liftE $ moveToExpression (gtMove root)
+    s'          <- liftE $ maybeM s (\i -> conjunct [s, i]) initMove
 
     if null (gtChildren root)
     then do
         fml         <- leafToBottom spec player rank
-        fml'        <- conjunct [fml, s']
+        fml'        <- liftE $ conjunct [fml, s']
 
         return (fml', [])
     else do
         let cs      = concatMap (gtMovePairs . snd) (gtChildren root)
         steps       <- mapM (makeStep rank spec player (gtFirstPlayer gt)) cs
         (fml, cMap) <- mergeRenamed spec rank (map thd3 cs) (map fst steps)
-        fml'        <- conjunct [fml, s']
+        fml'        <- liftE $ conjunct [fml, s']
 
         return (fml', cMap ++ concatMap snd steps)
 
 mergeRenamed spec rank gts (f:[]) = return (f, [])
 mergeRenamed spec rank gts (f:fs) = do
     let dontRename  = map (setVarRank rank) (svars spec)
-    (copies, fs')   <- unzipM (mapM (makeCopy dontRename) fs)
-    fml             <- conjunct (f : fs')
+    (copies, fs')   <- liftE $ unzipM (mapM (makeCopy dontRename) fs)
+    fml             <- liftE $ conjunct (f : fs')
 
     let cMap = zip (map (groupCrumb . gtCrumb) (map fromJust (tail gts))) copies
     return (fml, cMap)
@@ -159,26 +185,25 @@ makeStep rank spec player first (m1, m2, c) = do
             f <- leafToBottom spec player (rank-1)
             return (f, [])
 
-    g' <- goalFor player (g !! i)
+    g' <- liftE $ goalFor player (g !! i)
     goal <- if player == Existential
-        then disjunct [next, g']
-        else conjunct [next, g']
+        then liftE $ disjunct [next, g']
+        else liftE $ conjunct [next, g']
 
     let vh = if player == Existential then vu else vc
 
     m1' <- if player == first
-        then moveToExpression m1
-        else makeHatMove (vh !! i) m1
+        then liftE $ moveToExpression m1
+        else liftE $ makeHatMove (vh !! i) m1
 
     m2' <- if player == first
-        then makeHatMove (vh !! i) m2
-        else moveToExpression m2
+        then liftE $ makeHatMove (vh !! i) m2
+        else liftE $ moveToExpression m2
 
     let moves = catMaybes [m1', m2']
-    s <- conjunct ([t !! i, vu !! i, vc !! i, goal] ++ moves)
+    s <- liftE $ conjunct ([t !! i, vu !! i, vc !! i, goal] ++ moves)
     return (s, cmap)
 
-moveToExpression :: Monad m => Move -> ExpressionT m (Maybe Expression)
 moveToExpression Nothing    = return Nothing
 moveToExpression (Just a)   = do
     e <- assignmentToExpression a
@@ -202,6 +227,7 @@ makeHatMove valid m = do
 goalFor Existential g   = return g
 goalFor Universal g     = negation g
 
+leafToBottom :: CompiledSpec -> Player -> Int -> SolverT Expression
 leafToBottom spec player rank = do
     let CompiledSpec{..} = spec
     let i = rank - 1
@@ -209,18 +235,18 @@ leafToBottom spec player rank = do
     when (rank < 0) $ throwError "leafToBottom called on a tree that's too long"
 
     if rank == 0
-    then goalFor player (g !! 0)
+    then liftE $ goalFor player (g !! 0)
     else do
         goal <- if rank == 1
-            then goalFor player (g !! i)
+            then liftE $ goalFor player (g !! i)
             else do
                 next <- leafToBottom spec player (rank-1)
-                g' <- goalFor player (g !! i)
+                g' <- liftE $ goalFor player (g !! i)
                 if player == Existential
-                    then disjunct [next, g']
-                    else conjunct [next, g']
+                    then liftE $ disjunct [next, g']
+                    else liftE $ conjunct [next, g']
 
-        conjunct [t !! i, vu !! i, vc !! i, goal]
+        liftE $ conjunct [t !! i, vu !! i, vc !! i, goal]
 
 getMove player spec dMap copyMap model gt = do
     let vars = if player == Existential then cont spec else ucont spec
@@ -239,13 +265,17 @@ groupCrumb (m1:m2:ms)  = (m1,m2) : groupCrumb ms
 
 getVarsAtRank vars dMap model cpy rnk = do
     let vars' = map (\v -> v {rank = rnk}) vars
-    ve <- mapM lookupVar vars'
+    ve <- liftE $ mapM lookupVar vars'
     -- Lookup the dimacs equivalents
     let vd = zipMaybe1 (map (\v -> Map.lookup (cpy, exprIndex v) dMap) (catMaybes ve)) vars'
     -- Construct assignments
     return $ map (makeAssignment . (mapFst (\i -> model !! (i-1)))) vd
 
-throwError :: Monad m => String -> ExpressionT m a
-throwError = lift . left
+getConflicts vars dMap conflicts cpy rnk = do
+    let vs  = map (\v -> v {rank = rnk}) vars
+    ve      <- liftE $ mapM lookupVar vs
+    let vd  = zipMaybe1 (map (\v -> Map.lookup (cpy, exprIndex v) dMap) (catMaybes ve)) vs
+    let cs  = map (\c -> (abs c, c)) conflicts
+    let as  = map ((uncurry liftMFst) . mapFst (\i -> lookup i cs)) vd
+    return  $ map makeAssignment (catMaybes as)
 
-liftLog = lift . lift

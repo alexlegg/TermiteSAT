@@ -48,7 +48,7 @@ import Data.Maybe
 import Utils.Utils
 import Debug.Trace
 
-type ExpressionT m a = StateT ExprManager (EitherT String m) a
+type ExpressionT m = StateT ExprManager (EitherT String m)
 
 throwError :: Monad m => String -> ExpressionT m a
 throwError = lift . left
