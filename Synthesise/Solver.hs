@@ -133,10 +133,19 @@ printPartialAssignment vinfo as = interMap ", " (printPartialVar vinfo) (groupBy
     where f (Assignment _ x) (Assignment _ y) = varname x == varname y
 
 printPartialVar :: [VarInfo] -> [Assignment] -> String
-printPartialVar vinfo as = show size
+printPartialVar vinfo as = vname ++ " = " ++ show vals
     where
-        size = sz (fromJust (find (\v -> name v == aname (head as)) vinfo))
-        aname (Assignment _ v)  = varname v
+        vname   = let (Assignment _ v) = (head as) in varname v
+        size    = sz (fromJust (find (\v -> name v == vname) vinfo))
+        vals    = signsToVals 1 [0] (map f [0..size-1])
+        f b     = fmap (flipSign . sign) (find (\(Assignment s v) -> bit v == b) as)
+
+sign (Assignment s _) = s
+
+signsToVals v vs []                   = vs
+signsToVals v vs (Nothing: bs)        = signsToVals (v*2) (vs ++ map (+ v) vs) bs
+signsToVals v vs ((Just Pos): bs)     = signsToVals (v*2) (map (+ v) vs) bs
+signsToVals v vs ((Just Neg): bs)     = signsToVals (v*2) vs bs
 
 verify :: Player -> CompiledSpec -> Expression -> GameTree -> GameTree -> SolverT (Maybe GameTree)
 verify player spec s gt cand = do
