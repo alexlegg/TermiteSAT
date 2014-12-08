@@ -1,3 +1,6 @@
 [submodule "glucose"]
 	path = glucose
 	url = git@github.inside.nicta.com.au:alegg/glucose.git
+[submodule "periplo"]
+	path = periplo
+	url = git@github.inside.nicta.com.au:alegg/periplo.git
