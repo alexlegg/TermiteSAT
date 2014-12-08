@@ -20,6 +20,7 @@ module Synthesise.GameTree (
     , gtMovePairs
     , gtUnsetNodes
     , gtPrevState
+    , gtPrevStateGT
     , gtRebase
     , printTree
     , validTree
@@ -179,12 +180,15 @@ gtMove :: GameTree -> Move
 gtMove = snodeMove . followGTCrumb
 
 gtPrevState :: GameTree -> Move
-gtPrevState gt = snodeState $ prevStateNode gt (crumb gt)
+gtPrevState gt = snodeState $ followCrumb (root gt) (prevStateNode gt (crumb gt))
 
-prevStateNode :: GameTree -> [Int] -> SNode
+gtPrevStateGT :: GameTree -> GameTree
+gtPrevStateGT gt = setCrumb gt (prevStateNode gt (crumb gt))
+
+prevStateNode :: GameTree -> [Int] -> [Int]
 prevStateNode gt cr = case followCrumb (root gt) cr of
-    (SNode (E _ _))     -> followCrumb (root gt) (init cr)
-    (SNode (U _ _ _))   -> followCrumb (root gt) (init (init cr))
+    (SNode (E _ _))     -> init cr
+    (SNode (U _ _ _))   -> init (init cr)
 
 -- |Creates a new tree with the current node as its base
 gtRebase :: GameTree -> GameTree

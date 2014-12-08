@@ -18,6 +18,7 @@ import Expression.Compile
 import Expression.Expression
 import Expression.AST
 import Synthesise.GameTree
+import Synthesise.Strategy
 import SatSolver.SatSolver
 import Utils.Logger
 import Utils.Utils
@@ -93,6 +94,7 @@ findCandidate player spec s gt = do
         return (Just (merge (map (fixInitState init) paths)))
     else do
         mapM_ (learnStates spec player) (gtUnsetNodes gt)
+        computeCounterExample gt
         return Nothing
 
 merge (t:[]) = t
