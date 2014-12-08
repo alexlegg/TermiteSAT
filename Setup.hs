@@ -6,6 +6,7 @@ main = defaultMainWithHooks simpleUserHooks
         { preConf = \a b -> do
             makeGlucose a b
             makeGlucoseWrapper a b
+            makePeriploWrapper a b
             preConf simpleUserHooks a b
         }
 
@@ -16,3 +17,7 @@ makeGlucose _ flags =
 makeGlucoseWrapper _ flags =
     rawSystemExit (fromFlag $ configVerbosity flags) "make"
         ["--directory=glucose_wrapper"]
+
+makePeriploWrapper _ flags =
+    rawSystemExit (fromFlag $ configVerbosity flags) "make"
+        ["--directory=periplo_wrapper"]
