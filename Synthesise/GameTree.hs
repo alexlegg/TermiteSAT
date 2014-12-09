@@ -14,6 +14,7 @@ module Synthesise.GameTree (
     , gtCrumb
     , gtMoves
     , gtMove
+    , gtState
     , gtPathMoves
     , gtChildMoves
     , gtChildren
@@ -178,6 +179,9 @@ nodeMoves (c:cs) n  = snodeMove n : nodeMoves cs (children n !! c)
 -- |Returns the move at the current node
 gtMove :: GameTree -> Move
 gtMove = snodeMove . followGTCrumb
+
+gtState :: GameTree -> Move
+gtState = snodeState . followGTCrumb
 
 gtPrevState :: GameTree -> Move
 gtPrevState gt = snodeState $ followCrumb (root gt) (prevStateNode gt (crumb gt))

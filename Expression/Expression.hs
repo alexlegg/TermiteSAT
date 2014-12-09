@@ -81,6 +81,7 @@ data Expr   = ETrue
             | ELit ExprVar
             | ENot Var
             | ECopy Int [ExprVar] Var
+            | EPartition Var
             | EEquals Var Var
             | EConjunct [Var]
             | EDisjunct [Var]
