@@ -249,7 +249,7 @@ gtUnsetNodes gt = map (setCrumb gt) $ filter (not . null) $ map (firstUnsetNode 
 
 firstUnsetNode r cc cr
     | cc == length cr + 1                                   = []
-    | isNothing (snodeMove (followCrumb r (take cc cr)))   = take cc cr
+    | isNothing (snodeMove (followCrumb r (take cc cr)))    = take cc cr
     | otherwise                                             = firstUnsetNode r (cc + 1) cr
 
 -- |Filters moves not in the crumb out

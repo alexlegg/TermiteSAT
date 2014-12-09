@@ -1,6 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 module Synthesise.GameFormula (
       makeFml
+    , singleStep
     , groupCrumb
     ) where
 
@@ -68,6 +69,13 @@ makeStep rank spec player first (m1, m2, c) = do
             f <- leafToBottom spec player (rank-1)
             return (f, [])
 
+    s <- singleStep rank spec player first m1 m2 next
+    return (s, cmap)
+
+singleStep rank spec player first m1 m2 next = do
+    let CompiledSpec{..} = spec
+    let i = rank - 1
+
     g' <- liftE $ goalFor player (g !! i)
     goal <- if player == Existential
         then liftE $ disjunct [next, g']
@@ -86,8 +94,7 @@ makeStep rank spec player first (m1, m2, c) = do
     block <- blockLosingStates rank player
 
     let moves = catMaybes [m1', m2', block]
-    s <- liftE $ conjunct ([t !! i, vu !! i, vc !! i, goal] ++ moves)
-    return (s, cmap)
+    liftE $ conjunct ([t !! i, vu !! i, vc !! i, goal] ++ moves)
 
 blockLosingStates rank player = do
     LearnedStates{..} <- get

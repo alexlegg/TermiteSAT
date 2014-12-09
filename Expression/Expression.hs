@@ -30,7 +30,9 @@ module Expression.Expression (
     , falseExpr
     , literal
     , toDimacs
+    , partitionedDimacs
     , makeCopy
+    , makePartition
     , printExpression
     , makeAssignment
     , assignmentToExpression
@@ -309,22 +311,45 @@ linkNoRenames pc dMap ct = foldl (linkNoRenames (copyId ct)) dMap' (childCopies 
         
 toDimacs :: Monad m => Maybe [Assignment] -> Expression -> ExpressionT m (Map.Map (Int, Int) Int, [Int], [[Int]])
 toDimacs a e = do
-    ct                  <- partitionCopies e
-    let (_, copyTree)   = pushUpNoRenames ct
-    let exprs           = ungroupZip (unTree copyTree)
-
-    avs <- maybeM [] (mapM assignmentToVar) a
-
-    let dMap'   = zip (map (mapSnd index) exprs) [1..]
-    let dMap    = Map.fromList $ linkNoRenames 0 dMap' copyTree
+    (dMap, es)  <- makeDMap e
+    avs         <- maybeM [] (mapM assignmentToVar) a
 
     let ad  = filter (isJust . fst) $ map (\v -> (Map.lookup (0, (var v)) dMap, v)) avs
     let as  = map (\(Just d, v) -> if sign v == Pos then d else -d) ad
 
-    dimacs <- concatMapM (exprToDimacs dMap) exprs
+    dimacs <- concatMapM (exprToDimacs dMap) es
 
     let (Just de) = Map.lookup (baseExpr e) dMap
     return $ (dMap, as, [de] : dimacs)
+
+makeDMap e = do
+    ct                  <- partitionCopies e
+    let (_, copyTree)   = pushUpNoRenames ct
+    let exprs           = ungroupZip (unTree copyTree)
+
+    let dMap'   = zip (map (mapSnd index) exprs) [1..]
+    let dMap    = Map.fromList $ linkNoRenames 0 dMap' copyTree
+    return (dMap, exprs)
+    
+partitionedDimacs :: Monad m => Expression -> ExpressionT  m (Map.Map (Int, Int) Int, [[[Int]]])
+partitionedDimacs e = do
+    parts       <- partitionExprs Set.empty e
+    (dMap, es)  <- makeDMap e
+    dimacs      <- mapM (exprToDimacs dMap) es
+    return (dMap, dimacs)
+
+--FIXME will be confused by copies, need to return (c, e) pairs
+partitionExprs s e = case expr e of 
+    (EPartition v)  -> do
+        e' <- lookupExpression (var v)
+        s' <- partitionExprs Set.empty (fromJust e')
+        return (s : s')
+    expr            -> do
+        cs <- getChildren e
+        let merge (s:ss) c = do
+                s' <- partitionExprs s c
+                return $ s' ++ ss
+        foldlM merge [Set.insert expr s] cs
 
 exprToDimacs m (c, e) = do
     let (Just ind) = Map.lookup (c, (index e)) m
@@ -378,6 +403,10 @@ makeCopy d e = do
     put m { copyIndex = newCopy }
     e' <- addExpression (ECopy newCopy d (Var Pos (index e)))
     return (newCopy, e')
+
+makePartition :: Monad m => Expression -> ExpressionT m Expression
+makePartition e = do
+    addExpression (EPartition (Var Pos (index e)))
     
 -- |Contructs an assignment from a model-var pair
 makeAssignment :: (Int, ExprVar) -> Assignment
