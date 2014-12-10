@@ -31,6 +31,7 @@ addOption (InputFile fn) c  = c {tslFile = fn}
 addOption (Bound k) c       = c {bound = (read k)}
 
 main = do
+    putStrLn "TermiteSAT v0.1"
     config <- getConfig
 
     res <- case config of

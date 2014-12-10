@@ -38,7 +38,6 @@ solveAbstract player spec s gt = do
     liftLog $ logCandidate cand
     res <- refinementLoop player spec s cand gt gt
     liftLog $ logSolveComplete res
----    liftLog $ logDumpLog
     return res
 
 refinementLoop :: Player -> CompiledSpec -> Expression -> Maybe GameTree -> GameTree -> GameTree -> SolverT (Maybe GameTree)
@@ -75,7 +74,7 @@ findCandidate player spec s gt = do
         return (Just (merge (map (fixInitState init) paths)))
     else do
         mapM_ (learnStates spec player) (gtUnsetNodes gt)
-        computeCounterExample spec player gt
+---        computeCounterExample spec player gt
         return Nothing
 
 merge (t:[]) = t
@@ -84,6 +83,9 @@ merge (t:ts) = foldl mergeTrees t ts
 learnStates :: CompiledSpec -> Player -> GameTree -> SolverT ()
 learnStates spec player gt = do
     let gt'         = gtRebase gt
+
+    when (isNothing (gtPrevState gt)) $ throwError $ printTree gt ++ printTree gt'
+
     let (Just s)    = gtPrevState gt
     let rank        = gtBaseRank gt'
 
@@ -94,7 +96,7 @@ learnStates spec player gt = do
     res <- liftIO $ satSolve (maximum $ Map.elems dMap) a d
 
     if satisfiable res
-    then throwError $ "Not handling this case yet"
+    then liftIO $ putStrLn "Invalid Prefix"
     else do
         noAssumps <- liftIO $ satSolve (maximum $ Map.elems dMap) [] d
 

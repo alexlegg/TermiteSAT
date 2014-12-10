@@ -6,6 +6,9 @@ module SatSolver.Interpolator (
 
 import Foreign
 import Foreign.C.Types
+import Control.Monad.State
+
+type InterpolatorST m = StateT PeriploSolver m
 
 data PeriploSolver
 
@@ -14,11 +17,11 @@ data InterpolantResult = InterpolantResult {
     , interpolant   :: [[Int]]
 } deriving (Show, Eq)
 
-interpolate :: Int -> [[Int]] -> [[Int]] -> IO InterpolantResult
+interpolate :: MonadIO m => Int -> [[Int]] -> [[Int]] -> InterpolatorST m InterpolantResult
 interpolate max a b = do
-    solver <- c_periplo_new
+    solver <- liftIO $ c_periplo_new
 
-    c_periplo_delete solver 
+    liftIO $ c_periplo_delete solver 
 
     return $ InterpolantResult {
         success = False,

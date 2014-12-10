@@ -36,7 +36,7 @@ makeFml spec player s gt = do
     else do
         let cs      = concatMap (gtMovePairs . snd) (gtChildren root)
         steps       <- mapM (makeStep rank spec player (gtFirstPlayer gt)) cs
-        (fml, cMap) <- mergeRenamed spec rank (map thd3 cs) (map fst steps)
+        (fml, cMap) <- mergeRenamed spec rank (map fth4 cs) (map fst steps)
         fml'        <- liftE $ conjunct [fml, s']
 
         return (fml', cMap ++ concatMap snd steps)
@@ -50,7 +50,7 @@ mergeRenamed spec rank gts (f:fs) = do
     let cMap = zip (map (groupCrumb . gtCrumb) (map fromJust (tail gts))) copies
     return (fml, cMap)
 
-makeStep rank spec player first (m1, m2, c) = do
+makeStep rank spec player first (m1, m2, s, c) = do
     let CompiledSpec{..} = spec
     let i = rank - 1
 
@@ -63,7 +63,7 @@ makeStep rank spec player first (m1, m2, c) = do
                 return (f, [])
             else do
                 steps <- mapM (makeStep (rank-1) spec player first) cs
-                (f, cMap') <- mergeRenamed spec (rank-1) (map thd3 cs) (map fst steps)
+                (f, cMap') <- mergeRenamed spec (rank-1) (map fth4 cs) (map fst steps)
                 return (f, concatMap snd steps ++ cMap')
         else do
             f <- leafToBottom spec player (rank-1)
@@ -74,11 +74,11 @@ makeStep rank spec player first (m1, m2, c) = do
         then liftE $ disjunct [next, g']
         else liftE $ conjunct [next, g']
 
-    s <- singleStep rank spec player first m1 m2
-    f <- liftE $ conjunct [s, goal]
+    step    <- singleStep rank spec player first m1 m2 s
+    f       <- liftE $ conjunct [step, goal]
     return (f, cmap)
 
-singleStep rank spec player first m1 m2 = do
+singleStep rank spec player first m1 m2 s = do
     let CompiledSpec{..} = spec
     let i   = rank - 1
     let vh  = if player == Existential then vu else vc
@@ -90,6 +90,10 @@ singleStep rank spec player first m1 m2 = do
     m2' <- if player == first
         then liftE $ makeHatMove (vh !! i) m2
         else liftE $ moveToExpression m2
+
+---    s' <- if isJust m1' && isJust m2'
+---    then liftE $ moveToExpression s
+---    else return Nothing
 
     block <- blockLosingStates rank player
 

@@ -113,9 +113,10 @@ setMove s (SNode (SU _ n'))     = SNode (SU s n')
 setMove s (SNode (SE _ n'))     = SNode (SE s n')
 
 snodeState :: SNode -> Move
-snodeState (SNode (U _ s _))     = s
-snodeState (SNode (SE s _))      = s
-snodeState (SNode (SU s _))      = s
+snodeState (SNode (U _ s _))    = s
+snodeState (SNode (E _ _))      = Nothing
+snodeState (SNode (SU s _))     = s
+snodeState (SNode (SE s _))     = s
 
 data GameTree where
     ETree   :: Int -> [Int] -> Node RootNode Universal -> GameTree
@@ -176,6 +177,14 @@ nodeMoves :: [Int] -> SNode -> [Move]
 nodeMoves [] n      = [snodeMove n]
 nodeMoves (c:cs) n  = snodeMove n : nodeMoves cs (children n !! c)
 
+-- |Gets all the states leading to a node
+gtStates :: GameTree -> [Move]
+gtStates gt = nodeStates (crumb gt) (root gt)
+
+nodeStates :: [Int] -> SNode -> [Move]
+nodeStates [] n     = [snodeState n]
+nodeStates (c:cs) n = snodeState n : nodeStates cs (children n !! c)
+
 -- |Returns the move at the current node
 gtMove :: GameTree -> Move
 gtMove = snodeMove . followGTCrumb
@@ -216,10 +225,10 @@ getLeaves n
     | otherwise         = concatMap (\(i, c) -> map (i :) (getLeaves c)) (zip [0..] (children n))
 
 -- |If the GameTree is a single path return the moves
-gtPathMoves :: GameTree -> Maybe [Move]
+gtPathMoves :: GameTree -> Maybe [(Move, Move)]
 gtPathMoves gt = let leaves = gtLeaves gt in
     if length leaves == 1
-    then Just (gtMoves (head leaves))
+    then Just $ zip (gtMoves (head leaves)) (gtStates (head leaves))
     else Nothing
 
 followGTCrumb :: GameTree -> SNode
@@ -238,10 +247,16 @@ gtChildren gt = zipWith f (children (followGTCrumb gt)) [0..]
         f n i = (snodeMove n, setCrumb gt (crumb gt ++ [i]))
 
 -- |Groups moves by rank
-gtMovePairs :: GameTree -> [(Move, Move, Maybe GameTree)]
-gtMovePairs gt = case gtChildren gt of
-    []  -> [(snodeMove (followGTCrumb gt), Nothing, Nothing)]
-    cs  -> map (\(x, y) -> (snodeMove (followGTCrumb gt), x, Just y)) cs
+gtMovePairs :: GameTree -> [(Move, Move, Move, Maybe GameTree)]
+gtMovePairs gt = case (zip (children n) [0..]) of
+    []  -> [(snodeMove n, Nothing, Nothing, Nothing)]
+    cs  -> map (\(x, y) -> (snodeMove n, snodeMove x, stateFromPair n x, Just (setCrumb gt (crumb gt ++ [y])))) cs
+    where
+        n = followGTCrumb gt
+
+stateFromPair :: SNode -> SNode -> Move
+stateFromPair (SNode (E _ _)) (SNode (U _ s _)) = s
+stateFromPair (SNode (U _ s _)) (SNode (E _ _)) = s
 
 -- |Finds the first Nothing move
 gtUnsetNodes :: GameTree -> [GameTree]
@@ -354,16 +369,16 @@ update gt f = setRoot gt (doUpdate f (crumb gt))
         doUpdate f (c:cs) n = setChildren n (adjust (doUpdate f cs) c (children n))
 
 -- |Appends the first move in the list that is not already in the tree
-appendNextMove :: GameTree -> [Move] -> GameTree
-appendNextMove gt (m:ms) = setRoot gt (appendMove (baseRank gt * 2) ms)
+appendNextMove :: GameTree -> [(Move, Move)] -> GameTree
+appendNextMove gt (_:ms) = setRoot gt (appendMove (baseRank gt * 2) ms)
 
-appendMove :: Int -> [Move] -> SNode -> SNode
+appendMove :: Int -> [(Move, Move)] -> SNode -> SNode
 appendMove r [] n       = n
-appendMove r (m:ms) n 
+appendMove r ((m,s):ms) n 
     | isJust mi         = setChildren n (adjust (appendMove (r-1) ms) (fromJust mi) (children n))
     | otherwise         = if r <= 1
-                            then appendNode m Nothing n 
-                            else append2Nodes m Nothing n
+                            then appendNode m s n 
+                            else append2Nodes m s n
     where
         m2n         = zip (map snodeMove (children n)) (children n)
         unsetMove   = lookupIndex Nothing m2n

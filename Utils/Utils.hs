@@ -14,9 +14,8 @@ module Utils.Utils (
     , interMap
     , ungroupZip
     , paddedZip
-    , fst3 
-    , snd3
-    , thd3
+    , fst3 , snd3 , thd3
+    , fst4 , snd4 , thd4, fth4
     , unzipM
     , maybeM
     , floor2
@@ -105,6 +104,18 @@ snd3 (a, b, c) = b
 
 thd3 :: (a, b, c) -> c
 thd3 (a, b, c) = c
+
+fst4 :: (a, b, c, d) -> a
+fst4 (a, b, c, d) = a
+
+snd4 :: (a, b, c, d) -> b
+snd4 (a, b, c, d) = b
+
+thd4 :: (a, b, c, d) -> c
+thd4 (a, b, c, d) = c
+
+fth4 :: (a, b, c, d) -> d
+fth4 (a, b, c, d) = d
 
 unzipM :: Monad m => m [(a, b)] -> m ([a], [b])
 unzipM = liftM unzip
