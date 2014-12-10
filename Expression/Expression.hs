@@ -103,6 +103,7 @@ children (EFalse)           = []
 children (ELit _)           = []
 children (ENot v)           = [v]
 children (ECopy c _ v)      = [v]
+children (EPartition v)     = [v]
 children (EEquals x y)      = [x, y]
 children (EConjunct vs)     = vs
 children (EDisjunct vs)     = vs
@@ -293,6 +294,22 @@ partitionCopies = partition (emptyCopyTree 0 [])
                 cs <- getChildren e
                 foldlM partition t' cs
 
+partitionExprs c s e = case expr e of 
+    (EPartition v)  -> do
+        e' <- lookupExpression (var v)
+        s' <- partitionExprs c Set.empty (fromJust e')
+        return (s : s')
+    (ECopy c' _ v)  -> do
+        e' <- lookupExpression (var v)
+        partitionExprs c' s (fromJust e')
+    _               -> do
+        cs <- getChildren e
+        let merge (s:ss) child = do
+                s' <- partitionExprs c s child
+                return $ s' ++ ss
+        foldlM merge [Set.insert (c, e) s] cs
+
+
 pushUpNoRenames :: CopyTree -> (Set.Set Expression, CopyTree)
 pushUpNoRenames t = (push, t { expressions = Set.unions (left : pushed), childCopies = tc })
     where
@@ -333,23 +350,10 @@ makeDMap e = do
     
 partitionedDimacs :: Monad m => Expression -> ExpressionT  m (Map.Map (Int, Int) Int, [[[Int]]])
 partitionedDimacs e = do
-    parts       <- partitionExprs Set.empty e
     (dMap, es)  <- makeDMap e
-    dimacs      <- mapM (exprToDimacs dMap) es
+    parts       <- partitionExprs 0 Set.empty e
+    dimacs      <- mapM (concatMapM (exprToDimacs dMap) . Set.toList) parts
     return (dMap, dimacs)
-
---FIXME will be confused by copies, need to return (c, e) pairs
-partitionExprs s e = case expr e of 
-    (EPartition v)  -> do
-        e' <- lookupExpression (var v)
-        s' <- partitionExprs Set.empty (fromJust e')
-        return (s : s')
-    expr            -> do
-        cs <- getChildren e
-        let merge (s:ss) c = do
-                s' <- partitionExprs s c
-                return $ s' ++ ss
-        foldlM merge [Set.insert expr s] cs
 
 exprToDimacs m (c, e) = do
     let (Just ind) = Map.lookup (c, (index e)) m

@@ -6,4 +6,7 @@ typedef struct periplo_solver_t periplo_solver;
 periplo_solver  *periplo_new();
 void            periplo_delete(periplo_solver *s);
 
+Enode           *enodeTrue();
+Enode           *enodeFalse();
+
 #endif

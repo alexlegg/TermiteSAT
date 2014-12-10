@@ -5,11 +5,13 @@ module Synthesise.Strategy (
 import System.IO
 import Control.Monad.State
 import Data.Maybe
+import qualified Data.Map as Map
 
 import Synthesise.GameTree
 import Synthesise.GameFormula
 import Synthesise.SolverT
 import Expression.Expression
+import SatSolver.Interpolator
 
 computeCounterExample spec player gt = do
     if null (gtUnsetNodes gt)
@@ -31,14 +33,13 @@ nextState spec player state gt = do
     liftIO $ putStrLn $ (show m1) ++ " " ++ show m2 ++ "\n" ++ maybe "No child" printTree childGT
     let r = gtRank gt'
     let fp = gtFirstPlayer gt'
-    fakes           <- liftE $ trueExpr
     if isJust childGT
     then do
-        (next, cMap) <- makeFml spec player fakes (fromJust childGT)
-        next' <- liftE $ makePartition next
-        fml <- singleStep r spec player fp m1 m2 next
+        fmlA <- singleStep r spec player fp m1 m2
 
-        (dMap, d) <- liftE $ partitionedDimacs fml
+        fakes <- liftE $ trueExpr
+        (fmlB, _) <- makeFml spec player fakes (fromJust childGT)
+
         return ()
     else do
         return ()

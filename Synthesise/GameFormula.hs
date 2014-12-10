@@ -69,19 +69,19 @@ makeStep rank spec player first (m1, m2, c) = do
             f <- leafToBottom spec player (rank-1)
             return (f, [])
 
-    s <- singleStep rank spec player first m1 m2 next
-    return (s, cmap)
-
-singleStep rank spec player first m1 m2 next = do
-    let CompiledSpec{..} = spec
-    let i = rank - 1
-
     g' <- liftE $ goalFor player (g !! i)
     goal <- if player == Existential
         then liftE $ disjunct [next, g']
         else liftE $ conjunct [next, g']
 
-    let vh = if player == Existential then vu else vc
+    s <- singleStep rank spec player first m1 m2
+    f <- liftE $ conjunct [s, goal]
+    return (f, cmap)
+
+singleStep rank spec player first m1 m2 = do
+    let CompiledSpec{..} = spec
+    let i   = rank - 1
+    let vh  = if player == Existential then vu else vc
 
     m1' <- if player == first
         then liftE $ moveToExpression m1
@@ -94,7 +94,7 @@ singleStep rank spec player first m1 m2 next = do
     block <- blockLosingStates rank player
 
     let moves = catMaybes [m1', m2', block]
-    liftE $ conjunct ([t !! i, vu !! i, vc !! i, goal] ++ moves)
+    liftE $ conjunct ([t !! i, vu !! i, vc !! i] ++ moves)
 
 blockLosingStates rank player = do
     LearnedStates{..} <- get
