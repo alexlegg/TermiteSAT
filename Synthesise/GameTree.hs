@@ -13,6 +13,7 @@ module Synthesise.GameTree (
     , gtFirstPlayer
     , gtCrumb
     , gtMoves
+    , gtPlayerMoves
     , gtMove
     , gtState
     , gtPathMoves
@@ -177,6 +178,18 @@ nodeMoves :: [Int] -> SNode -> [Move]
 nodeMoves [] n      = [snodeMove n]
 nodeMoves (c:cs) n  = snodeMove n : nodeMoves cs (children n !! c)
 
+-- |Gets the moves for one player
+gtPlayerMoves :: Player -> GameTree -> [Move]
+gtPlayerMoves p gt = playerNodeMoves p (crumb gt) (root gt)
+
+playerNodeMoves :: Player -> [Int] -> SNode -> [Move]
+playerNodeMoves Existential [] (SNode (E m _))      = [m]
+playerNodeMoves Existential (c:cs) (SNode (E m ns)) = m : playerNodeMoves Existential cs (SNode (ns !! c))
+playerNodeMoves Universal [] (SNode (U m _ _))      = [m]
+playerNodeMoves Universal (c:cs) (SNode (U m _ ns)) = m : playerNodeMoves Universal cs (SNode (ns !! c))
+playerNodeMoves p [] _                              = []
+playerNodeMoves p (c:cs) n                          = playerNodeMoves p cs (children n !! c)
+
 -- |Gets all the states leading to a node
 gtStates :: GameTree -> [Move]
 gtStates gt = nodeStates (crumb gt) (root gt)
@@ -282,7 +295,9 @@ makePathTree gt = setCrumb (setRoot gt (makePN (crumb gt))) (replicate (length (
 fixPlayerMoves :: Player -> GameTree -> [([Assignment], [Assignment])] -> GameTree
 fixPlayerMoves p gt as = setRoot gt (fpm p as)
     where
-        fpm Existential ((m,_):as) (SNode (E _ ns))     = SNode (E (Just m) (mapNodes (fpm p as) ns))
+        fpm Existential ((m,s):as) (SNode (E _ ns))     = SNode (E (Just m) (mapNodes (fpm p ((m,s):as)) ns))
+        fpm Existential ((_,s):as) (SNode (U m _ ns))   = SNode (U m (Just s) (mapNodes (fpm p as) ns))
+
         fpm Universal ((m,s):as) (SNode (U _ _ ns))     = SNode (U (Just m) (Just s) (mapNodes (fpm p as) ns))
         fpm p as n                                      = setChildren n (map (fpm p as) (children n))
 
@@ -309,7 +324,7 @@ projectNodes (SNode (E m ns))   (SNode (E mp ps))
     | otherwise     = Nothing
 projectNodes (SNode (U m s ns)) (SNode (U mp sp ps))
     | isNothing m   = maybeProject (SNode (U mp sp [])) ns ps
-    | m == mp       = maybeProject (SNode (U m s [])) ns ps
+    | m == mp       = maybeProject (SNode (U m sp [])) ns ps
     | otherwise     = Nothing
 projectNodes (SNode (SE s ns))  (SNode (SE sp ps))
     | isNothing s   = maybeProject (SNode (SE sp [])) ns ps
