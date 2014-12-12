@@ -14,11 +14,14 @@ import Synthesise.GameTree
 import Expression.Expression
 import Control.Monad.State
 import Data.Maybe
+import Data.List
 import Utils.Utils
+import qualified Debug.Trace as D
 
 data SynthTrace = SynthTrace {
       input             :: GameTree
     , candidate         :: Maybe GameTree
+    , prevLearned       :: [String]
     , learned           :: Maybe String
     , player            :: Player
     , result            :: Maybe GameTree
@@ -57,6 +60,9 @@ htmlFooter = "</body></html>"
 outputHTML trace = "<div class=\"trace " ++ show (player trace) ++ "\">"
     ++ "<h3><button type=\"button\" class=\"shrink\">-</button> Trace for " ++ (show (player trace)) ++ "</h3><hr />"
     ++ "<div class=\"input gametree\"><h3>Input GT</h3><pre>" ++ printTree (input trace) ++ "</pre></div>"
+    ++ (if not (null (prevLearned trace))
+        then "<div class=\"previousLearning\"><h3>Previously Learnt</h3><pre>" ++ intercalate " " (prevLearned trace) ++ "</pre></div>"
+        else "")
     ++ "<div class=\"candidate gametree\"><h3>Candidate</h3><pre>" ++ maybe "Nothing" printTree (candidate trace) ++ "</pre></div>"
     ++ (if isJust (learned trace)
         then "<div class=\"learning\"><h3>Losing State</h3><pre>" ++ fromJust (learned trace) ++ "</pre></div>"
@@ -107,12 +113,13 @@ updateAt f [] t                     = f t
 updateAt f ((VerifyCrumb c i):cs) t = t { verification = adjust (adjust (updateAt f cs) i) c (verification t) }
 updateAt f ((RefineCrumb c):cs) t   = t { refinement = adjust (updateAt f cs) c (refinement t) }
 
-logSolve :: Monad m => GameTree -> Player -> LoggerT m ()
-logSolve gt player = do
+logSolve :: Monad m => GameTree -> Player -> [String] -> LoggerT m ()
+logSolve gt player pLearn = do
     (trace, crumb) <- get
     let newTrace = SynthTrace {
           input = gt
         , candidate = Nothing
+        , prevLearned = pLearn
         , learned = Nothing
         , player = player
         , result = Nothing

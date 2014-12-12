@@ -33,7 +33,8 @@ checkRank spec rnk s = do
 solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Maybe GameTree)
 solveAbstract player spec s gt = do
 ---    liftIO $ putStrLn ("Solve abstract for " ++ show player)
-    liftLog $ logSolve gt player
+    pLearn <- printLearnedStates spec player
+    liftLog $ logSolve gt player pLearn
     cand <- findCandidate player spec s gt
     liftLog $ logCandidate cand
     res <- refinementLoop player spec s cand gt gt
@@ -103,13 +104,23 @@ learnStates spec player gt = do
             c <- getConflicts (svars spec) dMap (fromJust (conflicts res)) 0 rank
             ls <- get
             liftLog $ logLosingState (printPartialAssignment (vinfo spec) c)
-            if player == Existential
-            then put $ ls { winningUn = Map.alter (\x -> Just (fromMaybe [] x ++ [c])) rank (winningUn ls) }
-            else put $ ls { winningEx = winningEx ls ++ [c] }
+            if null c
+            then liftIO $ putStrLn "SAT Solver is not giving us a conflict"
+            else do
+                if player == Existential
+                then put $ ls { winningUn = Map.alter (\x -> Just (fromMaybe [] x ++ [c])) rank (winningUn ls) }
+                else put $ ls { winningEx = winningEx ls ++ [c] }
         else do
             -- Player loses for all states here
             -- TODO Learn something
+            liftIO $ putStrLn $ "Lose all states"
             return ()
+
+printLearnedStates spec player = do
+    LearnedStates{..} <- get
+    if player == Existential
+    then return $ map (\(k, a) -> "rank " ++ show k ++ ": " ++ printPartialAssignment (vinfo spec) a) (ungroupZip (Map.toList winningUn))
+    else return $ map (printPartialAssignment (vinfo spec)) winningEx
 
 printPartialAssignment :: [VarInfo] -> [Assignment] -> String
 printPartialAssignment vinfo as = interMap ", " (printPartialVar vinfo) (groupBy f as)
