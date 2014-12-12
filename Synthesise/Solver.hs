@@ -105,7 +105,9 @@ learnStates spec player gt = do
             ls <- get
             liftLog $ logLosingState (printPartialAssignment (vinfo spec) c)
             if null c
-            then liftIO $ putStrLn "SAT Solver is not giving us a conflict"
+            then do
+                --This shouldn't really happen, I think the new glucose is to blame
+                liftIO $ putStrLn "SAT Solver is not giving us a conflict"
             else do
                 if player == Existential
                 then put $ ls { winningUn = Map.alter (\x -> Just (fromMaybe [] x ++ [c])) rank (winningUn ls) }
@@ -154,9 +156,14 @@ verifyLoop player spec s (i, gt) = do
     let oppGame = appendChild gt
     solveAbstract player spec s oppGame
 
-refine gt cex = case (gtPathMoves cex) of
-    (Just moves)    -> return $ appendNextMove gt moves
-    Nothing         -> throwError "Non-path cex given to refine"
+refine gt cex = do
+    liftIO $ putStrLn "============================="
+    liftIO $ putStrLn $ printTree gt
+    liftIO $ putStrLn $ printTree cex
+    let r = appendNextMove gt cex
+    liftIO $ putStrLn $ printTree r
+    liftIO $ putStrLn "============================="
+    return r
 
 getMove player spec dMap copyMap model gt = do
     let vars    = if player == Existential then cont spec else ucont spec

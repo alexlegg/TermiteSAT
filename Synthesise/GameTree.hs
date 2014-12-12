@@ -17,6 +17,7 @@ module Synthesise.GameTree (
     , gtMove
     , gtState
     , gtPathMoves
+    , gtMaxDepth
     , gtChildMoves
     , gtChildren
     , gtMovePairs
@@ -238,11 +239,19 @@ getLeaves n
     | otherwise         = concatMap (\(i, c) -> map (i :) (getLeaves c)) (zip [0..] (children n))
 
 -- |If the GameTree is a single path return the moves
-gtPathMoves :: GameTree -> Maybe [(Move, Move)]
-gtPathMoves gt = let leaves = gtLeaves gt in
-    if length leaves == 1
-    then Just $ zip (gtMoves (head leaves)) (gtStates (head leaves))
-    else Nothing
+gtPathMoves :: Int -> GameTree -> Maybe [(Move, Move)]
+gtPathMoves d gt = Just $ movesToDepth d (root gt)
+
+movesToDepth d n = case children n of
+    []      -> [(snodeMove n, snodeState n)]
+    (c:[])  -> (snodeMove n, snodeState n) : if d == 0 then [] else movesToDepth (d-1) c
+
+gtMaxDepth :: GameTree -> Int
+gtMaxDepth gt = nodeDepth 0 (root gt)
+
+nodeDepth d n = case children n of
+    []  -> d+1
+    cs  -> maximum $ map (nodeDepth (d+1)) cs
 
 followGTCrumb :: GameTree -> SNode
 followGTCrumb gt = followCrumb (root gt) (crumb gt)
@@ -384,22 +393,32 @@ update gt f = setRoot gt (doUpdate f (crumb gt))
         doUpdate f (c:cs) n = setChildren n (adjust (doUpdate f cs) c (children n))
 
 -- |Appends the first move in the list that is not already in the tree
-appendNextMove :: GameTree -> [(Move, Move)] -> GameTree
-appendNextMove gt (_:ms) = setRoot gt (appendMove (baseRank gt * 2) ms)
+appendNextMove :: GameTree -> GameTree -> GameTree
+appendNextMove gt cex = setRoot gt (appendMove (baseRank gt * 2) (root cex))
 
-appendMove :: Int -> [(Move, Move)] -> SNode -> SNode
-appendMove r [] n       = n
-appendMove r ((m,s):ms) n 
-    | isJust mi         = setChildren n (adjust (appendMove (r-1) ms) (fromJust mi) (children n))
-    | otherwise         = if r <= 1
-                            then appendNode m s n 
-                            else append2Nodes m s n
+appendMove :: Int -> SNode -> SNode -> SNode
+appendMove r cex n
+    | null cs           = n
+    | null ns && r <= 1 = appendNode (snodeMove (snd (head cs))) (snodeState (snd (head cs))) n
+    | null ns && r > 1  = append2Nodes (snodeMove (snd (head cs))) (snodeState (snd (head cs))) n
+    | otherwise         = setChildren n (foldl blah (children n) (map (getMatch . fst) cs))
     where
-        m2n         = zip (map snodeMove (children n)) (children n)
-        unsetMove   = lookupIndex Nothing m2n
-        mi          = if isJust unsetMove
-                        then unsetMove
-                        else lookupIndex m m2n
+        ns              = map (\c -> (snodeMove c, c)) (children n)
+        cs              = map (\c -> (snodeMove c, c)) (children cex)
+        unsetMove       = lookupIndex Nothing ns
+        getMatch x      = let (Just i) = maybe unsetMove Just (lookupIndex x ns) in (i, children n !! i)
+        blah ys (i, c)  = adjust (appendMove (r-1) c) i ys
+
+---    | isJust mi         = setChildren n (adjust (appendMove (r-1) ms) (fromJust mi) (children n))
+---    | otherwise         = if r <= 1
+---                            then appendNode m s n 
+---                            else append2Nodes m s n
+---    where
+---        m2n         = zip (map snodeMove (children n)) (children n)
+---        unsetMove   = lookupIndex Nothing m2n
+---        mi          = if isJust unsetMove
+---                        then unsetMove
+---                        else lookupIndex m m2n
 
 append2Nodes :: Move -> Move -> SNode -> SNode
 append2Nodes m' s' (SNode (E m ns))     = SNode (E m (ns ++ [U m' s' [E Nothing []]]))
