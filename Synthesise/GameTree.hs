@@ -398,27 +398,27 @@ appendNextMove gt cex = setRoot gt (appendMove (baseRank gt * 2) (root cex))
 
 appendMove :: Int -> SNode -> SNode -> SNode
 appendMove r cex n
-    | null cs           = n
-    | null ns && r <= 1 = appendNode (snodeMove (snd (head cs))) (snodeState (snd (head cs))) n
-    | null ns && r > 1  = append2Nodes (snodeMove (snd (head cs))) (snodeState (snd (head cs))) n
-    | otherwise         = setChildren n (foldl blah (children n) (map (getMatch . fst) cs))
+    | null cs   = n
+    | null ns   = addNew (snodeMove (head cs)) (snodeState (head cs)) n
+    | otherwise = foldl addMove (setChildren n (foldl recur (children n) ms)) nms
     where
-        ns              = map (\c -> (snodeMove c, c)) (children n)
-        cs              = map (\c -> (snodeMove c, c)) (children cex)
-        unsetMove       = lookupIndex Nothing ns
-        getMatch x      = let (Just i) = maybe unsetMove Just (lookupIndex x ns) in (i, children n !! i)
-        blah ys (i, c)  = adjust (appendMove (r-1) c) i ys
+        cs                  = children cex
+        ns                  = children n
+        moveEq x y          = snodeMove x == snodeMove y || snodeMove y == Nothing
+        (ms, nms)           = matchIndices moveEq (children cex) (children n)
+        recur ys (m, i)     = adjust (appendMove (r-1) m) i ys
+        addNew              = if r <= 1 then appendNode else append2Nodes
+        addMove x y         = addNew (snodeMove y) (snodeState y) x
 
----    | isJust mi         = setChildren n (adjust (appendMove (r-1) ms) (fromJust mi) (children n))
----    | otherwise         = if r <= 1
----                            then appendNode m s n 
----                            else append2Nodes m s n
----    where
----        m2n         = zip (map snodeMove (children n)) (children n)
----        unsetMove   = lookupIndex Nothing m2n
----        mi          = if isJust unsetMove
----                        then unsetMove
----                        else lookupIndex m m2n
+matchIndices :: (a -> a -> Bool) -> [a] -> [a] -> ([(a, Int)], [a])
+matchIndices _ [] _         = ([], [])
+matchIndices f (x:xs) ys    = if isJust m 
+    then mapFst (\ps -> ps ++ [(x, fromJust m)]) (matchIndices f xs ys)
+    else mapSnd (\ns -> ns ++ [x]) (matchIndices f xs ys)
+    where
+        m                   = match 0 x ys
+        match i a []        = Nothing
+        match i a (b:bs)    = if f a b then Just i else match (i+1) a bs
 
 append2Nodes :: Move -> Move -> SNode -> SNode
 append2Nodes m' s' (SNode (E m ns))     = SNode (E m (ns ++ [U m' s' [E Nothing []]]))
@@ -435,7 +435,7 @@ printNode t (SNode (U m s cs))  = tab t ++ "U " ++ printMove m ++ " | " ++ print
 printNode t (SNode (SE s cs))   = tab t ++ "SE " ++ printMove s ++ "\n" ++ concatMap (printNode (t+1)) (map SNode cs)
 printNode t (SNode (SU s cs))   = tab t ++ "SU " ++ printMove s ++ "\n" ++ concatMap (printNode (t+1)) (map SNode cs)
 
-tab ind = replicate (ind*2) ' '
+tab ind = concat (replicate ind "| ") ++ "|-"
 
 printMove :: Move -> String
 printMove Nothing   = "Nothing"

@@ -34,20 +34,32 @@ makeFml spec player s gt = do
 
         return (fml', [])
     else do
-        let cs      = concatMap (gtMovePairs . snd) (gtChildren root)
-        steps       <- mapM (makeStep rank spec player (gtFirstPlayer gt)) cs
-        (fml, cMap) <- mergeRenamed spec rank (map fth4 cs) (map fst steps)
+        let cs      = map (gtMovePairs . snd) (gtChildren root)
+        steps       <- mapM (mapM (makeStep rank spec player (gtFirstPlayer gt))) cs
+        (fml, cMap) <- mergeRenamed spec rank (map (map fth4) cs) (map (map fst) steps)
         fml'        <- liftE $ conjunct [fml, s']
 
-        return (fml', cMap ++ concatMap snd steps)
+        return (fml', cMap ++ concatMap (concatMap snd) steps)
 
-mergeRenamed spec rank gts (f:[]) = return (f, [])
-mergeRenamed spec rank gts (f:fs) = do
+mergeRenamed spec rank (gt:gts) (f:fs) = do
+    let (fgt:rgt)   = gt
+    let (ff:rf)     = f
+    (fmls, cMaps)   <- mergeSharedMove spec rank rgt rf
+    (fmls', cMaps') <- mergeRenamed' spec rank gts fs 
+    fml             <- liftE $ conjunct [ff, fmls, fmls']
+    return (fml, cMaps ++ cMaps')
+
+mergeRenamed' spec rank gts fs = do
+    (fmls, cMaps) <- unzipM $ zipWithM (mergeSharedMove spec rank) gts fs
+    fml <- liftE $ conjunct fmls
+    return (fml, concat cMaps)
+
+mergeSharedMove spec rank gts fs = do
     let dontRename  = map (setVarRank rank) (svars spec)
     (copies, fs')   <- liftE $ unzipM (mapM (makeCopy dontRename) fs)
-    fml             <- liftE $ conjunct (f : fs')
+    fml             <- liftE $ conjunct fs'
 
-    let cMap = zip (map (groupCrumb . gtCrumb) (map fromJust (tail gts))) copies
+    let cMap = zip (map (groupCrumb . gtCrumb) (map fromJust gts)) copies
     return (fml, cMap)
 
 makeStep rank spec player first (m1, m2, s, c) = do
@@ -56,15 +68,15 @@ makeStep rank spec player first (m1, m2, s, c) = do
 
     (next, cmap) <- if isJust c
         then do
-            let cs = concatMap (gtMovePairs . snd) (gtChildren (fromJust c))
+            let cs = map (gtMovePairs . snd) (gtChildren (fromJust c))
             if null cs
             then do
                 f <- leafToBottom spec player (rank-1)
                 return (f, [])
             else do
-                steps <- mapM (makeStep (rank-1) spec player first) cs
-                (f, cMap') <- mergeRenamed spec (rank-1) (map fth4 cs) (map fst steps)
-                return (f, concatMap snd steps ++ cMap')
+                steps <- mapM (mapM (makeStep (rank-1) spec player first)) cs
+                (f, cMap') <- mergeRenamed spec (rank-1) (map (map fth4) cs) (map (map fst) steps)
+                return (f, concatMap (concatMap snd) steps ++ cMap')
         else do
             f <- leafToBottom spec player (rank-1)
             return (f, [])
@@ -91,10 +103,7 @@ singleStep rank spec player first m1 m2 s = do
         then liftE $ makeHatMove (vh !! i) m2
         else liftE $ moveToExpression m2
 
----    s' <- if isJust m1' && isJust m2'
----    then liftE $ moveToExpression s
----    else return Nothing
-
+---    s' <- liftE $ moveToExpression s
     block <- blockLosingStates rank player
 
     let moves = catMaybes [m1', m2', block]

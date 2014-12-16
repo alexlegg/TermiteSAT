@@ -72,10 +72,13 @@ findCandidate player spec s gt = do
         let leaves      = gtLeaves gt
         init            <- getVarsAtRank (svars spec) dMap m 0 (gtBaseRank gt)
         moves           <- mapM (getMove player spec dMap copyMap m) leaves
+        let leafMoves = map (gtPlayerMoves player) leaves
+        let blah = map (uncurry zip) $ zip leafMoves (map (map (Just . fst)) moves)
+        liftIO $ mapM (mapM (\(x, y) -> if x == y || isNothing x then return () else putStrLn (show x ++ " != " ++ show y))) blah
         let paths       = zipWith (fixPlayerMoves player) (map makePathTree leaves) moves
         return (Just (merge (map (fixInitState init) paths)))
     else do
-        mapM_ (learnStates spec player) (gtUnsetNodes gt)
+---        mapM_ (learnStates spec player) (gtUnsetNodes gt)
 ---        computeCounterExample spec player gt
         return Nothing
 
@@ -146,7 +149,7 @@ signsToVals v vs ((Just Neg): bs)     = signsToVals (v*2) vs bs
 verify :: Player -> CompiledSpec -> Expression -> GameTree -> GameTree -> SolverT (Maybe GameTree)
 verify player spec s gt cand = do
     let og = projectMoves gt cand
-    when (not (isJust og)) $ throwError "Error projecting, moves didn't match"
+    when (not (isJust og)) $ throwError $ "Error projecting, moves didn't match\n" ++ printTree gt ++ printTree cand
     let leaves = filter ((/= 0) . gtRank) (map makePathTree (gtLeaves (fromJust og)))
     mapMUntilJust (verifyLoop (opponent player) spec s) (zip [0..] leaves)
 
@@ -157,12 +160,12 @@ verifyLoop player spec s (i, gt) = do
     solveAbstract player spec s oppGame
 
 refine gt cex = do
-    liftIO $ putStrLn "============================="
-    liftIO $ putStrLn $ printTree gt
-    liftIO $ putStrLn $ printTree cex
+---    liftIO $ putStrLn "============================="
+---    liftIO $ putStrLn $ printTree gt
+---    liftIO $ putStrLn $ printTree cex
     let r = appendNextMove gt cex
-    liftIO $ putStrLn $ printTree r
-    liftIO $ putStrLn "============================="
+---    liftIO $ putStrLn $ printTree r
+---    liftIO $ putStrLn "============================="
     return r
 
 getMove player spec dMap copyMap model gt = do
@@ -172,7 +175,6 @@ getMove player spec dMap copyMap model gt = do
     let rCopies = zip (copies ++ replicate (maxrnk - (length copies)) 0) (reverse [1..maxrnk])
     states      <- mapM (uncurry (getVarsAtRank (svars spec) dMap model)) (map (mapSnd (\r -> r - 1)) rCopies)
     moves       <- mapM (uncurry (getVarsAtRank vars dMap model)) rCopies
-
     return $ zip moves states
     where
         getCpy p crumb = p ++ [fromMaybe (last p) (lookup crumb copyMap)]

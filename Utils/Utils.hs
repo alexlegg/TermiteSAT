@@ -126,3 +126,4 @@ maybeM b f Nothing  = return b
 
 floor2 :: Int -> Int
 floor2 x = (quot x 2) * 2
+
