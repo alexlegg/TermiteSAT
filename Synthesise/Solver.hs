@@ -39,7 +39,7 @@ solveAbstract player spec s gt = do
     liftLog $ logCandidate cand
     res <- refinementLoop player spec s cand gt gt
     liftLog $ logSolveComplete res
----    liftLog logDumpLog
+    liftLog logDumpLog
     return res
 
 refinementLoop :: Player -> CompiledSpec -> Expression -> Maybe GameTree -> GameTree -> GameTree -> SolverT (Maybe GameTree)

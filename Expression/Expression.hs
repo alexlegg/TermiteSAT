@@ -291,20 +291,32 @@ partitionCopies = partition (emptyCopyTree 0 [])
                 foldlM partition t' cs
 
 pushUpNoRenames :: CopyTree -> (Set.Set Expression, CopyTree)
-pushUpNoRenames t = (push, t { expressions = Set.unions (left : pushed), childCopies = tc })
+pushUpNoRenames t = (push, t { expressions = left, childCopies = tc })
     where
         (pushed, tc)    = unzip $ map pushUpNoRenames (childCopies t)
-        (push, left)    = Set.partition isNoRename (expressions t)
+        (push, left)    = Set.partition isNoRename (Set.unions ((expressions t) : pushed))
         isNoRename e    = e `elem` (dontRename t)
 
 baseExpr e = case expr e of
     (ECopy c _ v)   -> (c, var v)
     _               -> (0, index e)
 
-linkNoRenames pc dMap ct = foldl (linkNoRenames (copyId ct)) dMap' (childCopies ct)
+---linkNoRenames pc dMap ct = foldl (linkNoRenames (copyId ct)) dMap' (childCopies ct)
+---    where
+---        dMap' = dMap ++ map (\(c, i) -> ((copyId ct, i), fromJust (lookup (c, i) dMap))) pushed
+---        pushed = map (\e -> (pc, index e)) (dontRename ct)
+
+linkNoRenames dMap t = (push, dMap' ++ pdMap)
     where
-        dMap' = dMap ++ map (\(c, i) -> ((copyId ct, i), fromJust (lookup (c, i) dMap))) pushed
-        pushed = map (\e -> (pc, index e)) (dontRename ct)
+        (pushed, cdm)   = unzip $ map (linkNoRenames dMap) (childCopies t)
+        pushed'         = concat $ zipWith (\tree es -> map (\e -> (copyId tree, index e)) es) (childCopies t) (map Set.toList pushed)
+        push            = Set.filter isNoRename (Set.unions ((expressions t) : pushed))
+        isNoRename e    = e `elem` (dontRename t)
+        dMap'           = dMap ++ concat cdm
+        pdMap           = map (\(c, i) -> ((c, i), blah (lookup (copyId t, i) dMap'))) pushed'
+
+blah (Just x)   = x
+blah Nothing    = error "BLah error"
         
 toDimacs :: Monad m => Maybe [Assignment] -> Expression -> ExpressionT m (Map.Map (Int, Int) Int, [Int], [[Int]])
 toDimacs a e = do
@@ -324,9 +336,14 @@ makeDMap e = do
     let (_, copyTree)   = pushUpNoRenames ct
     let exprs           = ungroupZip (unTree copyTree)
 
-    let dMap'   = zip (map (mapSnd index) exprs) [1..]
-    let dMap    = Map.fromList $ linkNoRenames 0 dMap' copyTree
-    return (dMap, exprs)
+    let dMap'       = zip (map (mapSnd index) exprs) [1..]
+    let (p, dMap)   = linkNoRenames dMap' ct
+    let pdMap       = map (\e -> ((0, index e), fromJust (lookup (copyId copyTree, index e) dMap))) (Set.toList p)
+    return (Map.fromList (dMap ++ pdMap), exprs)
+
+ctdepth ct 
+    | null (childCopies ct) = 1
+    | otherwise             = 1 + maximum (map ctdepth (childCopies ct))
     
 exprToDimacs m (c, e) = do
     let (Just ind) = Map.lookup (c, (index e)) m

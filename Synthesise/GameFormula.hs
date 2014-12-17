@@ -36,26 +36,46 @@ makeFml spec player s gt = do
     else do
         let cs      = map (gtMovePairs . snd) (gtChildren root)
         steps       <- mapM (mapM (makeStep rank spec player (gtFirstPlayer gt))) cs
-        (fml, cMap) <- mergeRenamed spec rank (map (map fth4) cs) (map (map fst) steps)
+        (fml, cMap) <- mergeRenamed player (gtFirstPlayer gt) spec rank (map (map fth4) cs) (map (map fst) steps)
         fml'        <- liftE $ conjunct [fml, s']
-
         return (fml', cMap ++ concatMap (concatMap snd) steps)
 
-mergeRenamed spec rank (gt:gts) (f:fs) = do
+mergeRenamed player fp spec rank (gt:gts) (f:fs) = do
+    let dontRename  = map (setVarRank rank) (svars spec)
     let (fgt:rgt)   = gt
     let (ff:rf)     = f
-    (fmls, cMaps)   <- mergeSharedMove spec rank rgt rf
-    (fmls', cMaps') <- mergeRenamed' spec rank gts fs 
-    fml             <- liftE $ conjunct [ff, fmls, fmls']
+    (fmls, cMaps)   <- mergeSharedMove player fp spec rank rgt rf
+    (fcpy, ffml)    <- if null rf
+                        then return ([], ff)
+                        else do
+                            c <- liftE $ conjunct [ff, fmls]
+                            (cpy, f) <- liftE $ makeCopy dontRename c
+                            return ([], f)
+
+    (fmls', cMaps') <- mergeRenamed' player fp spec rank gts fs 
+    fml             <- liftE $ conjunct [ffml, fmls']
     return (fml, cMaps ++ cMaps')
 
-mergeRenamed' spec rank gts fs = do
-    (fmls, cMaps) <- unzipM $ zipWithM (mergeSharedMove spec rank) gts fs
-    fml <- liftE $ conjunct fmls
-    return (fml, concat cMaps)
-
-mergeSharedMove spec rank gts fs = do
+mergeRenamed' _ _ _ _ [] [] = do
+    t <- liftE $ trueExpr
+    return (t, [])
+mergeRenamed' player fp spec rank gts fs = do
     let dontRename  = map (setVarRank rank) (svars spec)
+    (fmls, cMaps)   <- unzipM $ zipWithM (mergeSharedMove player fp spec rank) gts fs
+    fml             <- liftE $ conjunct fmls
+    (copy, fml')    <- liftE $ makeCopy dontRename fml
+    return (fml', concat cMaps)
+
+mergeSharedMove _ _ _ _ [] [] = do
+    t <- liftE $ trueExpr
+    return (t, [])
+mergeSharedMove player fp spec rank (gt:[]) (f:[]) = return (f, [])
+mergeSharedMove player fp spec rank gts fs = do
+    let statevars   = map (setVarRank rank) (svars spec)
+    let movevars    = if player == Existential
+                        then map (setVarRank rank) (cont spec)
+                        else map (setVarRank rank) (ucont spec)
+    let dontRename  = statevars ++ (if player == fp then movevars else [])
     (copies, fs')   <- liftE $ unzipM (mapM (makeCopy dontRename) fs)
     fml             <- liftE $ conjunct fs'
 
@@ -75,7 +95,7 @@ makeStep rank spec player first (m1, m2, s, c) = do
                 return (f, [])
             else do
                 steps <- mapM (mapM (makeStep (rank-1) spec player first)) cs
-                (f, cMap') <- mergeRenamed spec (rank-1) (map (map fth4) cs) (map (map fst) steps)
+                (f, cMap') <- mergeRenamed player first spec (rank-1) (map (map fth4) cs) (map (map fst) steps)
                 return (f, concatMap (concatMap snd) steps ++ cMap')
         else do
             f <- leafToBottom spec player (rank-1)
