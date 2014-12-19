@@ -16,7 +16,8 @@ data VarInfo = VarInfo {
     sz      :: Int,
     section :: Section,
     slice   :: Slice,
-    virank  :: Int
+    virank  :: Int,
+    enum    :: Maybe [(String, Int)]
 } deriving (Show, Eq)
 
 type Slice = Maybe (Int, Int)

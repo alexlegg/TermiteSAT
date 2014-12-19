@@ -5,15 +5,25 @@ module Synthesise.Synthesise (
 
 import Control.Monad.State
 import Control.Monad.Trans.Either
+import Data.Maybe
 
 import Utils.Logger
 import Expression.Parse
 import Expression.Compile
 import Expression.Expression
 import Synthesise.Solver
+import Expression.AST
 
 synthesise :: Int -> ParsedSpec -> EitherT String (LoggerT IO) Bool
 synthesise k spec = evalStateT (synthesise' k spec) emptyManager
+
+enumValidity vi@(VarInfo {enum = Nothing}) = return Nothing
+enumValidity vi@(VarInfo {enum = Just es}) = do
+    let vars = compileVar vi
+    let invalid = [(length es)..((2 ^ sz vi)-1)]
+    eqs <- mapM ((negation =<<) . equalsConstant vars) invalid
+    c <- conjunct eqs
+    return (Just c)
 
 synthesise' k spec = do
     let ParsedSpec{..} = spec
@@ -33,8 +43,13 @@ synthesise' k spec = do
     u_idle <- equalsConstant (map (\v -> v {rank = 1}) uvars) 0
     c_idle <- equalsConstant (map (\v -> v {rank = 1}) cvars) 0
 
-    vc <- equate c_idle u
-    vu <- implicate u =<< (negation u_idle)
+    cev <- mapM enumValidity contVars
+    uev <- mapM enumValidity ucontVars
+
+    vc' <- equate c_idle u
+    vc  <- conjunct (vc' : catMaybes cev)
+    vu' <- implicate u =<< (negation u_idle)
+    vu  <- conjunct (vu' : catMaybes uev)
 
     ts  <- iterateNM (k-1) unrollExpression t
     gs  <- iterateNM (k-1) unrollExpression g

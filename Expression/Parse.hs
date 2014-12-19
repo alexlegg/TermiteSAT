@@ -117,12 +117,17 @@ declToVarInfo sect decl = map mk (vars decl)
                 BoolType        -> 1
                 IntType sz      -> sz
                 EnumType es     -> ceiling (logBase 2 (fromIntegral (length es)))
+        enums = case varType decl of
+                BoolType        -> Nothing
+                IntType sz      -> Nothing
+                EnumType es     -> Just (zip es [0..])
         mk n = VarInfo {
                   name      = n
                 , sz        = size
                 , section   = sect
                 , slice     = Nothing
                 , virank    = 0
+                , enum      = enums
             }
 
 resolveTransLHS st (s, f) = f v
@@ -132,11 +137,12 @@ resolveTransLHS st (s, f) = f v
             sz = sz,
             section = sect,
             slice = Nothing,
-            virank = 0 }
-        (sect, sz) = case Map.lookup s st of
-            Nothing                 -> error "LHS of transition relation not in sym tab"
-            Just (Left (se, sz))    -> (se, sz)
-            Just (Right sz)         -> error ("LHS of transition relation right: " ++ show sz)
+            virank = 0,
+            enum = es }
+        (sect, sz, es) = case Map.lookup s st of
+            Nothing                     -> error "LHS of transition relation not in sym tab"
+            Just (Left (se, sz, es))    -> (se, sz, es)
+            Just (Right sz)             -> error ("LHS of transition relation right: " ++ show sz)
 
 --The lexer
 reservedNames = ["case", "true", "false", "else", "abs", "conc", "uint", "bool"]
@@ -234,7 +240,7 @@ spec = Spec <$> parseDecls <*> parseRels
 
 top = whiteSpace *> (spec <* eof)
 
-type SymTab = Map String (Either (Section, Int) Int)
+type SymTab = Map String (Either (Section, Int, Maybe [(String, Int)]) Int)
 
 resolve :: (Traversable t) => SymTab -> t (Either (String, Slice) Int) -> Either String (t (Either VarInfo Int))
 resolve = traverse . func
@@ -243,7 +249,7 @@ func :: SymTab -> Either (String, Slice) Int -> Either String (Either VarInfo In
 func mp lit = case lit of 
     Left (str, slice) -> case Map.lookup str mp of
         Nothing                     -> Left  $ "Var doesn't exist: " ++ str
-        Just (Left (sect, sz)) -> Right $ Left $ VarInfo str sz sect slice 1
+        Just (Left (sect, sz, es))  -> Right $ Left $ VarInfo str sz sect slice 1 es
         Just (Right c)              -> Right $ Right $ getBits slice c
     Right x -> Right $ Right x
 
@@ -259,7 +265,7 @@ doDecls sd ld od = fmapL ("Variable already exists: " ++) $ constructSymTab $ co
     where
     go sect (Decl vars vtype) = concatMap go' vars
         where
-        go' var = (var, Left (sect, sz)) : map (second Right) consts
+        go' var = (var, Left (sect, sz, (Just consts))) : map (second Right) consts
         sz      = doTypeSz vtype
         consts  = doTypeconsts vtype
 
