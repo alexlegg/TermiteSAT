@@ -149,7 +149,7 @@ signsToVals v vs ((Just Neg): bs)     = signsToVals (v*2) vs bs
 verify :: Player -> CompiledSpec -> Expression -> GameTree -> GameTree -> SolverT (Maybe GameTree)
 verify player spec s gt cand = do
     let og = projectMoves gt cand
-    when (not (isJust og)) $ throwError $ "Error projecting, moves didn't match\n" ++ printTree gt ++ printTree cand
+    when (not (isJust og)) $ throwError $ "Error projecting, moves didn't match\n" ++ printTree spec gt ++ printTree spec cand
     let leaves = filter ((/= 0) . gtRank) (map makePathTree (gtLeaves (fromJust og)))
     mapMUntilJust (verifyLoop (opponent player) spec s) (zip [0..] leaves)
 

@@ -69,6 +69,8 @@ synthesise' k spec = do
         , vinfo = vinfo
         }
 
+    lift $ lift $ logSpec cspec
+
     init <- compile init
     init <- setRank k init
 

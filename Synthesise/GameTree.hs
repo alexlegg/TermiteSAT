@@ -42,8 +42,11 @@ module Synthesise.GameTree (
 
 import Data.Maybe
 import Data.List
+import Data.Tuple (swap)
 import Utils.Utils
 import Expression.Expression
+import Expression.Compile
+import Expression.AST
 import Control.Monad
 import qualified Debug.Trace as D
 
@@ -426,30 +429,43 @@ append2Nodes m' _ (SNode (U m s ns))    = SNode (U m s (ns ++ [E m' [U Nothing N
 append2Nodes m' s' (SNode (SE s ns))    = SNode (SE s (ns ++ [U m' s' [E Nothing []]]))
 append2Nodes m' _ (SNode (SU s ns))     = SNode (SU s (ns ++ [E m' [U Nothing Nothing []]]))
 
-printTree :: GameTree -> String
-printTree gt = "---\n" ++ printNode 0 (root gt) ++ "---"
+printTree :: CompiledSpec -> GameTree -> String
+printTree spec gt = "---\n" ++ printNode spec 0 (root gt) ++ "---"
 
-printNode :: Int -> SNode -> String
-printNode t (SNode (E m cs))    = tab t ++ "E " ++ printMove m ++ "\n" ++ concatMap (printNode (t+1)) (map SNode cs)
-printNode t (SNode (U m s cs))  = tab t ++ "U " ++ printMove m ++ " | " ++ printMove s ++ "\n" ++ concatMap (printNode (t+1)) (map SNode cs)
-printNode t (SNode (SE s cs))   = tab t ++ "SE " ++ printMove s ++ "\n" ++ concatMap (printNode (t+1)) (map SNode cs)
-printNode t (SNode (SU s cs))   = tab t ++ "SU " ++ printMove s ++ "\n" ++ concatMap (printNode (t+1)) (map SNode cs)
+printNode :: CompiledSpec -> Int -> SNode -> String
+printNode spec t (SNode (E m cs))    = tab t ++ "E " ++ printMove spec m ++ "\n" ++ concatMap (printNode spec (t+1)) (map SNode cs)
+printNode spec t (SNode (U m s cs))  = tab t ++ "U " ++ printMove spec m ++ " | " ++ printMove spec s ++ "\n" ++ concatMap (printNode spec (t+1)) (map SNode cs)
+printNode spec t (SNode (SE s cs))   = tab t ++ "SE " ++ printMove spec s ++ "\n" ++ concatMap (printNode spec (t+1)) (map SNode cs)
+printNode spec t (SNode (SU s cs))   = tab t ++ "SU " ++ printMove spec s ++ "\n" ++ concatMap (printNode spec (t+1)) (map SNode cs)
 
 tab ind = concat (replicate ind "| ") ++ "|-"
 
-printMove :: Move -> String
-printMove Nothing   = "Nothing"
-printMove (Just as) = interMap ", " printVar vs
+printMove :: CompiledSpec -> Move -> String
+printMove spec Nothing   = "Nothing"
+printMove spec (Just as) = interMap ", " (printVar spec) vs
     where
         vs = groupBy f as
         f (Assignment _ x) (Assignment _ y) = varname x == varname y
 
-printVar :: [Assignment] -> String
-printVar as = nm (head as) ++ " = " ++ show (sum (map val as))
+printVar :: CompiledSpec -> [Assignment] -> String
+printVar spec as = vname ++ " = " ++ valsToEnums vi vals
     where
-        val (Assignment Pos v)  = 2 ^ bit v
-        val (Assignment Neg v)  = 0
-        nm (Assignment _ v)     = varname v ++ show (rank v)
+        vname   = let (Assignment _ v) = (head as) in varname v
+        vi      = fromJust (find (\v -> name v == vname) (vinfo spec))
+        vals    = signsToVals 1 [0] (map f [0..(sz vi)-1])
+        f b     = fmap sign (find (\(Assignment s v) -> bit v == b) as)
+
+sign (Assignment s _) = s
+
+signsToVals v vs []                   = vs
+signsToVals v vs (Nothing: bs)        = signsToVals (v*2) (vs ++ map (+ v) vs) bs
+signsToVals v vs ((Just Pos): bs)     = signsToVals (v*2) (map (+ v) vs) bs
+signsToVals v vs ((Just Neg): bs)     = signsToVals (v*2) vs bs
+
+valsToEnums VarInfo {enum = Nothing} (v:[])     = show v
+valsToEnums VarInfo {enum = Nothing} vs         = show vs
+valsToEnums VarInfo {enum = Just eMap} (v:[])   = fromJust (lookup v (map swap eMap))
+valsToEnums VarInfo {enum = Just eMap} vs       = "[" ++ interMap ", " (\v -> fromJust (lookup v (map swap eMap))) vs ++ "]"
 
 validTree :: GameTree -> Bool
 validTree gt = any ((/= Nothing) . snodeMove) $ map followGTCrumb (gtLeaves gt)
