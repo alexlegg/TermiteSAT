@@ -301,24 +301,26 @@ baseExpr e = case expr e of
     (ECopy c _ v)   -> (c, var v)
     _               -> (0, index e)
 
----linkNoRenames pc dMap ct = foldl (linkNoRenames (copyId ct)) dMap' (childCopies ct)
----    where
----        dMap' = dMap ++ map (\(c, i) -> ((copyId ct, i), fromJust (lookup (c, i) dMap))) pushed
----        pushed = map (\e -> (pc, index e)) (dontRename ct)
+linkNoRenames :: MonadIO m => [((Int, Int), Int)] -> CopyTree -> ExpressionT m ([(Int, Expression)], [((Int, Int), Int)])
+linkNoRenames dMap t = do
+    recur <- mapM (linkNoRenames dMap) (childCopies t)
+    let isNoRename e    = e `elem` (dontRename t)
+    let (pushed, cdm)   = unzip recur
+    let (kp, fp)        = partition (\(c, i) -> isNoRename i) (concat pushed)
+    let push            = Set.filter isNoRename (expressions t)
+    let push'           = map (\e -> (copyId t, e)) (Set.toList push) ++ kp ++ map (\(_, e) -> (copyId t, e)) kp
+    let dMap'           = dMap ++ concat cdm
+---    liftIO $ putStrLn "---s"
+---    liftIO $ putStrLn (show (copyId t))
+---    liftIO $ putStrLn (show (dontRename t))
+---    liftIO $ putStrLn (show (map (mapSnd index) fp))
+---    liftIO $ putStrLn (show (map (mapSnd index) kp))
+    let pdMap           = map (\(c, i) -> ((c, index i), fromJust (lookup (copyId t, index i) dMap'))) fp
+---    liftIO $ putStrLn (show pdMap)
+---    liftIO $ putStrLn "---"
+    return $ (push', dMap' ++ pdMap)
 
-linkNoRenames dMap t = (push, dMap' ++ pdMap)
-    where
-        (pushed, cdm)   = unzip $ map (linkNoRenames dMap) (childCopies t)
-        pushed'         = concat $ zipWith (\tree es -> map (\e -> (copyId tree, index e)) es) (childCopies t) (map Set.toList pushed)
-        push            = Set.filter isNoRename (Set.unions ((expressions t) : pushed))
-        isNoRename e    = e `elem` (dontRename t)
-        dMap'           = dMap ++ concat cdm
-        pdMap           = map (\(c, i) -> ((c, i), blah (lookup (copyId t, i) dMap'))) pushed'
-
-blah (Just x)   = x
-blah Nothing    = error "BLah error"
-        
-toDimacs :: Monad m => Maybe [Assignment] -> Expression -> ExpressionT m (Map.Map (Int, Int) Int, [Int], [[Int]])
+toDimacs :: MonadIO m => Maybe [Assignment] -> Expression -> ExpressionT m (Map.Map (Int, Int) Int, [Int], [[Int]])
 toDimacs a e = do
     (dMap, es)  <- makeDMap e
     avs         <- maybeM [] (mapM assignmentToVar) a
@@ -337,9 +339,8 @@ makeDMap e = do
     let exprs           = ungroupZip (unTree copyTree)
 
     let dMap'       = zip (map (mapSnd index) exprs) [1..]
-    let (p, dMap)   = linkNoRenames dMap' ct
-    let pdMap       = map (\e -> ((0, index e), fromJust (lookup (copyId copyTree, index e) dMap))) (Set.toList p)
-    return (Map.fromList (dMap ++ pdMap), exprs)
+    (_, dMap) <- linkNoRenames dMap' ct
+    return (Map.fromList dMap, exprs)
 
 ctdepth ct 
     | null (childCopies ct) = 1

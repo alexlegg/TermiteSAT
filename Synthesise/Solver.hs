@@ -175,6 +175,9 @@ getMove player spec dMap copyMap model gt = do
     let rCopies = zip (copies ++ replicate (maxrnk - (length copies)) 0) (reverse [1..maxrnk])
     states      <- mapM (uncurry (getVarsAtRank (svars spec) dMap model)) (map (mapSnd (\r -> r - 1)) rCopies)
     moves       <- mapM (uncurry (getVarsAtRank vars dMap model)) rCopies
+    let blah = makePathTree gt
+    when (any null moves) $ throwError ("Bad moves\n" ++ show rCopies)
+    when (null moves) $ throwError "No Moves"
     return $ zip moves states
     where
         getCpy p crumb = p ++ [fromMaybe (last p) (lookup crumb copyMap)]
@@ -182,9 +185,11 @@ getMove player spec dMap copyMap model gt = do
 getVarsAtRank vars dMap model cpy rnk = do
     let vars' = map (\v -> v {rank = rnk}) vars
     ve <- liftE $ mapM lookupVar vars'
+    when (any isNothing ve) $ throwError "Bad expression"
     -- Lookup the dimacs equivalents
     let vd = zipMaybe1 (map (\v -> Map.lookup (cpy, exprIndex v) dMap) (catMaybes ve)) vars'
     -- Construct assignments
+    when (null vd) $ throwError $ "Bad lookup\n" ++ show rnk ++ show (map (\v -> (cpy, exprIndex v, v)) (catMaybes ve))
     return $ map (makeAssignment . (mapFst (\i -> model !! (i-1)))) vd
 
 getConflicts vars dMap conflicts cpy rnk = do
