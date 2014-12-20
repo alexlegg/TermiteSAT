@@ -39,7 +39,7 @@ solveAbstract player spec s gt = do
     liftLog $ logCandidate cand
     res <- refinementLoop player spec s cand gt gt
     liftLog $ logSolveComplete res
-    liftLog logDumpLog
+---    liftLog logDumpLog
     return res
 
 refinementLoop :: Player -> CompiledSpec -> Expression -> Maybe GameTree -> GameTree -> GameTree -> SolverT (Maybe GameTree)
@@ -149,7 +149,7 @@ signsToVals v vs ((Just Neg): bs)     = signsToVals (v*2) vs bs
 verify :: Player -> CompiledSpec -> Expression -> GameTree -> GameTree -> SolverT (Maybe GameTree)
 verify player spec s gt cand = do
     let og = projectMoves gt cand
-    when (not (isJust og)) $ throwError $ "Error projecting, moves didn't match\n" ++ printTree spec gt ++ printTree spec cand
+    when (not (isJust og)) $ throwError $ "Error projecting, moves didn't match\n" ++ show player ++ printTree spec gt ++ printTree spec cand
     let leaves = filter ((/= 0) . gtRank) (map makePathTree (gtLeaves (fromJust og)))
     mapMUntilJust (verifyLoop (opponent player) spec s) (zip [0..] leaves)
 
@@ -159,20 +159,14 @@ verifyLoop player spec s (i, gt) = do
     let oppGame = appendChild gt
     solveAbstract player spec s oppGame
 
-refine gt cex = do
----    liftIO $ putStrLn "============================="
----    liftIO $ putStrLn $ printTree gt
----    liftIO $ putStrLn $ printTree cex
-    let r = appendNextMove gt cex
----    liftIO $ putStrLn $ printTree r
----    liftIO $ putStrLn "============================="
-    return r
+refine gt cex = return $ appendNextMove gt cex
 
 getMove player spec dMap copyMap model gt = do
     let vars    = if player == Existential then cont spec else ucont spec
     let maxrnk  = gtBaseRank gt
     let copies  = tail $ foldl getCpy [0] (tail (inits (groupCrumb (gtCrumb gt))))
-    let rCopies = zip (copies ++ replicate (maxrnk - (length copies)) 0) (reverse [1..maxrnk])
+    let copies' = if null copies then [0] else copies
+    let rCopies = zip (copies' ++ replicate (maxrnk - (length copies')) (last copies')) (reverse [1..maxrnk])
     states      <- mapM (uncurry (getVarsAtRank (svars spec) dMap model)) (map (mapSnd (\r -> r - 1)) rCopies)
     moves       <- mapM (uncurry (getVarsAtRank vars dMap model)) rCopies
     let blah = makePathTree gt
@@ -189,7 +183,7 @@ getVarsAtRank vars dMap model cpy rnk = do
     -- Lookup the dimacs equivalents
     let vd = zipMaybe1 (map (\v -> Map.lookup (cpy, exprIndex v) dMap) (catMaybes ve)) vars'
     -- Construct assignments
-    when (null vd) $ throwError $ "Bad lookup\n" ++ show rnk ++ show (map (\v -> (cpy, exprIndex v, v)) (catMaybes ve))
+    when (null vd) $ throwError $ "Bad lookup\n" ++ show cpy ++ "\n" ++ show rnk ++ show (map (\v -> (cpy, exprIndex v, v)) (catMaybes ve))
     return $ map (makeAssignment . (mapFst (\i -> model !! (i-1)))) vd
 
 getConflicts vars dMap conflicts cpy rnk = do
