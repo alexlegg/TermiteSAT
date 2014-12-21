@@ -72,9 +72,7 @@ findCandidate player spec s gt = do
         let leaves      = gtLeaves gt
         init            <- getVarsAtRank (svars spec) dMap m 0 (gtBaseRank gt)
         moves           <- mapM (getMove player spec dMap copyMap m) leaves
-        let leafMoves = map (gtPlayerMoves player) leaves
-        let blah = map (uncurry zip) $ zip leafMoves (map (map (Just . fst)) moves)
-        liftIO $ mapM (mapM (\(x, y) -> if x == y || isNothing x then return () else putStrLn (show x ++ " != " ++ show y))) blah
+        moves2          <- mapM (getMove (opponent player) spec dMap copyMap m) leaves
         let paths       = zipWith (fixPlayerMoves player) (map makePathTree leaves) moves
         return (Just (merge (map (fixInitState init) paths)))
     else do
@@ -134,10 +132,10 @@ printPartialAssignment vinfo as = interMap ", " (printPartialVar vinfo) (groupBy
 printPartialVar :: [VarInfo] -> [Assignment] -> String
 printPartialVar vinfo as = vname ++ " = " ++ show vals
     where
-        vname   = let (Assignment _ v) = (head as) in varname v
-        size    = sz (fromJust (find (\v -> name v == vname) vinfo))
-        vals    = signsToVals 1 [0] (map f [0..size-1])
-        f b     = fmap (flipSign . sign) (find (\(Assignment s v) -> bit v == b) as)
+        vname           = let (Assignment _ v) = (head as) in varname v
+        vals            = signsToVals 1 [0] (map f [0..(sz varinfo)-1])
+        f b             = fmap (flipSign . sign) (find (\(Assignment s v) -> bit v == b) as)
+        (Just varinfo)  = find (\v -> name v == vname) vinfo
 
 sign (Assignment s _) = s
 

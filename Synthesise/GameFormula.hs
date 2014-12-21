@@ -109,7 +109,6 @@ singleStep rank spec player first m1 m2 s = do
         then liftE $ makeHatMove (vh !! i) m2
         else liftE $ moveToExpression m2
 
----    s' <- liftE $ moveToExpression s
     block <- blockLosingStates rank player
 
     let moves = catMaybes [m1', m2', block]

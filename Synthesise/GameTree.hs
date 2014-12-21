@@ -448,12 +448,13 @@ printMove spec (Just as) = interMap ", " (printVar spec) vs
         f (Assignment _ x) (Assignment _ y) = varname x == varname y
 
 printVar :: CompiledSpec -> [Assignment] -> String
-printVar spec as = vname ++ " = " ++ valsToEnums vi vals
+printVar spec as = vname ++ show vrank ++ " = " ++ valsToEnums vi vals
     where
-        vname   = let (Assignment _ v) = (head as) in varname v
-        vi      = fromJust (find (\v -> name v == vname) (vinfo spec))
-        vals    = signsToVals 1 [0] (map f [0..(sz vi)-1])
-        f b     = fmap sign (find (\(Assignment s v) -> bit v == b) as)
+        vname       = let (Assignment _ v) = (head as) in varname v
+        vrank       = let (Assignment _ v) = (head as) in rank v
+        (Just vi)   = find (\v -> name v == vname) (vinfo spec)
+        vals        = signsToVals 1 [0] (map f [0..(sz vi)-1])
+        f b         = fmap sign (find (\(Assignment s v) -> bit v == b) as)
 
 sign (Assignment s _) = s
 
@@ -464,8 +465,8 @@ signsToVals v vs ((Just Neg): bs)     = signsToVals (v*2) vs bs
 
 valsToEnums VarInfo {enum = Nothing} (v:[])     = show v
 valsToEnums VarInfo {enum = Nothing} vs         = show vs
-valsToEnums VarInfo {enum = Just eMap} (v:[])   = fromJust (lookup v (map swap eMap))
-valsToEnums VarInfo {enum = Just eMap} vs       = "[" ++ interMap ", " (\v -> fromJust (lookup v (map swap eMap))) vs ++ "]"
+valsToEnums VarInfo {enum = Just eMap} (v:[])   = fromMaybe (show v) (lookup v (map swap eMap))
+valsToEnums VarInfo {enum = Just eMap} vs       = "[" ++ interMap ", " (\v -> fromMaybe (show v) (lookup v (map swap eMap))) vs ++ "]"
 
 validTree :: GameTree -> Bool
 validTree gt = any ((/= Nothing) . snodeMove) $ map followGTCrumb (gtLeaves gt)
