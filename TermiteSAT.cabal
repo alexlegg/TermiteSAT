@@ -29,6 +29,8 @@ executable TermiteSAT
                         , either
                         , monad-loops
                         , tuple
+                        , bytestring
+                        , blaze-html
   default-language:       Haskell2010
   extra-lib-dirs:         glucose_wrapper, periplo_wrapper
   extra-libraries:        glucose_wrapper

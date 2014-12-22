@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Utils.Logger (
       LoggerT(..)
     , printLog
@@ -15,13 +16,19 @@ import Synthesise.GameTree
 import Expression.Expression
 import Expression.Compile
 import Control.Monad.State
+import Control.Monad
 import Data.Maybe
 import Data.List
+import Data.String
+import qualified Data.ByteString as BS
+import Text.Blaze.Html5 as H
+import Text.Blaze.Html5.Attributes as A
+import Text.Blaze.Html.Renderer.Utf8
 import Utils.Utils
 import qualified Debug.Trace as D
 
 data SynthTrace = SynthTrace {
-      input             :: GameTree
+      inputGT           :: GameTree
     , candidate         :: Maybe GameTree
     , prevLearned       :: [String]
     , learned           :: Maybe String
@@ -42,47 +49,62 @@ type LoggerT m = StateT (Maybe SynthTrace, [TraceCrumb], Maybe CompiledSpec) m
 printLog :: LoggerT IO a -> IO (a)
 printLog logger = do
     (r, (trace, _, spec)) <- runStateT logger (Nothing, [], Nothing)
-    when (isJust trace && isJust spec) $ writeFile "debug.html" (htmlHeader ++ outputHTML (fromJust spec) (fromJust trace) ++ htmlFooter)
+    when (isJust trace && isJust spec) $ renderHtmlToByteStringIO (BS.writeFile "debug.html") (outputLog (fromJust spec) (fromJust trace))
     return r
 
 logDumpLog :: LoggerT IO ()
 logDumpLog = do
     (trace, _, spec) <- get
-    when (isJust trace && isJust spec) $ liftIO $ writeFile "debug_dump.html" (htmlHeader ++ outputHTML (fromJust spec) (fromJust trace) ++ htmlFooter)
+    when (isJust trace && isJust spec) $ liftIO $ renderHtmlToByteStringIO (BS.writeFile "debug_dump.html") (outputLog (fromJust spec) (fromJust trace))
 
-htmlHeader = "<html><head>"
-    ++ "<link rel=\"stylesheet\" href=\"debug.css\">"
-    ++ "<script src=\"http://code.jquery.com/jquery-1.11.0.min.js\"></script>"
-    ++ "<script src=\"http://code.jquery.com/jquery-migrate-1.2.1.min.js\"></script>"
-    ++ "<script src=\"debug.js\"></script>"
-    ++ "</head><body>"
+outputLog spec trace = H.docTypeHtml $ do
+    H.head $ do
+        H.title "TermiteSAT Trace"
+        link ! rel "stylesheet" ! href "debug.css"
+        script ! src "http://code.jquery.com/jquery-1.11.0.min.js" $ ""
+        script ! src "http://code.jquery.com/jquery-1.11.0.min.js" $ ""
+        script ! src "http://code.jquery.com/jquery-migrate-1.2.1.min.js" $ ""
+        script ! src "debug.js" $ ""
+    H.body (outputTrace spec trace)
+        
+outputTrace spec trace = H.div ! class_ (fromString ("trace " ++ (show (player trace)))) $ do
+    h3 $ do
+        button ! type_ "button" ! class_ "shrink" $ "-"
+        toHtml $ "Trace for " ++ show (player trace)
+    hr
+    H.div ! class_ "input gametree" $ do
+        h3 "Input GT"
+        pre $ toHtml (printTree spec (inputGT trace))
 
-htmlFooter = "</body></html>"
+        when (not (null (prevLearned trace))) $ H.div ! class_ "previousLearning" $ do
+            h3 "Previously Learnt"
+            pre $ toHtml (intercalate "\n" (prevLearned trace))
 
-outputHTML spec trace = "<div class=\"trace " ++ show (player trace) ++ "\">"
-    ++ "<h3><button type=\"button\" class=\"shrink\">-</button> Trace for " ++ (show (player trace)) ++ "</h3><hr />"
-    ++ "<div class=\"input gametree\"><h3>Input GT</h3><pre>" ++ printTree spec (input trace) ++ "</pre></div>"
-    ++ (if not (null (prevLearned trace))
-        then "<div class=\"previousLearning\"><h3>Previously Learnt</h3><pre>" ++ intercalate "\n" (prevLearned trace) ++ "</pre></div>"
-        else "")
-    ++ "<div class=\"candidate gametree\"><h3>Candidate</h3><pre>" ++ maybe "Nothing" (printTree spec) (candidate trace) ++ "</pre></div>"
-    ++ (if isJust (learned trace)
-        then "<div class=\"learning\"><h3>Losing State</h3><pre>" ++ fromJust (learned trace) ++ "</pre></div>"
-        else "")
-    ++ "<div class=\"verifyRefineLoop\">" ++ verifyRefineLoopHTML spec (paddedZip (verification trace) (refinement trace)) ++ "</div>"
-    ++ "<div class=\"result gametree\"><h3>Result</h3><pre>" ++ maybe "Nothing" (printTree spec) (result trace) ++ "</pre></div>"
-    ++ "</div>"
+        H.div ! class_ "candidate gametree" $ do
+            h3 "Candidate"
+            pre $ toHtml $ maybe "Nothing" (printTree spec) (candidate trace)
 
-verifyRefineLoopHTML spec [] = ""
-verifyRefineLoopHTML spec ((vs, r):vrs)   = "<hr />"
-    ++ verifyLoopHTML spec 1 vs
-    ++ maybe "" (\x -> "<div class=\"refinement\"><h3>Refinement</h3>" ++ outputHTML spec x ++ "</div>") r
-    ++ "<hr />"
-    ++ verifyRefineLoopHTML spec vrs
+        when (isJust (learned trace)) $ H.div ! class_ "learning" $ do
+            h3 "Losing States"
+            pre $ toHtml $ fromJust (learned trace)
 
-verifyLoopHTML spec _ []     = ""
-verifyLoopHTML spec i (v:vs) = "<div class=\"verification\"><h3>Verification " ++ show i ++ "</h3>" 
-    ++ outputHTML spec v ++ "</div>" ++ verifyLoopHTML spec (i+1) vs
+        H.div ! class_ "verifyRefineLoop" $ forM_ (paddedZip (verification trace) (refinement trace)) (outputVerifyRefine spec)
+
+        H.div ! class_ "result gametree" $ do
+            h3 "Result"
+            pre $ toHtml (maybe "Nothing" (printTree spec) (result trace))
+
+outputVerifyRefine spec (vs, r) = do
+    hr
+    forM_ (zip [0..] vs) $ \(i, v) -> do
+        H.div ! class_ "verification" $ do
+            h3 $ toHtml ("Verification " ++ show i)
+            outputTrace spec v
+
+    when (isJust r) $ H.div ! class_ "refinement" $ do
+        h3 "Refinement"
+        outputTrace spec (fromJust r)
+    hr
 
 insertAt :: SynthTrace -> [TraceCrumb] -> SynthTrace -> SynthTrace
 insertAt x [] t             = x
@@ -119,7 +141,7 @@ logSolve :: Monad m => GameTree -> Player -> [String] -> LoggerT m ()
 logSolve gt player pLearn = do
     (trace, crumb, spec) <- get
     let newTrace = SynthTrace {
-          input = gt
+          inputGT = gt
         , candidate = Nothing
         , prevLearned = pLearn
         , learned = Nothing

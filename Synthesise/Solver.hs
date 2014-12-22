@@ -145,25 +145,6 @@ printLearnedStates spec player = do
     then return $ map (\(k, a) -> "rank " ++ show k ++ ": " ++ printMove spec (Just a)) (ungroupZip (Map.toList winningUn))
     else return $ map (printMove spec . Just) winningEx
 
-printPartialAssignment :: [VarInfo] -> [Assignment] -> String
-printPartialAssignment vinfo as = interMap ", " (printPartialVar vinfo) (groupBy f as)
-    where f (Assignment _ x) (Assignment _ y) = varname x == varname y
-
-printPartialVar :: [VarInfo] -> [Assignment] -> String
-printPartialVar vinfo as = vname ++ " = " ++ show vals
-    where
-        vname           = let (Assignment _ v) = (head as) in varname v
-        vals            = signsToVals 1 [0] (map f [0..(sz varinfo)-1])
-        f b             = fmap (flipSign . sign) (find (\(Assignment s v) -> bit v == b) as)
-        (Just varinfo)  = find (\v -> name v == vname) vinfo
-
-sign (Assignment s _) = s
-
-signsToVals v vs []                   = vs
-signsToVals v vs (Nothing: bs)        = signsToVals (v*2) (vs ++ map (+ v) vs) bs
-signsToVals v vs ((Just Pos): bs)     = signsToVals (v*2) (map (+ v) vs) bs
-signsToVals v vs ((Just Neg): bs)     = signsToVals (v*2) vs bs
-
 verify :: Player -> CompiledSpec -> Expression -> GameTree -> GameTree -> SolverT (Maybe GameTree)
 verify player spec s gt cand = do
     let og = projectMoves gt cand
