@@ -117,7 +117,7 @@ singleStep rank spec player first m1 m2 s = do
 blockLosingStates rank player = do
     LearnedStates{..} <- get
     let block = if player == Existential
-        then fromMaybe [] (Map.lookup rank winningUn)
+        then fromMaybe [] (Map.lookup (rank - 1) winningUn)
         else winningEx
 
     if null block

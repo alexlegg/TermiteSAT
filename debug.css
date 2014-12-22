@@ -2,6 +2,7 @@ div.trace {
     border: 1px solid black;
     margin-left: 5px;
     padding: 10px;
+    display: inline-block;
 }
 
 .Existential {

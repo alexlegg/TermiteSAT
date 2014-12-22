@@ -21,10 +21,13 @@ enumValidity vi@(VarInfo {enum = Nothing}) = return Nothing
 enumValidity vi@(VarInfo {enum = Just es}) = do
     let vars = compileVar vi
     let invalid = [(length es)..((2 ^ sz vi)-1)]
-    eqs <- mapM ((negation =<<) . equalsConstant vars) invalid
-    c <- conjunct eqs
-    c' <- setRank 1 c
-    return (Just c')
+    if null invalid
+    then return Nothing
+    else do 
+        eqs <- mapM ((negation =<<) . equalsConstant vars) invalid
+        c <- conjunct eqs
+        c' <- setRank 1 c
+        return (Just c')
 
 synthesise' k spec = do
     let ParsedSpec{..} = spec

@@ -63,7 +63,7 @@ outputHTML spec trace = "<div class=\"trace " ++ show (player trace) ++ "\">"
     ++ "<h3><button type=\"button\" class=\"shrink\">-</button> Trace for " ++ (show (player trace)) ++ "</h3><hr />"
     ++ "<div class=\"input gametree\"><h3>Input GT</h3><pre>" ++ printTree spec (input trace) ++ "</pre></div>"
     ++ (if not (null (prevLearned trace))
-        then "<div class=\"previousLearning\"><h3>Previously Learnt</h3><pre>" ++ intercalate " " (prevLearned trace) ++ "</pre></div>"
+        then "<div class=\"previousLearning\"><h3>Previously Learnt</h3><pre>" ++ intercalate "\n" (prevLearned trace) ++ "</pre></div>"
         else "")
     ++ "<div class=\"candidate gametree\"><h3>Candidate</h3><pre>" ++ maybe "Nothing" (printTree spec) (candidate trace) ++ "</pre></div>"
     ++ (if isJust (learned trace)
