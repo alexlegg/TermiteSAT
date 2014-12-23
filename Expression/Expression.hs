@@ -76,6 +76,8 @@ data Sign = Pos | Neg deriving (Show, Eq, Ord)
 flipSign Pos = Neg
 flipSign Neg = Pos
 
+flipAssignment (Assignment s v) = Assignment (flipSign s) v
+
 data Expr   = ETrue
             | EFalse
             | ELit ExprVar
@@ -411,7 +413,7 @@ assignmentToExpression as = do
 
 blockAssignment :: Monad m => [Assignment] -> ExpressionT m Expression
 blockAssignment as = do
-    vs <- mapM assignmentToVar as
+    vs <- mapM (assignmentToVar . flipAssignment) as
     addExpression (EDisjunct vs)
 
 assignmentToVar :: Monad m => Assignment -> ExpressionT m Var

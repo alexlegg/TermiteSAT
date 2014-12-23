@@ -35,18 +35,6 @@ extern "C" {
     bool addClause(glucose_solver *s)
     {
         bool r = s->addClause(s->clause);
-
-///        if (!s->okay()) {
-///            printf("Bad clause\n");
-///            for (int i = 0; i != s->clause.size(); ++i)
-///            {
-///                if (sign(s->clause[i])) printf("-");
-///                printf("%d ", var(s->clause[i]));
-///            }
-///            printf("\n");
-///            printf("Bad clause\n");
-///        }
-
         s->clause.clear();
         return r;
     }
@@ -59,6 +47,53 @@ extern "C" {
     bool solve(glucose_solver *s)
     {
         return s->solve(s->assumps);
+    }
+
+    int *minimise_core(glucose_solver *s)
+    {
+        vec<bool> marks(s->assumps.size());
+        for (int i = 0; i != marks.size(); ++i)
+        {
+            marks[i] = false;
+        }
+
+        for (int i = 0; i != s->assumps.size(); ++i)
+        {
+            vec<Lit> curr_assumps;
+            for (int j = 0; j != marks.size(); ++j)
+            {
+                if (i == j) continue; //Omit current lit
+                if (marks[j]) continue; //Omit previously marked lits
+                curr_assumps.push(s->assumps[j]);
+            }
+
+            if (!s->solve(curr_assumps))
+            {
+                marks[i] = true;
+            }
+        }
+
+        int core_size = 0;
+        for (int i = 0; i != marks.size(); ++i)
+        {
+            if (!marks[i]) core_size++;
+        }
+
+        int *core = (int *)malloc(sizeof(int) * (1 + core_size));
+        int ci = 0;
+        for (int i = 0; i != marks.size(); ++i)
+        {
+            if (!marks[i]) {
+                if (sign(s->assumps[i])) {
+                    core[ci] = -var(s->assumps[i]);
+                } else {
+                    core[ci] = var(s->assumps[i]);
+                }
+                ci++;
+            }
+        }
+        core[ci] = 0;
+        return core;
     }
 
     int *model(glucose_solver *s)
@@ -90,10 +125,10 @@ extern "C" {
         {
             Lit lit = s->conflict[i];
             if (sign(lit)) {
-                conflicts[mi] = -var(lit);
+                conflicts[mi] = var(lit);
                 mi++;
             } else {
-                conflicts[mi] = var(lit);
+                conflicts[mi] = -var(lit);
                 mi++;
             }
         }

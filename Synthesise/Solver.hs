@@ -72,7 +72,6 @@ findCandidate player spec s gt = do
         let leaves      = gtLeaves gt
         init            <- getVarsAtRank (svars spec) dMap m 0 (gtBaseRank gt)
         moves           <- mapM (getMove player spec dMap copyMap m) leaves
-        moves2          <- mapM (getMove (opponent player) spec dMap copyMap m) leaves
         let paths       = zipWith (fixPlayerMoves player) (map makePathTree leaves) moves
         return (Just (merge (map (fixInitState init) paths)))
     else do
@@ -95,13 +94,13 @@ learnStates spec player gt = do
 
     res <- liftIO $ satSolve (maximum $ Map.elems dMap) a d
 
-    when (not (satisfiable res)) $ do
+    when (unsatisfiable res) $ do
         noAssumps <- liftIO $ satSolve (maximum $ Map.elems dMap) [] d
 
         if (satisfiable noAssumps)
         then do
-            c <- getConflicts (svars spec) dMap (fromJust (conflicts res)) 0 rank
-            when (null c) $ throwError "SAT Solver not giving a conflict"
+            core <- liftIO $ minimiseCore (maximum $ Map.elems dMap) (fromJust (conflicts res)) d
+            c <- getConflicts (svars spec) dMap core 0 rank
 
             ls <- get
             if player == Existential
@@ -142,7 +141,6 @@ getMove player spec dMap copyMap model gt = do
     let rCopies = zip (copies' ++ replicate (maxrnk - (length copies')) (last copies')) (reverse [1..maxrnk])
     states      <- mapM (uncurry (getVarsAtRank (svars spec) dMap model)) (map (mapSnd (\r -> r - 1)) rCopies)
     moves       <- mapM (uncurry (getVarsAtRank vars dMap model)) rCopies
-    let blah = makePathTree gt
     when (any null moves) $ throwError ("Bad moves\n" ++ show rCopies)
     when (null moves) $ throwError "No Moves"
     return $ zip moves states

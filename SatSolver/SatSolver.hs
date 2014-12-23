@@ -1,7 +1,9 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
 module SatSolver.SatSolver (
-    SatResult(..),
-    satSolve
+      SatResult(..)
+    , unsatisfiable
+    , satSolve
+    , minimiseCore
     ) where
 
 import Foreign
@@ -16,6 +18,9 @@ data SatResult = SatResult {
     model           :: Maybe [Int],
     conflicts       :: Maybe [Int]
     } deriving (Show, Eq)
+
+unsatisfiable :: SatResult -> Bool
+unsatisfiable = not . satisfiable
 
 satSolve :: Int -> [Int] -> [[Int]] -> IO SatResult
 satSolve max assumptions clauses = do
@@ -51,6 +56,24 @@ satSolve max assumptions clauses = do
         model = fmap (map fromIntegral) model,
         conflicts = fmap (map fromIntegral) conflicts
         }
+
+minimiseCore :: Int -> [Int] -> [[Int]] -> IO [Int]
+minimiseCore max assumptions clauses = do
+    solver <- c_glucose_new
+
+    replicateM_ (max+1) (c_glucose_addVar solver)
+
+    addAssumptions solver assumptions
+
+    allM (addClause solver) clauses
+
+    core_ptr <- c_minimise_core solver
+    core <- peekArray0 0 core_ptr
+    free core_ptr
+
+    c_glucose_delete solver
+
+    return $ map fromIntegral core
 
 addAssumptions solver ass = do
     forM_ ass (c_addAssumption solver . fromIntegral)
@@ -91,6 +114,9 @@ foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h addClause"
 
 foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h solve"
     c_solve :: Ptr GlucoseSolver -> IO Bool
+
+foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h minimise_core"
+    c_minimise_core :: Ptr GlucoseSolver -> IO (Ptr CInt)
 
 foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h model"
     c_model :: Ptr GlucoseSolver -> IO (Ptr CInt)
