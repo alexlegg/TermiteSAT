@@ -84,9 +84,9 @@ extern "C" {
     int *conflicts(glucose_solver *s)
     {
         int *conflicts = (int *)malloc(sizeof(int) * (1 + s->conflict.size()));
-        int mi = 0;
 
-        for (int i = 1; i < s->conflict.size(); ++i)
+        int mi = 0;
+        for (int i = 0; i < s->conflict.size(); ++i)
         {
             Lit lit = s->conflict[i];
             if (sign(lit)) {

@@ -95,44 +95,18 @@ learnStates spec player gt = do
 
     res <- liftIO $ satSolve (maximum $ Map.elems dMap) a d
 
-    if satisfiable res
-    then liftIO $ putStrLn "Invalid Prefix"
-    else do
+    when (not (satisfiable res)) $ do
         noAssumps <- liftIO $ satSolve (maximum $ Map.elems dMap) [] d
 
         if (satisfiable noAssumps)
         then do
-            --Since we can't rely on conflicts any more, just use assumptions
+            c <- getConflicts (svars spec) dMap (fromJust (conflicts res)) 0 rank
+            when (null c) $ throwError "SAT Solver not giving a conflict"
 
-            c <- getConflicts (svars spec) dMap (map negate a) 0 rank
             ls <- get
-            liftLog $ logLosingState (printMove spec (Just c))
             if player == Existential
             then put $ ls { winningUn = Map.alter (\x -> Just (fromMaybe [] x ++ [c])) rank (winningUn ls) }
             else put $ ls { winningEx = winningEx ls ++ [c] }
-
----            c <- getConflicts (svars spec) dMap (fromJust (conflicts res)) 0 rank
----            ls <- get
----            liftLog $ logLosingState (printMove spec (Just c))
----            if null c
----            then do
----                --This shouldn't really happen, I think the new glucose is to blame
----                liftIO $ putStrLn "SAT Solver is not giving us a conflict"
----            else do
----                liftIO $ putStrLn (printMove spec (Just c))
----                if player == Existential
----                then put $ ls { winningUn = Map.alter (\x -> Just (fromMaybe [] x ++ [c])) rank (winningUn ls) }
----                else put $ ls { winningEx = winningEx ls ++ [c] }
-
----                blah <- liftIO $ satSolve (maximum $ Map.elems dMap) (map negate (fromJust (conflicts res))) d
----                if satisfiable blah
----                then do
----                    let leaves      = gtLeaves gt'
----                    let m           = fromJust (model blah)
----                    moves   <- mapM (getMove player spec dMap copyMap m) leaves
----                    moves2  <- mapM (getMove (opponent player) spec dMap copyMap m) leaves
----                    liftIO $ mapM_ (mapM_ (putStrLn . printMove spec . Just . fst)) moves
----                else return ()
         else do
             -- Player loses for all states here
             -- TODO Learn something

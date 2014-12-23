@@ -20,6 +20,7 @@ import Control.Monad
 import Data.Maybe
 import Data.List
 import Data.String
+import System.IO
 import qualified Data.ByteString as BS
 import Text.Blaze.Html5 as H
 import Text.Blaze.Html5.Attributes as A
@@ -49,13 +50,18 @@ type LoggerT m = StateT (Maybe SynthTrace, [TraceCrumb], Maybe CompiledSpec) m
 printLog :: LoggerT IO a -> IO (a)
 printLog logger = do
     (r, (trace, _, spec)) <- runStateT logger (Nothing, [], Nothing)
-    when (isJust trace && isJust spec) $ renderHtmlToByteStringIO (BS.writeFile "debug.html") (outputLog (fromJust spec) (fromJust trace))
+    when (isJust trace && isJust spec) $ do
+        putStrLn "Printing final log to debug.html"
+        withFile "debug.html" WriteMode $ \h -> do
+            renderHtmlToByteStringIO (BS.hPut h) (outputLog (fromJust spec) (fromJust trace))
     return r
 
 logDumpLog :: LoggerT IO ()
 logDumpLog = do
     (trace, _, spec) <- get
-    when (isJust trace && isJust spec) $ liftIO $ renderHtmlToByteStringIO (BS.writeFile "debug_dump.html") (outputLog (fromJust spec) (fromJust trace))
+    when (isJust trace && isJust spec) $ liftIO $ do
+        withFile "debug_dump.html" WriteMode $ \h -> do
+            renderHtmlToByteStringIO (BS.hPut h) (outputLog (fromJust spec) (fromJust trace))
 
 outputLog spec trace = H.docTypeHtml $ do
     H.head $ do
