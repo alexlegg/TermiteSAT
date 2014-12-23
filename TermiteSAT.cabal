@@ -17,6 +17,7 @@ cabal-version:       >=1.10
 
 executable TermiteSAT
   main-is:                Main.hs
+
   build-depends:          base >=4.7 && <4.8
                         , mtl >=2.2.1
                         , parsec >= 3.1 && <3.2
@@ -31,7 +32,42 @@ executable TermiteSAT
                         , tuple
                         , bytestring
                         , blaze-html
+
   default-language:       Haskell2010
+
+  extra-lib-dirs:         glucose_wrapper, periplo_wrapper
+  extra-libraries:        glucose_wrapper
+                        , periplo_wrapper
+                        , stdc++
+                        , gmpxx
+                        , gmp
+
+executable TermiteSAT-prof
+  main-is:                Main.hs
+
+  ghc-options:          -O2
+                        -threaded
+                        -fprof-auto
+                        -prof
+                        "-with-rtsopts=-N -p -s -h -i0.1"
+
+  build-depends:          base >=4.7 && <4.8
+                        , mtl >=2.2.1
+                        , parsec >= 3.1 && <3.2
+                        , errors
+                        , containers
+                        , text
+                        , wl-pprint
+                        , wl-pprint-text
+                        , transformers
+                        , either
+                        , monad-loops
+                        , tuple
+                        , bytestring
+                        , blaze-html
+
+  default-language:       Haskell2010
+
   extra-lib-dirs:         glucose_wrapper, periplo_wrapper
   extra-libraries:        glucose_wrapper
                         , periplo_wrapper
