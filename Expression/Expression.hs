@@ -31,6 +31,7 @@ module Expression.Expression (
     , literal
     , toDimacs
     , makeCopy
+    , clearCopies
     , printExpression
     , makeAssignment
     , assignmentToExpression
@@ -119,6 +120,8 @@ setChildren (EDisjunct _) vs    = EDisjunct vs
 data ExprManager = ExprManager {
     maxIndex        :: Int,
     exprMap         :: Map.Map Int Expr,
+    depMap          :: Map.Map Int (Set.Set Int),
+    copies          :: [Int],
     indexMap        :: Map.Map Expr Int,
     copyIndex       :: Int
 } deriving (Eq)
@@ -133,7 +136,7 @@ data Section = StateVar | ContVar | UContVar | HatVar
 
 data Assignment = Assignment Sign ExprVar deriving (Eq, Ord)
 
-emptyManager = ExprManager { maxIndex = 3, exprMap = Map.empty, indexMap = Map.empty, copyIndex = 0 }
+emptyManager = ExprManager { maxIndex = 3, exprMap = Map.empty, depMap = Map.empty, copies = [], indexMap = Map.empty, copyIndex = 0 }
 
 addExpression :: Monad m => Expr -> ExpressionT m Expression
 addExpression e = do
@@ -141,9 +144,11 @@ addExpression e = do
     case Map.lookup e indexMap of
         Nothing -> do
             let i = maxIndex
+            let deps = Set.unions $ catMaybes (map (\x -> Map.lookup (var x) depMap) (children e))
             put m {
                 maxIndex    = maxIndex+1,
                 exprMap     = Map.insert i e exprMap,
+                depMap      = Map.insert i (Set.insert i deps) depMap,
                 indexMap    = Map.insert e i indexMap}
             return $ Expression { index = i, expr = e }
         Just i -> do
@@ -167,6 +172,11 @@ getChildren :: Monad m => Expression -> ExpressionT m [Expression]
 getChildren e = do
     es <- mapM (lookupExpression . var) (children (expr e))
     return (catMaybes es)
+
+getDependencies :: Monad m => Int -> ExpressionT m (Set.Set Int)
+getDependencies i = do
+    ExprManager{..} <- get
+    return $ fromMaybe Set.empty (Map.lookup i depMap)
 
 foldlExpression :: Monad m => (a -> Expression -> a) -> a -> Expression -> ExpressionT m a
 foldlExpression f x e = do
@@ -258,8 +268,8 @@ literal = addExpression . ELit
 
 data CopyTree = CopyTree {
       copyId        :: Int
-    , dontRename    :: [Expression]
-    , expressions   :: Set.Set Expression
+    , dontRename    :: [Int]
+    , expressions   :: Set.Set Int
     , childCopies   :: [CopyTree]
 }
 
@@ -277,22 +287,49 @@ insertExpression t e = t { expressions = Set.insert e (expressions t) }
 unTree t = (copyId t, Set.toList (expressions t)) : concatMap unTree (childCopies t)
 
 -- Takes an expression tree and partitions it into sets of espressions of the same copy
-partitionCopies :: Monad m => Expression -> ExpressionT m CopyTree
-partitionCopies = partition (emptyCopyTree 0 [])
-    where 
-        partition t e = case expr e of
-            (ECopy c d e)  -> do
-                d' <- mapM lookupVar d
-                let newNode = emptyCopyTree c (catMaybes d')
-                (Just e') <- lookupExpression (var e)
-                n <- partition newNode e'
-                return $ insertNode t n
-            e'              -> do
-                let t' = insertExpression t e
-                cs <- getChildren e
-                foldlM partition t' cs
+---partitionCopies :: Monad m => Expression -> ExpressionT m CopyTree
+---partitionCopies e = partition (emptyCopyTree 0 []) e
+---    where 
+---        partition t e = case expr e of
+---            (ECopy c d e)  -> do
+---                d' <- mapM lookupVar d
+---                let newNode = emptyCopyTree c (catMaybes d')
+---                (Just e') <- lookupExpression (var e)
+---                n <- partition newNode e'
+---                return $ insertNode t n
+---            e'              -> do
+---                let t' = insertExpression t e
+---                cs <- getChildren e
+---                ds <- getDependencies (index e)
+---                foldlM partition t' cs
 
-pushUpNoRenames :: CopyTree -> (Set.Set Expression, CopyTree)
+partitionCopies :: Monad m => Int -> ExpressionT m CopyTree
+partitionCopies i = do
+    ds              <- getDependencies i
+    copies          <- getCopies
+    let childCopies = filter (\x -> Set.member x ds && x /= i) copies
+    cds             <- mapM getDependencies childCopies
+    let thisCopy    = Set.difference ds (Set.unions cds)
+    ccs             <- mapM partitionCopies childCopies
+    (Just e)        <- lookupExpression i
+    case expr e of
+        (ECopy copyId dr _) -> do
+            dr' <- mapM lookupVar dr
+            return $ CopyTree {
+                  copyId        = copyId
+                , dontRename    = map index (catMaybes dr')
+                , expressions   = trace (show thisCopy) $ Set.delete i thisCopy
+                , childCopies   = ccs
+            }
+        noncopy -> return $ CopyTree {
+              copyId        = 0
+            , dontRename    = []
+            , expressions   = thisCopy
+            , childCopies   = ccs
+        }
+
+
+pushUpNoRenames :: CopyTree -> (Set.Set Int, CopyTree)
 pushUpNoRenames t = (push, t { expressions = left, childCopies = tc })
     where
         (pushed, tc)    = unzip $ map pushUpNoRenames (childCopies t)
@@ -303,7 +340,8 @@ baseExpr e = case expr e of
     (ECopy c _ v)   -> (c, var v)
     _               -> (0, index e)
 
-linkNoRenames :: MonadIO m => [((Int, Int), Int)] -> CopyTree -> ExpressionT m ([(Int, Expression)], [((Int, Int), Int)])
+--TODO this functions seems to be pure
+linkNoRenames :: MonadIO m => [((Int, Int), Int)] -> CopyTree -> ExpressionT m ([(Int, Int)], [((Int, Int), Int)])
 linkNoRenames dMap t = do
     recur <- mapM (linkNoRenames dMap) (childCopies t)
     let isNoRename e    = e `elem` (dontRename t)
@@ -312,14 +350,7 @@ linkNoRenames dMap t = do
     let push            = Set.filter isNoRename (expressions t)
     let push'           = map (\e -> (copyId t, e)) (Set.toList push) ++ kp ++ map (\(_, e) -> (copyId t, e)) kp
     let dMap'           = dMap ++ concat cdm
----    liftIO $ putStrLn "---s"
----    liftIO $ putStrLn (show (copyId t))
----    liftIO $ putStrLn (show (dontRename t))
----    liftIO $ putStrLn (show (map (mapSnd index) fp))
----    liftIO $ putStrLn (show (map (mapSnd index) kp))
-    let pdMap           = map (\(c, i) -> ((c, index i), fromJust (lookup (copyId t, index i) dMap'))) fp
----    liftIO $ putStrLn (show pdMap)
----    liftIO $ putStrLn "---"
+    let pdMap           = map (\(c, i) -> ((c, i), fromJust (lookup (copyId t, i) dMap'))) fp
     return $ (push', dMap' ++ pdMap)
 
 toDimacs :: MonadIO m => Maybe [Assignment] -> Expression -> ExpressionT m (Map.Map (Int, Int) Int, [Int], [[Int]])
@@ -336,11 +367,11 @@ toDimacs a e = do
     return $ (dMap, as, [de] : dimacs)
 
 makeDMap e = do
-    ct                  <- partitionCopies e
+    ct                  <- partitionCopies (index e)
     let (_, copyTree)   = pushUpNoRenames ct
     let exprs           = ungroupZip (unTree copyTree)
 
-    let dMap'       = zip (map (mapSnd index) exprs) [1..]
+    let dMap'       = zip exprs [1..]
     (_, dMap) <- linkNoRenames dMap' ct
     return (Map.fromList dMap, exprs)
 
@@ -349,9 +380,10 @@ ctdepth ct
     | otherwise             = 1 + maximum (map ctdepth (childCopies ct))
     
 exprToDimacs m (c, e) = do
-    let (Just ind) = Map.lookup (c, (index e)) m
-    cs <- mapM (makeChildVar m c) (children (expr e))
-    return $ makeDimacs (expr e) ind cs
+    let (Just ind) = Map.lookup (c, e) m
+    (Just e') <- lookupExpression e
+    cs <- mapM (makeChildVar m c) (children (expr e'))
+    return $ makeDimacs (expr e') ind cs
 
 makeChildVar m c (Var s i) = do
     (Just e) <- lookupExpression i
@@ -371,6 +403,7 @@ makeDimacs e i cs = case e of
                         [i, (lit a), (lit b)], [i, -(lit a), -(lit b)]]
     (EConjunct _)   -> (i : (map (negate . lit) cs)) : (map (\c -> [-i, (lit c)]) cs)
     (EDisjunct _)   -> (-i : map lit cs) : (map (\c -> [i, -(lit c)]) cs)
+    (ECopy _ _ _)   -> error "Copy in makeDimacs"
     where
         (x:_)   = cs
         (a:b:_) = cs
@@ -397,9 +430,22 @@ makeCopy :: Monad m => [ExprVar] -> Expression -> ExpressionT m (Int, Expression
 makeCopy d e = do
     m@ExprManager{..} <- get
     let newCopy = copyIndex + 1
-    put m { copyIndex = newCopy }
     e' <- addExpression (ECopy newCopy d (Var Pos (index e)))
+
+    m <- get
+    put m { copies = (index e') : copies, copyIndex = newCopy }
+
     return (newCopy, e')
+
+getCopies :: Monad m => ExpressionT m [Int]
+getCopies = do
+    m <- get
+    return (copies m)
+
+clearCopies :: Monad m => ExpressionT m ()
+clearCopies = do
+    m <- get
+    put m { copies = [], copyIndex = 0 }
 
 -- |Contructs an assignment from a model-var pair
 makeAssignment :: (Int, ExprVar) -> Assignment

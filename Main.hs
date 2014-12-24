@@ -2,6 +2,7 @@
 
 import System.Environment
 import System.Console.GetOpt
+import System.TimeIt
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
@@ -32,6 +33,9 @@ addOption (Bound k) c       = c {bound = (read k)}
 
 main = do
     putStrLn "TermiteSAT v0.1"
+    timeIt $ mainTimed
+
+mainTimed = do
     config <- getConfig
 
     res <- case config of
