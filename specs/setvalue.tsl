@@ -1,0 +1,48 @@
+STATE
+
+value1 : {value1_notset, value1_A, value1_B};
+value2 : {value2_notset, value2_A, value2_B};
+nextmove : {A_player, B_player};
+
+LABEL
+a_player_move : {a_idle, set1A, set2A};
+
+OUTCOME
+b_player_move : {b_idle, set1B, set2B};
+
+INIT
+
+value1 == value1_notset &&
+value2 == value2_notset &&
+nextmove == A_player
+
+GOAL
+value1 == value1_A && value2 != value2_B
+
+FAIR
+nextmove == B_player
+
+CONT
+false
+
+LABELCONSTRAINTS
+false
+
+TRANS
+
+nextmove := case {
+    nextmove == A_player : B_player;
+    nextmove == B_player : A_player;
+};
+
+value1 := case {
+    value1 == value1_notset && nextmove == A_player && a_player_move == set1A       : value1_A;
+    value1 == value1_notset && nextmove == B_player && b_player_move == set1B       : value1_B;
+    true : value1;
+};
+
+value2 := case {
+    value2 == value2_notset && nextmove == A_player && a_player_move == set2A       : value2_A;
+    value2 == value2_notset && nextmove == B_player && b_player_move == set2B       : value2_B;
+    true : value2;
+};

@@ -1,0 +1,43 @@
+STATE /* State vars (universally quanitifed) */
+x : uint<2>;
+
+LABEL /* Controllable vars */
+/* When all controllable vars == 0, this player is idle */
+c : uint<1>;
+
+OUTCOME /* Uncontrollable vars */
+/* When all uncontrollable vars == 0, this player is idle */
+u : uint<1>;
+
+INIT /* Initial condition */
+x == 0
+
+GOAL /* Goal condition */
+x == 3
+
+FAIR /* uncontrollable transition available */
+/* In these states the controllable player must be idle */
+x == 0
+
+CONT /* Does nothing */
+c == 1
+
+LABELCONSTRAINTS /* Does nothing */
+false
+
+TRANS /* Transition relation */
+{
+    /* At the initial state (x==0) the universal player chooses the next state to 
+       be (x==1), (x==2) or (x==3). In (x==1) the controllable player must select
+       to (c==1) to win, in (x==2) they must select (c==2) to win. All other 
+       selections result in x remaining in its current state.
+    */
+    x := case {
+        x == 0 && u == 1 : 1;
+
+        x == 1 && c == 1 : 3;
+
+        true : x;
+    }
+
+}

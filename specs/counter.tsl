@@ -1,0 +1,82 @@
+/* Simple counter, can easily be scaled up
+
+Synthesises at k=9
+One step to set the value.
+Then existential player matches it in the counter, incrementing by 1 at every step.
+Looks a bit messy because sliced variables can't be used on the left hand side of assignments.
+*/
+
+STATE
+control         : {init, counting, complete};
+counter0        : uint<1>;
+counter1        : uint<1>;
+counter2        : uint<1>;
+counter3        : uint<1>;
+value           : uint<4>;
+
+LABEL
+tag             : {idle, increment, done}
+
+OUTCOME
+set_value       : uint<4>;
+
+INIT
+control == init &&
+counter0 == 0 &&
+counter1 == 0 &&
+counter2 == 0 &&
+counter3 == 0
+
+GOAL
+control == complete
+
+FAIR
+control == init
+
+CONT
+false
+
+LABELCONSTRAINTS
+false
+
+TRANS
+
+control := case {
+    control == init                                         : counting;
+    control == counting && tag == done && 
+    counter0 == value[0:0] && counter1 == value[1:1] &&
+    counter2 == value[2:2] && counter3 == value[3:3]        : complete;
+    true                                                    : control;
+};
+
+value := case {
+    control == init : set_value;
+    true            : value;
+};
+
+counter0 := case {
+    tag == increment && counter0 == 0     : 1;
+    tag == increment && counter0 == 1     : 0;
+    true                                    : counter0;
+};
+
+counter1 := case {
+    tag == increment && counter0 == 0                     : counter1;
+    tag == increment && counter0 == 1 && counter1 == 0  : 1;
+    tag == increment && counter0 == 1 && counter1 == 1  : 0;
+    true                                                    : counter1;
+};
+
+counter2 := case {
+    tag == increment && counter1 == 0                     : counter2;
+    tag == increment && counter1 == 1 && counter2 == 0  : 1;
+    tag == increment && counter1 == 1 && counter2 == 1  : 0;
+    true                                                    : counter2;
+};
+
+counter3 := case {
+    tag == increment && counter2 == 0                     : counter3;
+    tag == increment && counter2 == 1 && counter3 == 0  : 1;
+    tag == increment && counter2 == 1 && counter3 == 1  : 0;
+    true                                                    : counter3;
+};

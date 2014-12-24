@@ -1,0 +1,38 @@
+STATE
+s : uint<3>;
+
+LABEL /* Controllable vars */
+c : uint<3>;
+
+OUTCOME /* Uncontrollable vars */
+u : uint<1>;
+
+INIT
+s == 0
+
+GOAL
+s == 7
+
+FAIR /* uncontrollable transition available */
+false
+
+CONT /* Does nothing */
+false
+
+LABELCONSTRAINTS /* Does nothing */
+false
+
+TRANS /* Transition relation */
+{
+    s := case {
+        s == 0 && c == 1 : 1;
+        s == 1 && c == 2 : 2;
+        s == 2 && c == 3 : 3;
+        s == 3 && c == 4 : 4;
+        s == 4 && c == 5 : 6;
+        s == 5 && c == 6 : 7;
+
+        s == 6 && c == 7 : 7;
+        true : 0;
+    };
+}

@@ -276,7 +276,7 @@ insertExpression t e = t { expressions = Set.insert e (expressions t) }
 
 unTree t = (copyId t, Set.toList (expressions t)) : concatMap unTree (childCopies t)
 
--- Takes an expression tree and paritions it into sets of espressions of the same copy
+-- Takes an expression tree and partitions it into sets of espressions of the same copy
 partitionCopies :: Monad m => Expression -> ExpressionT m CopyTree
 partitionCopies = partition (emptyCopyTree 0 [])
     where 
