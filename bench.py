@@ -63,6 +63,7 @@ def call_termite_sat(family, scale, args=None):
     fullargs = fullargs + ["-k", str(KVAL[family][scale])]
     tslfn = TSL_DIR + "/" + family + str(scale) + ".tsl"
     fullargs = fullargs + [tslfn]
+    print(" ".join(fullargs))
 
     try:
         ret = subprocess.call(fullargs, stdout=LOGFILE, stderr=dn, timeout=MAX_TIME)

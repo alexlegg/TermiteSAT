@@ -144,7 +144,7 @@ addExpression e = do
     case Map.lookup e indexMap of
         Nothing -> do
             let i = maxIndex
-            let deps = Set.unions $ catMaybes (map (\x -> Map.lookup (var x) depMap) (children e))
+            deps <- childDependencies e
             put m {
                 maxIndex    = maxIndex+1,
                 exprMap     = Map.insert i e exprMap,
@@ -153,6 +153,13 @@ addExpression e = do
             return $ Expression { index = i, expr = e }
         Just i -> do
             return $ Expression { index = i, expr = e }
+
+childDependencies e = do
+    m@ExprManager{..} <- get
+    let cs = filter (\x -> not (var x `elem` copies)) (children e)
+    let deps = map (\x -> Map.lookup (var x) depMap) cs
+    return $ Set.unions (Set.fromList (map var (children e)) : catMaybes deps)
+
 
 lookupExpression :: Monad m => Int -> ExpressionT m (Maybe Expression)
 lookupExpression i = do
@@ -286,30 +293,13 @@ insertExpression t e = t { expressions = Set.insert e (expressions t) }
 
 unTree t = (copyId t, Set.toList (expressions t)) : concatMap unTree (childCopies t)
 
--- Takes an expression tree and partitions it into sets of espressions of the same copy
----partitionCopies :: Monad m => Expression -> ExpressionT m CopyTree
----partitionCopies e = partition (emptyCopyTree 0 []) e
----    where 
----        partition t e = case expr e of
----            (ECopy c d e)  -> do
----                d' <- mapM lookupVar d
----                let newNode = emptyCopyTree c (catMaybes d')
----                (Just e') <- lookupExpression (var e)
----                n <- partition newNode e'
----                return $ insertNode t n
----            e'              -> do
----                let t' = insertExpression t e
----                cs <- getChildren e
----                ds <- getDependencies (index e)
----                foldlM partition t' cs
-
 partitionCopies :: Monad m => Int -> ExpressionT m CopyTree
 partitionCopies i = do
     ds              <- getDependencies i
     copies          <- getCopies
+    let thisCopy    = Set.filter (\x -> not (x `elem` copies)) ds
     let childCopies = filter (\x -> Set.member x ds && x /= i) copies
     cds             <- mapM getDependencies childCopies
-    let thisCopy    = Set.difference ds (Set.unions cds)
     ccs             <- mapM partitionCopies childCopies
     (Just e)        <- lookupExpression i
     case expr e of
@@ -318,7 +308,7 @@ partitionCopies i = do
             return $ CopyTree {
                   copyId        = copyId
                 , dontRename    = map index (catMaybes dr')
-                , expressions   = trace (show thisCopy) $ Set.delete i thisCopy
+                , expressions   = Set.delete i thisCopy
                 , childCopies   = ccs
             }
         noncopy -> return $ CopyTree {
@@ -327,7 +317,6 @@ partitionCopies i = do
             , expressions   = thisCopy
             , childCopies   = ccs
         }
-
 
 pushUpNoRenames :: CopyTree -> (Set.Set Int, CopyTree)
 pushUpNoRenames t = (push, t { expressions = left, childCopies = tc })
