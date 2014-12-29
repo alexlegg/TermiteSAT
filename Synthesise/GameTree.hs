@@ -133,6 +133,12 @@ copy (SNode (E c _ _))      = c
 copy (SNode (SU c _ _))     = c
 copy (SNode (SE c _ _))     = c
 
+setCopy :: Int -> SNode -> SNode 
+setCopy c (SNode (U _ m s n))    = SNode (U c m s n)
+setCopy c (SNode (E _ m n))      = SNode (E c m n)
+setCopy c (SNode (SU _ s n))     = SNode (SU c s n)
+setCopy c (SNode (SE _ s n))     = SNode (SE c s n)
+
 data GameTree where
     ETree   :: {
           baseRank      :: Int
@@ -364,23 +370,13 @@ maybeProject s ns ps = do
     return $ setChildren s ns'
 
 mergeTrees :: GameTree -> GameTree -> GameTree
-mergeTrees t1@(ETree{}) t2@(ETree{}) = t1 { crumb = [], eroot = toNode (mergeNodes (root t1) (Just (root t2))) }
-mergeTrees t1@(UTree{}) t2@(UTree{}) = t1 { crumb = [], uroot = toNode (mergeNodes (root t1) (Just (root t2))) }
+mergeTrees t1 t2 = setRoot (setCrumb t1 []) (\_ -> r)
+    where
+        r = mergeNodes (root t1) (Just (root t2))
 
 mergeNodes :: SNode -> Maybe SNode -> SNode
-mergeNodes (SNode (E c mx xs)) (Just (SNode (E _ my ys))) = if mx == my
-    then SNode $ E c mx (map (toNode . uncurry mergeNodes) (zipChildren (map SNode xs) (map SNode ys)))
-    else error "Could not merge trees"
-mergeNodes (SNode (U c mx s xs)) (Just (SNode (U _ my _ ys))) = if mx == my 
-    then SNode $ U c mx s (map (toNode . uncurry mergeNodes) (zipChildren (map SNode xs) (map SNode ys)))
-    else error "Could not merge trees"
-mergeNodes (SNode (SE c sx xs)) (Just (SNode (SE _ sy ys))) = if sx == sy
-    then SNode $ SE c sx (map (toNode . uncurry mergeNodes) (zipChildren (map SNode xs) (map SNode ys)))
-    else error "Could not merge trees"
-mergeNodes (SNode (SU c sx xs)) (Just (SNode (SU _ sy ys))) = if sx == sy 
-    then SNode $ SU c sx (map (toNode . uncurry mergeNodes) (zipChildren (map SNode xs) (map SNode ys)))
-    else error "Could not merge trees"
-mergeNodes n Nothing = n
+mergeNodes x (Just y)    = setChildren x (map (uncurry mergeNodes) (zipChildren (children x) (children y)))
+mergeNodes n Nothing     = n
 
 zipChildren :: [SNode] -> [SNode] -> [(SNode, Maybe SNode)]
 zipChildren xs []           = map (\x -> (x, Nothing)) xs
