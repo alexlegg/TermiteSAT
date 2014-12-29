@@ -10,6 +10,7 @@ module Utils.Utils (
     , everyOdd
     , everyEven
     , adjust
+    , update
     , lookupIndex
     , interMap
     , ungroupZip
@@ -81,6 +82,12 @@ adjust f k []   = []
 adjust f k (m:ms)
     | k == 0    = (f m) : ms
     | otherwise = m : (adjust f (k-1) ms)
+
+update :: a -> Int -> [a] -> [a]
+update a k []   = []
+update a k (b:bs)
+    | k == 0    = a : bs
+    | otherwise = b : (update a (k-1) bs)
 
 lookupIndex :: Eq a => a -> [(a, b)] -> Maybe Int
 lookupIndex x = findIndex (\(a, b) -> a == x)

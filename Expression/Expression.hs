@@ -369,19 +369,22 @@ ctdepth ct
     | otherwise             = 1 + maximum (map ctdepth (childCopies ct))
     
 exprToDimacs m (c, e) = do
+    mgr <- get
     let (Just ind) = Map.lookup (c, e) m
     (Just e') <- lookupExpression e
-    cs <- mapM (makeChildVar m c) (children (expr e'))
+    cs <- mapM (makeChildVar (copies mgr) m c) (children (expr e'))
     return $ makeDimacs (expr e') ind cs
 
-makeChildVar m c (Var s i) = do
-    (Just e) <- lookupExpression i
+makeChildVar copies m c (Var s i) = do
     -- If the var is a copy we need to skip past it
-    case expr e of
-        (ECopy c' d v)  -> do
-            (Var s' i') <- makeChildVar m c' v
-            return $ Var (if (s == s') then Pos else Neg) i'
-        _               -> let (Just i') = Map.lookup (c, i) m in return $ Var s i'
+    if i `elem` copies
+    then do
+        (Just e)            <- lookupExpression i
+        let (ECopy c' d v)  = expr e
+        (Var s' i')         <- makeChildVar copies m c' v
+        return $ Var (if (s == s') then Pos else Neg) i'
+    else
+        let (Just i') = Map.lookup (c, i) m in return $ Var s i'
 
 makeDimacs e i cs = case e of
     (ETrue)         -> [[i]]
