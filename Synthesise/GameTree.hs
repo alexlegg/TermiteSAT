@@ -16,6 +16,9 @@ module Synthesise.GameTree (
     , gtPlayerMoves
     , gtMove
     , gtState
+    , gtCopyId
+    , gtCopies
+    , gtParent
     , gtPathMoves
     , gtMaxDepth
     , gtChildMoves
@@ -226,6 +229,19 @@ gtMove = snodeMove . followGTCrumb
 gtState :: GameTree -> Move
 gtState = snodeState . followGTCrumb
 
+gtCopyId :: GameTree -> Int
+gtCopyId = copy . followGTCrumb
+
+gtCopies :: GameTree -> [Int]
+gtCopies gt = pc ++ replicate (((baseRank gt) * 2) - (length pc)) (last pc)
+    where
+        pc                  = pathCopies (root gt) (crumb gt)
+        pathCopies n []     = [copy n]
+        pathCopies n (c:cs) = copy n : pathCopies (children n !! c) cs
+
+gtParent :: GameTree -> GameTree
+gtParent gt = setCrumb gt (init (crumb gt))
+
 gtPrevState :: GameTree -> Move
 gtPrevState gt = snodeState $ followCrumb (root gt) (prevStateNode gt (crumb gt))
 
@@ -289,10 +305,10 @@ gtChildren gt = zipWith f (children (followGTCrumb gt)) [0..]
         f n i = (snodeMove n, setCrumb gt (crumb gt ++ [i]))
 
 -- |Groups moves by rank
-gtMovePairs :: GameTree -> [(Move, Move, Move, Maybe GameTree)]
+gtMovePairs :: GameTree -> [(Move, Move, Maybe GameTree)]
 gtMovePairs gt = case (zip (children n) [0..]) of
-    []  -> [(snodeMove n, Nothing, Nothing, Nothing)]
-    cs  -> map (\(x, y) -> (snodeMove n, snodeMove x, stateFromPair n x, Just (setCrumb gt (crumb gt ++ [y])))) cs
+    []  -> [(snodeMove n, Nothing, Nothing)]
+    cs  -> map (\(x, y) -> (snodeMove n, snodeMove x, Just (setCrumb gt (crumb gt ++ [y])))) cs
     where
         n = followGTCrumb gt
 
@@ -315,10 +331,10 @@ makePathTree gt = setCrumb (setRoot gt (makePN (crumb gt))) (replicate (length (
     where
         makePN :: [Int] -> SNode -> SNode
         makePN [] n = n
-        makePN (c:cs) (SNode (E _ m ns))      = SNode (E 0 m [viaSNode (makePN cs) (ns !! c)])
-        makePN (c:cs) (SNode (U _ m s ns))    = SNode (U 0 m s [viaSNode (makePN cs) (ns !! c)])
-        makePN (c:cs) (SNode (SE _ s ns))     = SNode (SE 0 s [viaSNode (makePN cs) (ns !! c)])
-        makePN (c:cs) (SNode (SU _ s ns))     = SNode (SU 0 s [viaSNode (makePN cs) (ns !! c)])
+        makePN (c:cs) (SNode (E i m ns))      = SNode (E i m [viaSNode (makePN cs) (ns !! c)])
+        makePN (c:cs) (SNode (U i m s ns))    = SNode (U i m s [viaSNode (makePN cs) (ns !! c)])
+        makePN (c:cs) (SNode (SE i s ns))     = SNode (SE i s [viaSNode (makePN cs) (ns !! c)])
+        makePN (c:cs) (SNode (SU i s ns))     = SNode (SU i s [viaSNode (makePN cs) (ns !! c)])
 
 -- |Fix moves for one player in a path tree only
 fixPlayerMoves :: Player -> GameTree -> [([Assignment], [Assignment])] -> GameTree
@@ -398,25 +414,25 @@ appendNodeAt mc (c:cs) n   = (mc', setChildren n (update n' c ns))
         (mc', n')   = appendNodeAt mc cs (ns !! c)
 
 appendNode :: Int -> Move -> Move -> SNode -> (Int, SNode)
-appendNode mc m' s' n = (c', app n)
+appendNode mc m' s' n = (mc', app n)
     where
         app (SNode (E c m ns))      = SNode (E c m (ns ++ [U c' m' s' []]))
         app (SNode (U c m s ns))    = SNode (U c m s (ns ++ [E c' m' []]))
         app (SNode (SE c s ns))     = SNode (SE c s (ns ++ [U c' m' s' []]))
         app (SNode (SU c s ns))     = SNode (SU c s (ns ++ [E c' m' []]))
-        c'                          = appendCopy mc (copy n) (children n)
+        (mc', c')                   = appendCopy mc (copy n) (children n)
 
 append2Nodes :: Int -> Move -> Move -> SNode -> (Int, SNode)
-append2Nodes mc m' s' n = (c', app n)
+append2Nodes mc m' s' n = (mc', app n)
     where
         app (SNode (E c m ns))      = SNode (E c m (ns ++ [U c' m' s' [E c' Nothing []]]))
         app (SNode (U c m s ns))    = SNode (U c m s (ns ++ [E c' m' [U c' Nothing Nothing []]]))
         app (SNode (SE c s ns))     = SNode (SE c s (ns ++ [U c' m' s' [E c' Nothing []]]))
         app (SNode (SU c s ns))     = SNode (SU c s (ns ++ [E c' m' [U c' Nothing Nothing []]]))
-        c'                          = appendCopy mc (copy n) (children n)
+        (mc', c')                   = appendCopy mc (copy n) (children n)
 
-appendCopy _ c [] = c
-appendCopy mc _ ns = mc+1
+appendCopy mc c [] = (mc, c)
+appendCopy mc _ ns = (mc+1, mc+1)
 
 -- |Appends the first move in the list that is not already in the tree
 appendNextMove :: GameTree -> GameTree -> GameTree

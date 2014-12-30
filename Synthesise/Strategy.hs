@@ -29,16 +29,16 @@ computeCounterExample spec player gt = do
 
 nextState spec player state gt = do
     let gt' = gtRebase gt
-    let ((m1, m2, s, childGT):[]) = concatMap (gtMovePairs . snd) (gtChildren gt')
+    let ((m1, m2, childGT):[]) = concatMap (gtMovePairs . snd) (gtChildren gt')
     liftIO $ putStrLn $ (show m1) ++ " " ++ show m2 ++ "\n" ++ maybe "No child" (printTree spec) childGT
     let r = gtRank gt'
     let fp = gtFirstPlayer gt'
     if isJust childGT
     then do
-        fmlA <- singleStep r spec player fp m1 m2 s
+        fmlA <- singleStep r spec player fp m1 m2
 
-        fakes <- liftE $ trueExpr
-        (fmlB, _) <- makeFml spec player fakes (fromJust childGT)
+        fakes   <- liftE $ trueExpr
+        fmlB    <- makeFml spec player fakes (fromJust childGT)
 
         return ()
     else do

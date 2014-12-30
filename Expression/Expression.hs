@@ -418,16 +418,16 @@ printExpression' tabs s e = do
         (ECopy c d _)   -> "copy " ++ show c ++ " {" ++ head pcs ++ "}"
         (ELit v)        -> show v
 
-makeCopy :: Monad m => [ExprVar] -> Expression -> ExpressionT m (Int, Expression)
-makeCopy d e = do
+makeCopy :: Monad m => Int -> [ExprVar] -> Expression -> ExpressionT m Expression
+makeCopy c d e = do
     m@ExprManager{..} <- get
-    let newCopy = copyIndex + 1
+    let newCopy = c
     e' <- addExpression (ECopy newCopy d (Var Pos (index e)))
 
     m <- get
     put m { copies = (index e') : copies, copyIndex = newCopy }
 
-    return (newCopy, e')
+    return e'
 
 getCopies :: Monad m => ExpressionT m [Int]
 getCopies = do

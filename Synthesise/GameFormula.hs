@@ -33,71 +33,59 @@ makeFml spec player s gt = do
         fml         <- leafToBottom spec player rank
         fml'        <- liftE $ conjunct [fml, s']
 
-        return (fml', [])
+        return fml'
     else do
         let cs      = map (gtMovePairs . snd) (gtChildren root)
         steps       <- mapM (mapM (makeStep rank spec player (gtFirstPlayer gt))) cs
-        (fml, cMap) <- mergeRenamed player (gtFirstPlayer gt) spec rank (map (map fth4) cs) (map (map fst) steps)
+        fml         <- mergeRenamed player (gtFirstPlayer gt) spec rank root (map (map thd3) cs) steps
         fml'        <- liftE $ conjunct [fml, s']
-        return (fml', cMap ++ concatMap (concatMap snd) steps)
+        return fml'
 
-mergeRenamed player fp spec rank (gt:[]) (f:[])
-    | length gt == 1    = return (head f, [])
-    | otherwise         = mergeSharedMove player fp spec rank gt f
-mergeRenamed player fp spec rank (gt:gts) (f:fs) = do
+mergeRenamed player fp spec rank parentGT (gt:gts) (f:fs) = do
     let dontRename  = map (setVarRank rank) (svars spec)
+    let parentCopy  = gtCopyId parentGT
 
-    (ffml, cMaps)   <- mergeSharedMove player fp spec rank gt f
-    (fmls, cMaps')  <- unzipM $ zipWithM (mergeSharedMove player fp spec rank) gts fs
-    (cpy, cfmls)    <- unzipM $ liftE $ mapM (makeCopy dontRename) fmls
-    fml             <- liftE $ conjunct (ffml : cfmls)
+    ffml    <- mergeSharedMove player fp spec rank parentCopy gt f
+    fmls    <- zipWithM (mergeSharedMove player fp spec rank parentCopy) gts fs
+    cfmls   <- liftE $ mapM (makeCopy parentCopy dontRename) fmls
 
-    return (fml, cMaps  ++ concat cMaps')
+    liftE $ conjunct (ffml : cfmls)
 
-makeCMap gt copyId = (groupCrumb (gtCrumb gt), copyId)
-
-mergeSharedMove player fp spec rank gts fs = do
+mergeSharedMove player fp spec rank parentCopy gts fs = do
     let statevars   = map (setVarRank rank) (svars spec)
     let movevars    = if player == Existential
                         then map (setVarRank rank) (cont spec)
                         else map (setVarRank rank) (ucont spec)
     let dontRename  = statevars ++ (if player == fp then movevars else [])
+    let copy g      = maybe parentCopy gtCopyId g
+    fs' <- liftE $ zipWithM (\g f -> makeCopy (copy g) dontRename f) gts fs
+    liftE $ conjunct fs'
 
-    (copies, fs')   <- liftE $ unzipM (mapM (makeCopy dontRename) fs)
-    fml             <- liftE $ conjunct fs'
-
-    let cMap = zipMaybe1 (map (fmap (groupCrumb . gtCrumb)) gts) copies
-    return (fml, cMap)
-
-makeStep rank spec player first (m1, m2, s, c) = do
+makeStep rank spec player first (m1, m2, c) = do
     let CompiledSpec{..} = spec
     let i = rank - 1
 
-    (next, cmap) <- if isJust c
+    next <- if isJust c
         then do
             let cs = map (gtMovePairs . snd) (gtChildren (fromJust c))
             if null cs
             then do
-                f <- leafToBottom spec player (rank-1)
-                return (f, [])
+                leafToBottom spec player (rank-1)
             else do
                 steps <- mapM (mapM (makeStep (rank-1) spec player first)) cs
-                (f, cMap') <- mergeRenamed player first spec (rank-1) (map (map fth4) cs) (map (map fst) steps)
-                return (f, concatMap (concatMap snd) steps ++ cMap')
+                mergeRenamed player first spec (rank-1) (fromJust c) (map (map thd3) cs) steps
         else do
-            f <- leafToBottom spec player (rank-1)
-            return (f, [])
+            leafToBottom spec player (rank-1)
 
     g' <- liftE $ goalFor player (g !! i)
     goal <- if player == Existential
         then liftE $ disjunct [next, g']
         else liftE $ conjunct [next, g']
 
-    step    <- singleStep rank spec player first m1 m2 s
-    f       <- liftE $ conjunct [step, goal]
-    return (f, cmap)
+    step <- singleStep rank spec player first m1 m2
+    liftE $ conjunct [step, goal]
 
-singleStep rank spec player first m1 m2 s = do
+singleStep rank spec player first m1 m2 = do
     let CompiledSpec{..} = spec
     let i   = rank - 1
     let vh  = if player == Existential then vu else vc

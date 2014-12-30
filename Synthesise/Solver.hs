@@ -62,7 +62,7 @@ refinementLoop player spec s (Just cand) origGT absGT = do
 
 findCandidate :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Maybe GameTree)
 findCandidate player spec s gt = do
-    (fml, copyMap)  <- makeFml spec player s gt
+    fml             <- makeFml spec player s gt
     (dMap, _, d)    <- liftE $ toDimacs Nothing fml
     res             <- liftIO $ satSolve (maximum $ Map.elems dMap) [] d
 
@@ -71,7 +71,7 @@ findCandidate player spec s gt = do
         let (Just m)    = model res
         let leaves      = gtLeaves gt
         init            <- getVarsAtRank (svars spec) dMap m 0 (gtBaseRank gt)
-        moves           <- mapM (getMove player spec dMap copyMap m) leaves
+        moves           <- mapM (getMove player spec dMap m) leaves
         let paths       = zipWith (fixPlayerMoves player) (map makePathTree leaves) moves
         return (Just (merge (map (fixInitState init) paths)))
     else do
@@ -89,7 +89,7 @@ learnStates spec player gt = do
     let rank        = gtBaseRank gt'
 
     fakes           <- liftE $ trueExpr
-    (fml, copyMap)  <- makeFml spec player fakes gt'
+    fml             <- makeFml spec player fakes gt'
     (dMap, a, d)    <- liftE $ toDimacs (Just s) fml
 
     res <- liftIO $ satSolve (maximum $ Map.elems dMap) a d
@@ -133,19 +133,18 @@ verifyLoop player spec s (i, gt) = do
 
 refine gt cex = return $ appendNextMove gt cex
 
-getMove player spec dMap copyMap model gt = do
+getMove player spec dMap model gt = do
     let vars    = if player == Existential then cont spec else ucont spec
     let maxrnk  = gtBaseRank gt
-    let copies  = tail $ foldl getCpy [0] (tail (inits (groupCrumb (gtCrumb gt))))
-    let copies' = if null copies then [0] else copies
-    let rCopies = zip (copies' ++ replicate (maxrnk - (length copies')) (last copies')) (reverse [1..maxrnk])
-    states      <- mapM (uncurry (getVarsAtRank (svars spec) dMap model)) (map (mapSnd (\r -> r - 1)) rCopies)
-    moves       <- mapM (uncurry (getVarsAtRank vars dMap model)) rCopies
-    when (any null moves) $ throwError ("Bad moves\n" ++ show rCopies)
+    let copies = if player == gtFirstPlayer gt
+                    then everyOdd (tail (gtCopies gt))
+                    else everyEven (tail (gtCopies gt))
+    let scopies = everyEven (tail (gtCopies gt))
+    states      <- zipWithM (getVarsAtRank (svars spec) dMap model) scopies (reverse [0..(maxrnk-1)])
+    moves       <- zipWithM (getVarsAtRank vars dMap model) copies (reverse [1..maxrnk])
+    when (any null moves) $ throwError "Bad moves"
     when (null moves) $ throwError "No Moves"
     return $ zip moves states
-    where
-        getCpy p crumb = p ++ [fromMaybe (last p) (lookup crumb copyMap)]
 
 getVarsAtRank vars dMap model cpy rnk = do
     let vars' = map (\v -> v {rank = rnk}) vars
