@@ -366,19 +366,19 @@ projectNodes :: SNode -> SNode -> Maybe SNode
 projectNodes (SNode (E c m ns))   (SNode (E cp mp ps))
     | isNothing m   = maybeProject (SNode (E c mp [])) ns ps
     | m == mp       = maybeProject (SNode (E c m [])) ns ps
-    | otherwise     = Nothing
+    | otherwise     = D.trace (show m ++ "\n" ++ show mp) $ Nothing
 projectNodes (SNode (U c m s ns)) (SNode (U cp mp sp ps))
     | isNothing m   = maybeProject (SNode (U c mp sp [])) ns ps
     | m == mp       = maybeProject (SNode (U c m sp [])) ns ps
-    | otherwise     = Nothing
+    | otherwise     = D.trace "2" $ Nothing
 projectNodes (SNode (SE c s ns))  (SNode (SE cp sp ps))
     | isNothing s   = maybeProject (SNode (SE c sp [])) ns ps
     | s == sp       = maybeProject (SNode (SE c s [])) ns ps
-    | otherwise     = Nothing
+    | otherwise     = D.trace "3" $ Nothing
 projectNodes (SNode (SU c s ns))  (SNode (SU cp sp ps))
     | isNothing s   = maybeProject (SNode (SU c sp [])) ns ps
     | s == sp       = maybeProject (SNode (SU c s [])) ns ps
-    | otherwise     = Nothing
+    | otherwise     = D.trace "4" $ Nothing
 
 maybeProject :: SNode -> [Node t p] -> [Node t p] -> Maybe SNode
 maybeProject s ns ps = do

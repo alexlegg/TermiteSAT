@@ -278,7 +278,7 @@ data CopyTree = CopyTree {
     , dontRename    :: [Int]
     , expressions   :: Set.Set Int
     , childCopies   :: [CopyTree]
-}
+} deriving (Show, Eq)
 
 emptyCopyTree id r = CopyTree {
       copyId        = id
@@ -293,30 +293,33 @@ insertExpression t e = t { expressions = Set.insert e (expressions t) }
 
 unTree t = (copyId t, Set.toList (expressions t)) : concatMap unTree (childCopies t)
 
-partitionCopies :: Monad m => Int -> ExpressionT m CopyTree
+partitionCopies :: MonadIO m => Int -> ExpressionT m CopyTree
 partitionCopies i = do
     ds              <- getDependencies i
     copies          <- getCopies
-    let thisCopy    = Set.filter (\x -> not (x `elem` copies)) ds
-    let childCopies = filter (\x -> Set.member x ds && x /= i) copies
-    cds             <- mapM getDependencies childCopies
-    ccs             <- mapM partitionCopies childCopies
+    let es          = Set.filter (\x -> not (x `elem` copies)) ds
+    let depCopies   = filter (\x -> Set.member x ds && x /= i) copies
+    ccs             <- mapM partitionCopies depCopies
+
     (Just e)        <- lookupExpression i
     case expr e of
-        (ECopy copyId dr _) -> do
+        (ECopy c dr _) -> do
+            let (sc, dc)    = partition (\ct -> copyId ct == c) ccs
             dr' <- mapM lookupVar dr
             return $ CopyTree {
-                  copyId        = copyId
+                  copyId        = c
                 , dontRename    = map index (catMaybes dr')
-                , expressions   = Set.delete i thisCopy
-                , childCopies   = ccs
+                , expressions   = Set.unions ((Set.delete i es) : (map expressions sc) ++ (map (Set.fromList . dontRename) sc))
+                , childCopies   = dc ++ concatMap childCopies sc
             }
-        noncopy -> return $ CopyTree {
-              copyId        = 0
-            , dontRename    = []
-            , expressions   = thisCopy
-            , childCopies   = ccs
-        }
+        noncopy -> do
+            let (sc, dc)    = partition (\ct -> copyId ct == 0) ccs
+            return $ CopyTree {
+                  copyId        = 0
+                , dontRename    = []
+                , expressions   = Set.unions (es : map expressions sc ++ map (Set.fromList . dontRename) sc)
+                , childCopies   = dc ++ concatMap childCopies sc
+            }
 
 pushUpNoRenames :: CopyTree -> (Set.Set Int, CopyTree)
 pushUpNoRenames t = (push, t { expressions = left, childCopies = tc })
@@ -383,7 +386,7 @@ makeChildVar copies m c (Var s i) = do
         let (ECopy c' d v)  = expr e
         (Var s' i')         <- makeChildVar copies m c' v
         return $ Var (if (s == s') then Pos else Neg) i'
-    else
+    else 
         let (Just i') = Map.lookup (c, i) m in return $ Var s i'
 
 makeDimacs e i cs = case e of

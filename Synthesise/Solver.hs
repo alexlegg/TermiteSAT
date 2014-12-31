@@ -72,6 +72,7 @@ findCandidate player spec s gt = do
         let leaves      = gtLeaves gt
         init            <- getVarsAtRank (svars spec) dMap m 0 (gtBaseRank gt)
         moves           <- mapM (getMove player spec dMap m) leaves
+---        liftIO $ mapM (putStrLn . (printMove spec) . Just . fst) (head moves)
         let paths       = zipWith (fixPlayerMoves player) (map makePathTree leaves) moves
         return (Just (merge (map (fixInitState init) paths)))
     else do
