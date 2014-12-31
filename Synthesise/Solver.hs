@@ -39,7 +39,7 @@ solveAbstract player spec s gt = do
     liftLog $ logCandidate cand
     res <- refinementLoop player spec s cand gt gt
     liftLog $ logSolveComplete res
----    liftLog logDumpLog
+    liftLog logDumpLog
     return res
 
 refinementLoop :: Player -> CompiledSpec -> Expression -> Maybe GameTree -> GameTree -> GameTree -> SolverT (Maybe GameTree)
@@ -72,7 +72,6 @@ findCandidate player spec s gt = do
         let leaves      = gtLeaves gt
         init            <- getVarsAtRank (svars spec) dMap m 0 (gtBaseRank gt)
         moves           <- mapM (getMove player spec dMap m) leaves
----        liftIO $ mapM (putStrLn . (printMove spec) . Just . fst) (head moves)
         let paths       = zipWith (fixPlayerMoves player) (map makePathTree leaves) moves
         return (Just (merge (map (fixInitState init) paths)))
     else do
