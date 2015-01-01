@@ -35,11 +35,19 @@ solveAbstract player spec s gt = do
 ---    liftIO $ putStrLn ("Solve abstract for " ++ show player)
     pLearn <- printLearnedStates spec player
     liftLog $ logSolve gt player pLearn
+
+    liftE $ pushCache
+
     cand <- findCandidate player spec s gt
     liftLog $ logCandidate cand
+
+    liftE $ popCache
+
     res <- refinementLoop player spec s cand gt gt
+
     liftLog $ logSolveComplete res
     liftLog logDumpLog
+
     return res
 
 refinementLoop :: Player -> CompiledSpec -> Expression -> Maybe GameTree -> GameTree -> GameTree -> SolverT (Maybe GameTree)
@@ -73,6 +81,11 @@ findCandidate player spec s gt = do
         init            <- getVarsAtRank (svars spec) dMap m 0 (gtBaseRank gt)
         moves           <- mapM (getMove player spec dMap m) leaves
         let paths       = zipWith (fixPlayerMoves player) (map makePathTree leaves) moves
+        forM_ paths $ \path -> do
+            when (any ((==) Nothing) (tail (gtMoves path))) $ do
+                liftIO $ putStrLn ""
+                liftIO $ mapM (putStrLn . show) (head moves)
+                throwError ("Nothing move\n" ++ printTree spec path)
         return (Just (merge (map (fixInitState init) paths)))
     else do
         mapM_ (learnStates spec player) (gtUnsetNodes gt)
@@ -153,7 +166,7 @@ getVarsAtRank vars dMap model cpy rnk = do
     -- Lookup the dimacs equivalents
     let vd = zipMaybe1 (map (\v -> Map.lookup (cpy, exprIndex v) dMap) (catMaybes ve)) vars'
     -- Construct assignments
-    when (null vd) $ throwError $ "Bad lookup\n" ++ show cpy ++ "\n" ++ show rnk ++ show (map (\v -> (cpy, exprIndex v, v)) (catMaybes ve))
+    when (null vd) $ throwError $ "Bad lookup " ++ show (cpy, rnk) ++ "\n" ++ show (map (\v -> (cpy, exprIndex v, v)) (catMaybes ve))
     return $ map (makeAssignment . (mapFst (\i -> model !! (i-1)))) vd
 
 getConflicts vars dMap conflicts cpy rnk = do

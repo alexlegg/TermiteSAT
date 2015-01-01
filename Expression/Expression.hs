@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards, ViewPatterns, NamedFieldPuns #-}
 module Expression.Expression (
       ExpressionT(..)
     , ExprVar(..)
@@ -31,7 +31,8 @@ module Expression.Expression (
     , literal
     , toDimacs
     , makeCopy
-    , clearCopies
+    , pushCache
+    , popCache
     , printExpression
     , makeAssignment
     , assignmentToExpression
@@ -46,8 +47,6 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.List
 import Data.Bits (testBit)
----import qualified Data.Array.ST as A
----import Data.Array
 import Data.Foldable (foldlM)
 import Data.Maybe
 import Utils.Utils
@@ -129,8 +128,13 @@ data ExprManager = ExprManager {
     , depMap        :: Map.Map ExprId (Set.Set ExprId)
     , copies        :: [ExprId]
     , indexMap      :: Map.Map Expr ExprId
-    , dCache        :: Map.Map (CopyId, ExprId) (Int, [[Int]])
-    , dCacheMax     :: Int
+    , dCache        :: DimacsCache
+} deriving (Eq)
+
+data DimacsCache = DimacsCache {
+      dMap          :: Map.Map (CopyId, ExprId) (Int, [[Int]])
+    , dMax          :: Int
+    , childCache    :: Maybe DimacsCache
 } deriving (Eq)
 
 instance Show ExprManager where
@@ -149,9 +153,30 @@ emptyManager = ExprManager {
                 , depMap        = Map.empty
                 , copies        = []
                 , indexMap      = Map.empty
-                , dCache        = Map.empty
-                , dCacheMax     = 1
+                , dCache        = emptyCache 1
                 }
+
+emptyCache di = DimacsCache {
+                  dMap          = Map.empty
+                , dMax          = di
+                , childCache    = Nothing
+                }
+
+pushCache :: Monad m => ExpressionT m ()
+pushCache = do
+    m <- get
+    put m { dCache = add (dCache m) }
+    where
+        add dc@(childCache -> Just c)   = dc { childCache = Just (add c) }
+        add dc@(childCache -> Nothing)  = dc { childCache = Just (emptyCache (dMax dc)) }
+
+popCache :: Monad m => ExpressionT m ()
+popCache = do
+    m <- get
+    put m { dCache = fromJust (rem (dCache m)) }
+    where
+        rem dc@(childCache -> Just c)   = Just (dc { childCache = rem c })
+        rem dc@(childCache -> Nothing)  = Nothing
 
 addExpression :: Monad m => Expr -> ExpressionT m Expression
 addExpression e = do
@@ -347,18 +372,17 @@ baseExpr e = case expr e of
     (ECopy c _ v)   -> (c, var v)
     _               -> (0, eindex e)
 
---TODO this functions seems to be pure
-linkNoRenames :: MonadIO m => [((Int, Int), Int)] -> CopyTree -> ExpressionT m ([(Int, Int)], [((Int, Int), Int)])
-linkNoRenames dMap t = do
-    recur <- mapM (linkNoRenames dMap) (childCopies t)
-    let isNoRename e    = e `elem` (dontRename t)
-    let (pushed, cdm)   = unzip recur
-    let (kp, fp)        = partition (\(c, i) -> isNoRename i) (concat pushed)
-    let push            = Set.filter isNoRename (expressions t)
-    let push'           = map (\e -> (copyId t, e)) (Set.toList push) ++ kp ++ map (\(_, e) -> (copyId t, e)) kp
-    let dMap'           = dMap ++ concat cdm
-    let pdMap           = map (\(c, i) -> ((c, i), fromJust (lookup (copyId t, i) dMap'))) fp
-    return $ (push', dMap' ++ pdMap)
+linkNoRenames :: [((Int, Int), Int)] -> CopyTree -> ([(Int, Int)], [((Int, Int), Int)])
+linkNoRenames dMap t = (push', dMap' ++ pdMap)
+    where
+        recur           = map (linkNoRenames dMap) (childCopies t)
+        isNoRename e    = e `elem` (dontRename t)
+        (pushed, cdm)   = unzip recur
+        (kp, fp)        = partition (\(c, i) -> isNoRename i) (concat pushed)
+        push            = Set.filter isNoRename (expressions t)
+        push'           = map (\e -> (copyId t, e)) (Set.toList push) ++ kp ++ map (\(_, e) -> (copyId t, e)) kp
+        dMap'           = dMap ++ concat cdm
+        pdMap           = map (\(c, i) -> ((c, i), fromJust (lookup (copyId t, i) dMap'))) fp
 
 toDimacs :: MonadIO m => Maybe [Assignment] -> Expression -> ExpressionT m (Map.Map (Int, Int) Int, [Int], [[Int]])
 toDimacs a e = do
@@ -374,31 +398,43 @@ toDimacs a e = do
     return $ (dMap, as, [de] : dm ++ dimacs)
 
 makeDMap e = do
-    ct                  <- partitionCopies (eindex e)
-    let (_, copyTree)   = pushUpNoRenames ct
-    let exprs           = ungroupZip (unTree copyTree)
+    ct                      <- partitionCopies (eindex e)
+    let (_, copyTree)       = pushUpNoRenames ct
+    let exprs               = ungroupZip (unTree copyTree)
 
-    (dMap', new, dm)    <- findCached exprs
-    (_, dMap)           <- linkNoRenames dMap' ct
+    ExprManager{ dCache }   <- get
+    let (dMap', new, dm)    = findCached dCache exprs
+    let (_, dMap)           = linkNoRenames dMap' ct
     return (Map.fromList dMap, new, dm)
 
-findCached :: Monad m => [(CopyId, ExprId)] -> ExpressionT m ([((CopyId, ExprId), Int)], [((CopyId, ExprId), Int)], [[Int]])
-findCached es = do
-    m   <- get
-    let lookups             = zip es (map (`Map.lookup` (dCache m)) es)
-    let (found, notfound)   = partition (isJust . snd) lookups
-    let new                 = zip (map fst notfound) [(dCacheMax m + 1)..]
-    let dMap                = map (mapSnd (fst . fromJust)) found
-    let dimacs              = concatMap (snd . fromJust . snd) found
-    return $ (dMap ++ new, new, dimacs)
+findCached :: DimacsCache -> [(CopyId, ExprId)] -> ([((CopyId, ExprId), Int)], [((CopyId, ExprId), Int)], [[Int]])
+findCached dCache es = (dMap ++ new, new, dimacs)
+    where
+        lookups             = zip es (map (`lookupCache` dCache) es)
+        (found, notfound)   = partition (isJust . snd) lookups
+        new                 = zip (map fst notfound) [(nextDimacsId dCache)..]
+        dMap                = map (mapSnd (fst . fromJust)) found
+        dimacs              = concatMap (snd . fromJust . snd) found
+
+lookupCache :: (CopyId, ExprId) -> DimacsCache -> Maybe (Int, [[Int]])
+lookupCache e ((Map.lookup e) . dMap -> Just d) = Just d
+lookupCache e (childCache -> Just c)            = lookupCache e c
+lookupCache e _                                 = Nothing
+
+nextDimacsId :: DimacsCache -> Int
+nextDimacsId (childCache -> Just c) = nextDimacsId c
+nextDimacsId (dMax -> i)            = i + 1
+
+insertCache :: (CopyId, ExprId) -> Int -> [[Int]] -> DimacsCache -> DimacsCache
+insertCache ei di d dc@(childCache -> Just c)   = dc { childCache = Just (insertCache ei di d c) }
+insertCache ei di d dc                          = dc {  dMap = Map.insert ei (di, d) (dMap dc),
+                                                        dMax = max di (dMax dc)
+                                                     }
 
 addToCache :: MonadIO m => (CopyId, ExprId) -> Int -> [[Int]] -> ExpressionT m ()
 addToCache ei di d = do
     m <- get
-    put m {
----        dCache      = Map.insert ei (di, d) (dCache m),
-        dCacheMax   = max (dCacheMax m) di
-    }
+    put m { dCache = insertCache ei di d (dCache m) }
 
 exprToDimacs m ((c, e), ind) = do
     mgr         <- get
@@ -468,11 +504,6 @@ getCopies :: Monad m => ExpressionT m [Int]
 getCopies = do
     m <- get
     return (copies m)
-
-clearCopies :: Monad m => ExpressionT m ()
-clearCopies = do
-    m <- get
-    put m { copies = [] }
 
 -- |Contructs an assignment from a model-var pair
 makeAssignment :: (Int, ExprVar) -> Assignment

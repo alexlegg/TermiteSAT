@@ -233,7 +233,7 @@ gtCopyId :: GameTree -> Int
 gtCopyId = copy . followGTCrumb
 
 gtCopies :: GameTree -> [Int]
-gtCopies gt = pc ++ replicate (((baseRank gt) * 2) - (length pc)) (last pc)
+gtCopies gt = pc ++ replicate ((1 + ((baseRank gt) * 2)) - (length pc)) (last pc)
     where
         pc                  = pathCopies (root gt) (crumb gt)
         pathCopies n []     = [copy n]

@@ -24,7 +24,6 @@ import Utils.Utils
 makeFml spec player s gt = do
     let root    = gtRoot gt
     let rank    = gtRank root
-    liftE $ clearCopies
     initMove    <- liftE $ moveToExpression (gtMove root)
     s'          <- liftE $ maybeM s (\i -> conjunct [s, i]) initMove
 
