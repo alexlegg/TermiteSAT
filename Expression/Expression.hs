@@ -57,17 +57,20 @@ type ExpressionT m = StateT ExprManager (EitherT String m)
 throwError :: Monad m => String -> ExpressionT m a
 throwError = lift . left
 
+type CopyId = Int
+type ExprId = Int
+
 data ExprVar = ExprVar {
-    varname     :: String,
-    varsect     :: Section,
-    bit         :: Int,
-    rank        :: Int
+      varname   :: String
+    , varsect   :: Section
+    , bit       :: Int
+    , rank      :: Int
     } deriving (Eq, Ord)
 
 instance Show ExprVar where
     show v = let ExprVar{..} = v in varname ++ show rank ++ "[" ++ show bit ++ "]"
 
-data Var = Var Sign Int deriving (Show, Eq, Ord)
+data Var = Var Sign ExprId deriving (Show, Eq, Ord)
 
 var (Var _ v)   = v
 sign (Var s _)  = s
@@ -92,7 +95,7 @@ data Expr   = ETrue
             deriving (Eq, Ord, Show)
 
 data Expression = Expression {
-      eindex    :: Int
+      eindex    :: ExprId
     , expr      :: Expr
     } deriving (Eq, Ord, Show)
 
@@ -118,9 +121,6 @@ setChildren (ECopy c d _) vs    = ECopy c d (head vs)
 setChildren (EEquals _ _) vs    = let (x:y:[]) = vs in EEquals x y
 setChildren (EConjunct _) vs    = EConjunct vs
 setChildren (EDisjunct _) vs    = EDisjunct vs
-
-type CopyId = Int
-type ExprId = Int
 
 data ExprManager = ExprManager {
       maxIndex      :: ExprId
@@ -337,7 +337,7 @@ partitionCopies :: MonadIO m => Int -> ExpressionT m CopyTree
 partitionCopies i = do
     ds              <- getDependencies i
     copies          <- getCopies
-    let es          = Set.filter (\x -> not (x `elem` copies)) ds
+    let es          = foldl (\s x -> Set.delete x s) ds copies
     let depCopies   = filter (\x -> Set.member x ds && x /= i) copies
     ccs             <- mapM partitionCopies depCopies
 
@@ -410,7 +410,7 @@ makeDMap e = do
 findCached :: DimacsCache -> [(CopyId, ExprId)] -> ([((CopyId, ExprId), Int)], [((CopyId, ExprId), Int)], [[Int]])
 findCached dCache es = (dMap ++ new, new, dimacs)
     where
-        lookups             = zip es (map (`lookupCache` dCache) es)
+        lookups             = zip es (repeat Nothing) --(map (`lookupCache` dCache) es)
         (found, notfound)   = partition (isJust . snd) lookups
         new                 = zip (map fst notfound) [(nextDimacsId dCache)..]
         dMap                = map (mapSnd (fst . fromJust)) found
@@ -427,9 +427,10 @@ nextDimacsId (dMax -> i)            = i + 1
 
 insertCache :: (CopyId, ExprId) -> Int -> [[Int]] -> DimacsCache -> DimacsCache
 insertCache ei di d dc@(childCache -> Just c)   = dc { childCache = Just (insertCache ei di d c) }
-insertCache ei di d dc                          = dc {  dMap = Map.insert ei (di, d) (dMap dc),
-                                                        dMax = max di (dMax dc)
-                                                     }
+insertCache ei di d dc                          = dc
+---insertCache ei di d dc                          = dc {  dMap = Map.insert ei (di, d) (dMap dc),
+---                                                        dMax = max di (dMax dc)
+---                                                     }
 
 addToCache :: MonadIO m => (CopyId, ExprId) -> Int -> [[Int]] -> ExpressionT m ()
 addToCache ei di d = do

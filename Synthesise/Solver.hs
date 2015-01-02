@@ -46,7 +46,7 @@ solveAbstract player spec s gt = do
     res <- refinementLoop player spec s cand gt gt
 
     liftLog $ logSolveComplete res
-    liftLog logDumpLog
+---    liftLog logDumpLog
 
     return res
 
@@ -77,16 +77,15 @@ findCandidate player spec s gt = do
     if satisfiable res
     then do
         let (Just m)    = model res
-        let leaves      = gtLeaves gt
-        init            <- getVarsAtRank (svars spec) dMap m 0 (gtBaseRank gt)
+
+        gt'             <- setMoves player spec dMap m (gtRoot gt)
+        let leaves      = gtLeaves gt'
+
         moves           <- mapM (getMove player spec dMap m) leaves
+
         let paths       = zipWith (fixPlayerMoves player) (map makePathTree leaves) moves
-        forM_ paths $ \path -> do
-            when (any ((==) Nothing) (tail (gtMoves path))) $ do
-                liftIO $ putStrLn ""
-                liftIO $ mapM (putStrLn . show) (head moves)
-                throwError ("Nothing move\n" ++ printTree spec path)
-        return (Just (merge (map (fixInitState init) paths)))
+
+        return (Just (merge paths))
     else do
         mapM_ (learnStates spec player) (gtUnsetNodes gt)
 ---        computeCounterExample spec player gt
@@ -135,7 +134,7 @@ verify :: Player -> CompiledSpec -> Expression -> GameTree -> GameTree -> Solver
 verify player spec s gt cand = do
     let og = projectMoves gt cand
     when (not (isJust og)) $ throwError $ "Error projecting, moves didn't match\n" ++ show player ++ printTree spec gt ++ printTree spec cand
-    let leaves = filter ((/= 0) . gtRank) (map makePathTree (gtLeaves (fromJust og)))
+    let leaves = filter (not . gtAtBottom) (map makePathTree (gtLeaves (fromJust og)))
     mapMUntilJust (verifyLoop (opponent player) spec s) (zip [0..] leaves)
 
 verifyLoop :: Player -> CompiledSpec -> Expression -> (Int, GameTree) -> SolverT (Maybe GameTree)
@@ -145,6 +144,35 @@ verifyLoop player spec s (i, gt) = do
     solveAbstract player spec s oppGame
 
 refine gt cex = return $ appendNextMove gt cex
+
+setMoves player spec dMap model gt = do
+    let f       = if player == gtFirstPlayer gt then setMovesPlayer else setMovesOpp 
+    liftIO $ putStrLn "setMoves"
+    cs          <- mapM (f player spec dMap model) (gtChildren gt)
+    let gt'     = gtSetChildren gt cs
+    liftIO $ putStrLn $ printTree spec gt
+    liftIO $ putStrLn $ printTree spec gt'
+    liftIO $ putStrLn "get init"
+    init        <- getVarsAtRank (svars spec) dMap model 0 (gtBaseRank gt)
+    liftIO $ putStrLn "get init done"
+    return      $ fixInitState init gt'
+
+setMovesPlayer player spec dMap model gt = do
+    let vars    = if player == Existential then cont spec else ucont spec
+    let copy    = gtCopyId gt
+    let rnk     = gtRank gt
+    move        <- getVarsAtRank vars dMap model copy rnk
+    liftIO $ putStrLn (printMove spec (Just move))
+    let gt'     = gtSetMove gt move
+    cs          <- mapM (setMovesOpp player spec dMap model) (gtChildren gt')
+    liftIO $ putStrLn $ "setMove player " ++ show (length (gtChildren gt)) ++ " " ++ show (length (gtChildren gt')) ++ " " ++ show (length cs)
+    return      $ gtSetChildren gt' cs
+
+setMovesOpp player spec dMap model gt = do
+    liftIO $ putStrLn "setMove opp"
+    cs          <- mapM (setMovesPlayer player spec dMap model) (gtChildren gt)
+    liftIO $ putStrLn $ "setMove player " ++ show (length (gtChildren gt)) ++ " " ++ show (length cs)
+    return      $ gtSetChildren gt cs
 
 getMove player spec dMap model gt = do
     let vars    = if player == Existential then cont spec else ucont spec

@@ -36,9 +36,9 @@ for f in FAMILIES:
 ###         "ide"  : 5,
 ###         "uart"  : 13 }
 
-MAX_K_F = {"spi" : 3,
+MAX_K_F = {"spi" : 2,
          "queue" : 3,
-         "ide"  : 3,
+         "ide"  : 1,
          "uart"  : 3 }
 
 for k in range(1, MAX_K+1):

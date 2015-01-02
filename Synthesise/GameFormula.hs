@@ -34,7 +34,7 @@ makeFml spec player s gt = do
 
         return fml'
     else do
-        let cs      = map (gtMovePairs . snd) (gtChildren root)
+        let cs      = map gtMovePairs (gtChildren root)
         steps       <- mapM (mapM (makeStep rank spec player (gtFirstPlayer gt))) cs
         fml         <- mergeRenamed player (gtFirstPlayer gt) spec rank root (map (map thd3) cs) steps
         fml'        <- liftE $ conjunct [fml, s']
@@ -66,7 +66,7 @@ makeStep rank spec player first (m1, m2, c) = do
 
     next <- if isJust c
         then do
-            let cs = map (gtMovePairs . snd) (gtChildren (fromJust c))
+            let cs = map gtMovePairs (gtChildren (fromJust c))
             if null cs
             then do
                 leafToBottom spec player (rank-1)

@@ -1,4 +1,4 @@
-{-# LANGUAGE GADTs, KindSignatures, DataKinds, MultiParamTypeClasses, RecordWildCards #-}
+{-# LANGUAGE GADTs, KindSignatures, DataKinds, MultiParamTypeClasses, RecordWildCards, ViewPatterns #-}
 module Synthesise.GameTree (
       GameTree
     , Player(..)
@@ -8,6 +8,7 @@ module Synthesise.GameTree (
 
     -- Queries on GameTrees
     , gtRank
+    , gtAtBottom
     , gtRoot
     , gtBaseRank
     , gtFirstPlayer
@@ -23,19 +24,20 @@ module Synthesise.GameTree (
     , gtMaxDepth
     , gtChildMoves
     , gtChildren
+    , gtSetChildren
     , gtMovePairs
     , gtUnsetNodes
     , gtPrevState
     , gtPrevStateGT
     , gtRebase
     , printTree
-    , validTree
 
     -- Modifiers
     , gtNew
     , gtLeaves
     , makePathTree
     , fixPlayerMoves
+    , gtSetMove
     , fixInitState
     , projectMoves
     , mergeTrees
@@ -67,10 +69,30 @@ type Move = Maybe [Assignment]
 data NodeType = RootNode | InternalNode deriving (Show, Eq)
 
 data Node (t :: NodeType) (p :: Player) where
-    U       :: Int -> Move -> Move -> [Node InternalNode Existential] -> Node InternalNode Universal
-    E       :: Int -> Move -> [Node InternalNode Universal] -> Node InternalNode Existential
-    SU      :: Int -> Move -> [Node InternalNode Existential] -> Node RootNode Universal
-    SE      :: Int -> Move -> [Node InternalNode Universal] -> Node RootNode Existential
+    U :: {
+          uCopy         :: Int
+        , uMove         :: Move
+        , uState        :: Move
+        , uChildren     :: [Node InternalNode Existential]
+    } -> Node InternalNode Universal
+
+    E :: {
+          eCopy         :: Int
+        , eMove         :: Move
+        , eChildren     :: [Node InternalNode Universal]
+    } -> Node InternalNode Existential
+
+    SU :: {
+          suCopy        :: Int
+        , suState       :: Move
+        , suChildren    :: [Node InternalNode Existential]
+    } -> Node RootNode Universal
+
+    SE :: {
+          seCopy        :: Int
+        , seState       :: Move
+        , seChildren    :: [Node InternalNode Universal]
+    } -> Node RootNode Existential
 
 data SNode where
     SNode   :: Node t p -> SNode
@@ -174,9 +196,19 @@ gtNew Existential r = ETree { baseRank = r, maxCopy = 0, crumb = [], eroot = (SU
 gtNew Universal r   = UTree { baseRank = r, maxCopy = 0, crumb = [], uroot = (SE 0 Nothing []) }
 
 -- |Calculates rank of a node (based on base rank)
--- TODO: Needs to be fixed for swapping player order
 gtRank :: GameTree -> Int
-gtRank t    = (baseRank t) - (length (crumb t) `quot` 2)
+gtRank t@(crumb -> [])  = baseRank t
+gtRank t                = baseRank t - ((length (crumb t) - 1) `quot` 2)
+
+gtAtBottom :: GameTree -> Bool
+gtAtBottom t@(ETree{})  = gtRank t == 1 && isUNode (followGTCrumb t)
+gtAtBottom t@(UTree{})  = gtRank t == 1 && isENode (followGTCrumb t)
+
+isUNode (SNode (U{}))   = True
+isUNode _               = False
+
+isENode (SNode (E{}))   = True
+isENode _               = False
 
 -- |Returns the root node of the tree
 gtBaseRank :: GameTree -> Int
@@ -295,14 +327,26 @@ followGTCrumb gt = followCrumb (root gt) (crumb gt)
 followCrumb :: SNode -> [Int] -> SNode
 followCrumb r cr = foldl (\n c -> children n !! c) r cr
 
+updateGTCrumb :: GameTree -> (SNode -> SNode) -> GameTree
+updateGTCrumb gt f = setRoot gt (updateCrumb f (crumb gt))
+
+updateCrumb :: (SNode -> SNode) -> [Int] -> SNode -> SNode
+updateCrumb f [] n      = f n
+updateCrumb f (c:cs) n  = setChildren n (adjust f c (children n))
+
 -- |Gets all outgoing moves of a node
 gtChildMoves :: GameTree -> [Move]
 gtChildMoves gt = map snodeMove (children (followGTCrumb gt))
 
-gtChildren :: GameTree -> [(Move, GameTree)]
+gtChildren :: GameTree -> [GameTree]
 gtChildren gt = zipWith f (children (followGTCrumb gt)) [0..]
     where
-        f n i = (snodeMove n, setCrumb gt (crumb gt ++ [i]))
+        f n i = setCrumb gt (crumb gt ++ [i])
+
+gtSetChildren :: GameTree -> [GameTree] -> GameTree
+gtSetChildren gt cs = updateGTCrumb gt f
+    where
+        f n = setChildren n (map followGTCrumb cs)
 
 -- |Groups moves by rank
 gtMovePairs :: GameTree -> [(Move, Move, Maybe GameTree)]
@@ -345,6 +389,9 @@ fixPlayerMoves p gt as = setRoot gt (fpm p as)
 
         fpm Universal ((m,s):as) (SNode (U c _ _ ns))   = SNode (U c (Just m) (Just s) (mapNodes (fpm p as) ns))
         fpm p as n                                      = setChildren n (map (fpm p as) (children n))
+
+gtSetMove :: GameTree -> [Assignment] -> GameTree
+gtSetMove gt as = updateGTCrumb gt (setMove (Just as))
 
 fixInitState :: [Assignment] -> GameTree -> GameTree
 fixInitState s gt = setRoot gt fsi
@@ -508,6 +555,3 @@ valsToEnums VarInfo {enum = Nothing} (v:[])     = show v
 valsToEnums VarInfo {enum = Nothing} vs         = show vs
 valsToEnums VarInfo {enum = Just eMap} (v:[])   = fromMaybe (show v) (lookup v (map swap eMap))
 valsToEnums VarInfo {enum = Just eMap} vs       = "[" ++ interMap ", " (\v -> fromMaybe (show v) (lookup v (map swap eMap))) vs ++ "]"
-
-validTree :: GameTree -> Bool
-validTree gt = any ((/= Nothing) . snodeMove) $ map followGTCrumb (gtLeaves gt)
