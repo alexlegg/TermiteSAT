@@ -36,11 +36,10 @@ module Synthesise.GameTree (
     , gtNew
     , gtLeaves
     , makePathTree
-    , fixPlayerMoves
     , gtSetMove
-    , fixInitState
+    , gtSetState
+    , gtSetInit
     , projectMoves
-    , mergeTrees
     , appendChild
     , appendNextMove
     ) where
@@ -151,6 +150,12 @@ snodeState (SNode (U _ _ s _))    = s
 snodeState (SNode (E _ _ _))      = Nothing
 snodeState (SNode (SU _ s _))     = s
 snodeState (SNode (SE _ s _))     = s
+
+setState :: Move -> SNode -> SNode
+setState s (SNode (U c m _ n'))    = SNode (U c m s n')
+setState s (SNode (E c m n'))      = error "Trying to set state of Existential node"
+setState s (SNode (SU c _ n'))     = SNode (SU c s n')
+setState s (SNode (SE c _ n'))     = SNode (SE c s n')
 
 copy :: SNode -> Int
 copy (SNode (U c _ _ _))    = c
@@ -332,7 +337,7 @@ updateGTCrumb gt f = setRoot gt (updateCrumb f (crumb gt))
 
 updateCrumb :: (SNode -> SNode) -> [Int] -> SNode -> SNode
 updateCrumb f [] n      = f n
-updateCrumb f (c:cs) n  = setChildren n (adjust f c (children n))
+updateCrumb f (c:cs) n  = setChildren n (adjust (updateCrumb f cs) c (children n))
 
 -- |Gets all outgoing moves of a node
 gtChildMoves :: GameTree -> [Move]
@@ -380,21 +385,14 @@ makePathTree gt = setCrumb (setRoot gt (makePN (crumb gt))) (replicate (length (
         makePN (c:cs) (SNode (SE i s ns))     = SNode (SE i s [viaSNode (makePN cs) (ns !! c)])
         makePN (c:cs) (SNode (SU i s ns))     = SNode (SU i s [viaSNode (makePN cs) (ns !! c)])
 
--- |Fix moves for one player in a path tree only
-fixPlayerMoves :: Player -> GameTree -> [([Assignment], [Assignment])] -> GameTree
-fixPlayerMoves p gt as = setRoot gt (fpm p as)
-    where
-        fpm Existential ((m,s):as) (SNode (E c _ ns))   = SNode (E c (Just m) (mapNodes (fpm p ((m,s):as)) ns))
-        fpm Existential ((_,s):as) (SNode (U c m _ ns)) = SNode (U c m (Just s) (mapNodes (fpm p as) ns))
-
-        fpm Universal ((m,s):as) (SNode (U c _ _ ns))   = SNode (U c (Just m) (Just s) (mapNodes (fpm p as) ns))
-        fpm p as n                                      = setChildren n (map (fpm p as) (children n))
-
 gtSetMove :: GameTree -> [Assignment] -> GameTree
 gtSetMove gt as = updateGTCrumb gt (setMove (Just as))
 
-fixInitState :: [Assignment] -> GameTree -> GameTree
-fixInitState s gt = setRoot gt fsi
+gtSetState :: GameTree -> [Assignment] -> GameTree
+gtSetState gt as = updateGTCrumb gt (setState (Just as))
+
+gtSetInit :: [Assignment] -> GameTree -> GameTree
+gtSetInit s gt = setRoot gt fsi
     where
         fsi (SNode (SU c _ ns))   = SNode (SU c (Just s) ns)
         fsi (SNode (SE c _ ns))   = SNode (SE c (Just s) ns)
@@ -431,15 +429,6 @@ maybeProject :: SNode -> [Node t p] -> [Node t p] -> Maybe SNode
 maybeProject s ns ps = do
     ns' <- zipWithM projectNodes (map SNode ns) (map SNode ps)
     return $ setChildren s ns'
-
-mergeTrees :: GameTree -> GameTree -> GameTree
-mergeTrees t1 t2 = setRoot (setCrumb t1 []) (\_ -> r)
-    where
-        r = mergeNodes (root t1) (Just (root t2))
-
-mergeNodes :: SNode -> Maybe SNode -> SNode
-mergeNodes x (Just y)    = setChildren x (map (uncurry mergeNodes) (zipChildren (children x) (children y)))
-mergeNodes n Nothing     = n
 
 zipChildren :: [SNode] -> [SNode] -> [(SNode, Maybe SNode)]
 zipChildren xs []           = map (\x -> (x, Nothing)) xs

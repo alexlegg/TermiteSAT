@@ -77,22 +77,12 @@ findCandidate player spec s gt = do
     if satisfiable res
     then do
         let (Just m)    = model res
-
         gt'             <- setMoves player spec dMap m (gtRoot gt)
-        let leaves      = gtLeaves gt'
-
-        moves           <- mapM (getMove player spec dMap m) leaves
-
-        let paths       = zipWith (fixPlayerMoves player) (map makePathTree leaves) moves
-
-        return (Just (merge paths))
+        return (Just gt')
     else do
         mapM_ (learnStates spec player) (gtUnsetNodes gt)
 ---        computeCounterExample spec player gt
         return Nothing
-
-merge (t:[]) = t
-merge (t:ts) = foldl mergeTrees t ts
 
 learnStates :: CompiledSpec -> Player -> GameTree -> SolverT ()
 learnStates spec player gt = do
@@ -147,45 +137,28 @@ refine gt cex = return $ appendNextMove gt cex
 
 setMoves player spec dMap model gt = do
     let f       = if player == gtFirstPlayer gt then setMovesPlayer else setMovesOpp 
-    liftIO $ putStrLn "setMoves"
     cs          <- mapM (f player spec dMap model) (gtChildren gt)
     let gt'     = gtSetChildren gt cs
-    liftIO $ putStrLn $ printTree spec gt
-    liftIO $ putStrLn $ printTree spec gt'
-    liftIO $ putStrLn "get init"
     init        <- getVarsAtRank (svars spec) dMap model 0 (gtBaseRank gt)
-    liftIO $ putStrLn "get init done"
-    return      $ fixInitState init gt'
+    return      $ gtSetInit init gt'
 
 setMovesPlayer player spec dMap model gt = do
     let vars    = if player == Existential then cont spec else ucont spec
-    let copy    = gtCopyId gt
-    let rnk     = gtRank gt
-    move        <- getVarsAtRank vars dMap model copy rnk
-    liftIO $ putStrLn (printMove spec (Just move))
-    let gt'     = gtSetMove gt move
+    move        <- getVarsAtRank vars dMap model (gtCopyId gt) (gtRank gt)
+    state       <- getVarsAtRank (svars spec) dMap model (gtCopyId gt) (gtRank gt - 1)
+    let gt'     = if player == Universal
+                    then gtSetMove (gtSetState gt state) move
+                    else gtSetMove gt move
     cs          <- mapM (setMovesOpp player spec dMap model) (gtChildren gt')
-    liftIO $ putStrLn $ "setMove player " ++ show (length (gtChildren gt)) ++ " " ++ show (length (gtChildren gt')) ++ " " ++ show (length cs)
     return      $ gtSetChildren gt' cs
 
 setMovesOpp player spec dMap model gt = do
-    liftIO $ putStrLn "setMove opp"
-    cs          <- mapM (setMovesPlayer player spec dMap model) (gtChildren gt)
-    liftIO $ putStrLn $ "setMove player " ++ show (length (gtChildren gt)) ++ " " ++ show (length cs)
-    return      $ gtSetChildren gt cs
-
-getMove player spec dMap model gt = do
-    let vars    = if player == Existential then cont spec else ucont spec
-    let maxrnk  = gtBaseRank gt
-    let copies = if player == gtFirstPlayer gt
-                    then everyOdd (tail (gtCopies gt))
-                    else everyEven (tail (gtCopies gt))
-    let scopies = everyEven (tail (gtCopies gt))
-    states      <- zipWithM (getVarsAtRank (svars spec) dMap model) scopies (reverse [0..(maxrnk-1)])
-    moves       <- zipWithM (getVarsAtRank vars dMap model) copies (reverse [1..maxrnk])
-    when (any null moves) $ throwError "Bad moves"
-    when (null moves) $ throwError "No Moves"
-    return $ zip moves states
+    state       <- getVarsAtRank (svars spec) dMap model (gtCopyId gt) (gtRank gt - 1)
+    let gt'     = if opponent player == Universal
+                    then gtSetState gt state
+                    else gt
+    cs          <- mapM (setMovesPlayer player spec dMap model) (gtChildren gt')
+    return      $ gtSetChildren gt' cs
 
 getVarsAtRank vars dMap model cpy rnk = do
     let vars' = map (\v -> v {rank = rnk}) vars
