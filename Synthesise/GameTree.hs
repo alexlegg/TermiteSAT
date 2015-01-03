@@ -14,11 +14,9 @@ module Synthesise.GameTree (
     , gtFirstPlayer
     , gtCrumb
     , gtMoves
-    , gtPlayerMoves
     , gtMove
     , gtState
     , gtCopyId
-    , gtCopies
     , gtParent
     , gtPathMoves
     , gtMaxDepth
@@ -122,52 +120,56 @@ instance SNodeC RootNode Existential where
     toNode _                        = error "Conversion to SE Node failed"
 
 children :: SNode -> [SNode]
-children (SNode (U _ _ _ cs)) = map SNode cs
-children (SNode (E _ _ cs))   = map SNode cs
-children (SNode (SU _ _ cs))  = map SNode cs
-children (SNode (SE _ _ cs))  = map SNode cs
+children (SNode n@U{})  = map SNode (uChildren n)
+children (SNode n@E{})  = map SNode (eChildren n)
+children (SNode n@SU{}) = map SNode (suChildren n)
+children (SNode n@SE{}) = map SNode (seChildren n)
 
 setChildren :: SNode -> [SNode] -> SNode
-setChildren (SNode (U c m s _)) cs    = SNode (U c m s (map toNode cs))
-setChildren (SNode (E c m _)) cs      = SNode (E c m (map toNode cs))
-setChildren (SNode (SU c s _)) cs     = SNode (SU c s (map toNode cs))
-setChildren (SNode (SE c s _)) cs     = SNode (SE c s (map toNode cs))
+setChildren (SNode n@U{}) cs    = SNode (n { uChildren = map toNode cs })
+setChildren (SNode n@E{}) cs    = SNode (n { eChildren = map toNode cs })  
+setChildren (SNode n@SU{}) cs   = SNode (n { suChildren = map toNode cs })  
+setChildren (SNode n@SE{}) cs   = SNode (n { seChildren = map toNode cs })  
 
 snodeMove :: SNode -> Move
-snodeMove (SNode (U _ m _ _))     = m
-snodeMove (SNode (E _ m _))       = m
-snodeMove (SNode (SE _ s _))      = s
-snodeMove (SNode (SU _ s _))      = s
+snodeMove (SNode n@U{})     = uMove n
+snodeMove (SNode n@E{})     = eMove n
+snodeMove (SNode n@SU{})    = suState n
+snodeMove (SNode n@SE{})    = seState n
 
 setMove :: Move -> SNode -> SNode
-setMove m (SNode (U c _ s n'))    = SNode (U c m s n')
-setMove m (SNode (E c _ n'))      = SNode (E c m n')
-setMove s (SNode (SU c _ n'))     = SNode (SU c s n')
-setMove s (SNode (SE c _ n'))     = SNode (SE c s n')
+setMove m (SNode n@U{})     = SNode (n { uMove = m })
+setMove m (SNode n@E{})     = SNode (n { eMove = m })
+setMove s (SNode n@SU{})    = SNode (n { suState = s })
+setMove s (SNode n@SE{})    = SNode (n { seState = s })
 
 snodeState :: SNode -> Move
-snodeState (SNode (U _ _ s _))    = s
-snodeState (SNode (E _ _ _))      = Nothing
-snodeState (SNode (SU _ s _))     = s
-snodeState (SNode (SE _ s _))     = s
+snodeState (SNode n@U{})     = uState n
+snodeState (SNode n@E{})     = Nothing
+snodeState (SNode n@SU{})    = suState n
+snodeState (SNode n@SE{})    = seState n
 
 setState :: Move -> SNode -> SNode
-setState s (SNode (U c m _ n'))    = SNode (U c m s n')
-setState s (SNode (E c m n'))      = error "Trying to set state of Existential node"
-setState s (SNode (SU c _ n'))     = SNode (SU c s n')
-setState s (SNode (SE c _ n'))     = SNode (SE c s n')
+setState s (SNode n@U{})     = SNode (n { uState = s })
+setState _ (SNode n@E{})     = error "Trying to set state of Existential node"
+setState s (SNode n@SU{})    = SNode (n { suState = s })
+setState s (SNode n@SE{})    = SNode (n { seState = s })
+
+setStateIfU :: Move -> SNode -> SNode
+setStateIfU m (SNode n@U{}) = SNode (n { uState = m })
+setStateIfU _ n             = n
 
 copy :: SNode -> Int
-copy (SNode (U c _ _ _))    = c
-copy (SNode (E c _ _))      = c
-copy (SNode (SU c _ _))     = c
-copy (SNode (SE c _ _))     = c
+copy (SNode n@U{})     = uCopy n
+copy (SNode n@E{})     = eCopy n
+copy (SNode n@SU{})    = suCopy n
+copy (SNode n@SE{})    = seCopy n
 
 setCopy :: Int -> SNode -> SNode 
-setCopy c (SNode (U _ m s n))    = SNode (U c m s n)
-setCopy c (SNode (E _ m n))      = SNode (E c m n)
-setCopy c (SNode (SU _ s n))     = SNode (SU c s n)
-setCopy c (SNode (SE _ s n))     = SNode (SE c s n)
+setCopy c (SNode n@U{})     = SNode (n { uCopy = c })
+setCopy c (SNode n@E{})     = SNode (n { eCopy = c })
+setCopy c (SNode n@SU{})    = SNode (n { suCopy = c })
+setCopy c (SNode n@SE{})    = SNode (n { seCopy = c })
 
 data GameTree where
     ETree   :: {
@@ -191,14 +193,27 @@ root :: GameTree -> SNode
 root ETree{..}  = SNode eroot
 root UTree{..}  = SNode uroot
 
-setRoot :: GameTree -> (SNode -> SNode) -> GameTree
-setRoot t@(UTree{..}) f    = t { uroot = (viaSNode f uroot) }
-setRoot t@(ETree{..}) f    = t { eroot = (viaSNode f eroot) }
+setRoot :: GameTree -> SNode -> GameTree
+setRoot t@(UTree{..}) r     = t { uroot = toNode r }
+setRoot t@(ETree{..}) r     = t { eroot = toNode r }
+
+updateRoot :: GameTree -> (SNode -> SNode) -> GameTree
+updateRoot t@(UTree{..}) f  = t { uroot = (viaSNode f uroot) }
+updateRoot t@(ETree{..}) f  = t { eroot = (viaSNode f eroot) }
 
 -- |Construct a new game tree for player and rank specified
 gtNew :: Player -> Int -> GameTree
-gtNew Existential r = ETree { baseRank = r, maxCopy = 0, crumb = [], eroot = (SU 0 Nothing []) }
-gtNew Universal r   = UTree { baseRank = r, maxCopy = 0, crumb = [], uroot = (SE 0 Nothing []) }
+gtNew Existential r = ETree {
+      baseRank = r
+    , maxCopy = 0
+    , crumb = []
+    , eroot = SU { suCopy = 0, suState = Nothing, suChildren = [] } }
+
+gtNew Universal r   = UTree { 
+      baseRank = r
+    , maxCopy = 0
+    , crumb = []
+    , uroot = SE { seCopy = 0, seState = Nothing, seChildren = [] } }
 
 -- |Calculates rank of a node (based on base rank)
 gtRank :: GameTree -> Int
@@ -239,18 +254,6 @@ nodeMoves :: [Int] -> SNode -> [Move]
 nodeMoves [] n      = [snodeMove n]
 nodeMoves (c:cs) n  = snodeMove n : nodeMoves cs (children n !! c)
 
--- |Gets the moves for one player
-gtPlayerMoves :: Player -> GameTree -> [Move]
-gtPlayerMoves p gt = playerNodeMoves p (crumb gt) (root gt)
-
-playerNodeMoves :: Player -> [Int] -> SNode -> [Move]
-playerNodeMoves Existential [] (SNode (E _ m _))        = [m]
-playerNodeMoves Existential (c:cs) (SNode (E _ m ns))   = m : playerNodeMoves Existential cs (SNode (ns !! c))
-playerNodeMoves Universal [] (SNode (U _ m _ _))        = [m]
-playerNodeMoves Universal (c:cs) (SNode (U _ m _ ns))   = m : playerNodeMoves Universal cs (SNode (ns !! c))
-playerNodeMoves p [] _                                  = []
-playerNodeMoves p (c:cs) n                              = playerNodeMoves p cs (children n !! c)
-
 -- |Gets all the states leading to a node
 gtStates :: GameTree -> [Move]
 gtStates gt = nodeStates (crumb gt) (root gt)
@@ -269,13 +272,6 @@ gtState = snodeState . followGTCrumb
 gtCopyId :: GameTree -> Int
 gtCopyId = copy . followGTCrumb
 
-gtCopies :: GameTree -> [Int]
-gtCopies gt = pc ++ replicate ((1 + ((baseRank gt) * 2)) - (length pc)) (last pc)
-    where
-        pc                  = pathCopies (root gt) (crumb gt)
-        pathCopies n []     = [copy n]
-        pathCopies n (c:cs) = copy n : pathCopies (children n !! c) cs
-
 gtParent :: GameTree -> GameTree
 gtParent gt = setCrumb gt (init (crumb gt))
 
@@ -287,15 +283,15 @@ gtPrevStateGT gt = setCrumb gt (prevStateNode gt (crumb gt))
 
 prevStateNode :: GameTree -> [Int] -> [Int]
 prevStateNode gt cr = case followCrumb (root gt) cr of
-    (SNode (E _ _ _))     -> init cr
-    (SNode (U _ _ _ _))   -> init (init cr)
+    (SNode (E{}))   -> init cr
+    (SNode (U{}))   -> init (init cr)
 
 -- |Creates a new tree with the current node as its base
 gtRebase :: GameTree -> GameTree
-gtRebase gt = ETree { baseRank = newrank, maxCopy = 0, crumb =  [], eroot = (SU 0 Nothing [(toNode newroot)]) }
+gtRebase gt = updateRoot (gtNew Existential newrank) (`setChildren` [newroot])
     where
         newcrumb    = alignCrumb (crumb gt)
-        newroot     = (followCrumb (root gt) newcrumb)
+        newroot     = followCrumb (root gt) newcrumb
         newrank     = baseRank gt - (length newcrumb `quot` 2)
 
 -- |Makes a crumb start at the beginning of a step
@@ -333,7 +329,7 @@ followCrumb :: SNode -> [Int] -> SNode
 followCrumb r cr = foldl (\n c -> children n !! c) r cr
 
 updateGTCrumb :: GameTree -> (SNode -> SNode) -> GameTree
-updateGTCrumb gt f = setRoot gt (updateCrumb f (crumb gt))
+updateGTCrumb gt f = updateRoot gt (updateCrumb f (crumb gt))
 
 updateCrumb :: (SNode -> SNode) -> [Int] -> SNode -> SNode
 updateCrumb f [] n      = f n
@@ -362,8 +358,8 @@ gtMovePairs gt = case (zip (children n) [0..]) of
         n = followGTCrumb gt
 
 stateFromPair :: SNode -> SNode -> Move
-stateFromPair (SNode (E _ _ _)) (SNode (U _ _ s _)) = s
-stateFromPair (SNode (U _ _ s _)) (SNode (E _ _ _)) = s
+stateFromPair (SNode (E{})) (SNode n@(U{})) = uState n
+stateFromPair (SNode n@(U{})) (SNode (E{})) = uState n
 
 -- |Finds the first Nothing move
 gtUnsetNodes :: GameTree -> [GameTree]
@@ -376,14 +372,10 @@ firstUnsetNode r cc cr
 
 -- |Filters moves not in the crumb out
 makePathTree :: GameTree -> GameTree
-makePathTree gt = setCrumb (setRoot gt (makePN (crumb gt))) (replicate (length (crumb gt)) 0)
+makePathTree gt = setCrumb (updateRoot gt (makePN (crumb gt))) (replicate (length (crumb gt)) 0)
     where
-        makePN :: [Int] -> SNode -> SNode
-        makePN [] n = n
-        makePN (c:cs) (SNode (E i m ns))      = SNode (E i m [viaSNode (makePN cs) (ns !! c)])
-        makePN (c:cs) (SNode (U i m s ns))    = SNode (U i m s [viaSNode (makePN cs) (ns !! c)])
-        makePN (c:cs) (SNode (SE i s ns))     = SNode (SE i s [viaSNode (makePN cs) (ns !! c)])
-        makePN (c:cs) (SNode (SU i s ns))     = SNode (SU i s [viaSNode (makePN cs) (ns !! c)])
+        makePN [] n     = n
+        makePN (c:cs) n = setChildren n [makePN cs (children n !! c)]
 
 gtSetMove :: GameTree -> [Assignment] -> GameTree
 gtSetMove gt as = updateGTCrumb gt (setMove (Just as))
@@ -392,56 +384,27 @@ gtSetState :: GameTree -> [Assignment] -> GameTree
 gtSetState gt as = updateGTCrumb gt (setState (Just as))
 
 gtSetInit :: [Assignment] -> GameTree -> GameTree
-gtSetInit s gt = setRoot gt fsi
+gtSetInit s gt = updateRoot gt fsi
     where
-        fsi (SNode (SU c _ ns))   = SNode (SU c (Just s) ns)
-        fsi (SNode (SE c _ ns))   = SNode (SE c (Just s) ns)
+        fsi (SNode n@(SU{}))    = SNode (n { suState = Just s })
+        fsi (SNode n@(SE{}))    = SNode (n { seState = Just s })
 
 -- |Project moves from one game tree onto another
 projectMoves :: GameTree -> GameTree -> Maybe GameTree
-projectMoves t1@(ETree{}) t2@(ETree{})  = do
-    p <- projectNodes (root t1) (root t2)
-    return $ t1 { eroot = (toNode p) }
-projectMoves t1@(UTree{}) t2@(UTree{})  = do
-    p <- projectNodes (root t1) (root t2) 
-    return $ t2 { uroot = (toNode p) }
-projectMoves _ _                            = Nothing
+projectMoves t1 t2 = (liftM (setRoot t1)) (projectNodes (root t1) (root t2))
 
 projectNodes :: SNode -> SNode -> Maybe SNode
-projectNodes (SNode (E c m ns))   (SNode (E cp mp ps))
-    | isNothing m   = maybeProject (SNode (E c mp [])) ns ps
-    | m == mp       = maybeProject (SNode (E c m [])) ns ps
-    | otherwise     = D.trace (show m ++ "\n" ++ show mp) $ Nothing
-projectNodes (SNode (U c m s ns)) (SNode (U cp mp sp ps))
-    | isNothing m   = maybeProject (SNode (U c mp sp [])) ns ps
-    | m == mp       = maybeProject (SNode (U c m sp [])) ns ps
-    | otherwise     = D.trace "2" $ Nothing
-projectNodes (SNode (SE c s ns))  (SNode (SE cp sp ps))
-    | isNothing s   = maybeProject (SNode (SE c sp [])) ns ps
-    | s == sp       = maybeProject (SNode (SE c s [])) ns ps
-    | otherwise     = D.trace "3" $ Nothing
-projectNodes (SNode (SU c s ns))  (SNode (SU cp sp ps))
-    | isNothing s   = maybeProject (SNode (SU c sp [])) ns ps
-    | s == sp       = maybeProject (SNode (SU c s [])) ns ps
-    | otherwise     = D.trace "4" $ Nothing
-
-maybeProject :: SNode -> [Node t p] -> [Node t p] -> Maybe SNode
-maybeProject s ns ps = do
-    ns' <- zipWithM projectNodes (map SNode ns) (map SNode ps)
-    return $ setChildren s ns'
-
-zipChildren :: [SNode] -> [SNode] -> [(SNode, Maybe SNode)]
-zipChildren xs []           = map (\x -> (x, Nothing)) xs
-zipChildren [] ys           = map (\y -> (y, Nothing)) ys
-zipChildren (x:xs) (y:ys)   = if snodeMove x == snodeMove y
-    then (x, Just y) : zipChildren xs ys
-    else (x, Nothing) : zipChildren xs (y:ys)
+projectNodes n p
+    | isNothing (snodeMove n) || snodeMove n == snodeMove p = do
+        cs <- zipWithM projectNodes (children n) (children p)
+        return $ setStateIfU (snodeState p) (setMove (snodeMove p) (setChildren n cs))
+    | otherwise = Nothing
 
 appendChild :: GameTree -> GameTree
 appendChild gt = gt' { maxCopy = c }
     where
         (c, r)  = appendNodeAt (maxCopy gt) (crumb gt) (root gt)
-        gt'     = setRoot gt (\x -> r)
+        gt'     = setRoot gt r
 
 appendNodeAt mc [] n       = appendNode mc Nothing Nothing n
 appendNodeAt mc (c:cs) n   = (mc', setChildren n (update n' c ns))
@@ -450,22 +413,24 @@ appendNodeAt mc (c:cs) n   = (mc', setChildren n (update n' c ns))
         (mc', n')   = appendNodeAt mc cs (ns !! c)
 
 appendNode :: Int -> Move -> Move -> SNode -> (Int, SNode)
-appendNode mc m' s' n = (mc', app n)
+appendNode mc m' s' n = (mc', setChildren n (children n ++ [newNode n c' m' s']))
     where
-        app (SNode (E c m ns))      = SNode (E c m (ns ++ [U c' m' s' []]))
-        app (SNode (U c m s ns))    = SNode (U c m s (ns ++ [E c' m' []]))
-        app (SNode (SE c s ns))     = SNode (SE c s (ns ++ [U c' m' s' []]))
-        app (SNode (SU c s ns))     = SNode (SU c s (ns ++ [E c' m' []]))
-        (mc', c')                   = appendCopy mc (copy n) (children n)
+        (mc', c')           = appendCopy mc (copy n) (children n)
 
 append2Nodes :: Int -> Move -> Move -> SNode -> (Int, SNode)
-append2Nodes mc m' s' n = (mc', app n)
+append2Nodes mc m' s' n = (mc', setChildren n (children n ++ [app n]))
     where
-        app (SNode (E c m ns))      = SNode (E c m (ns ++ [U c' m' s' [E c' Nothing []]]))
-        app (SNode (U c m s ns))    = SNode (U c m s (ns ++ [E c' m' [U c' Nothing Nothing []]]))
-        app (SNode (SE c s ns))     = SNode (SE c s (ns ++ [U c' m' s' [E c' Nothing []]]))
-        app (SNode (SU c s ns))     = SNode (SU c s (ns ++ [E c' m' [U c' Nothing Nothing []]]))
+        app (SNode E{})   = SNode (U c' m' s' [E c' Nothing []])
+        app (SNode U{})   = SNode (E c' s' [U c' Nothing Nothing []])
+        app (SNode SE{})  = SNode (U c' m' s' [E c' Nothing []])
+        app (SNode SU{})  = SNode (E c' s' [U c' Nothing Nothing []])
         (mc', c')                   = appendCopy mc (copy n) (children n)
+
+newNode :: SNode -> Int -> Move -> Move -> SNode
+newNode (SNode E{}) c m s    = SNode $ U { uCopy = c, uMove = m, uState = s, uChildren = [] }
+newNode (SNode U{}) c m s    = SNode $ E { eCopy = c, eMove = m, eChildren = [] }
+newNode (SNode SE{}) c m s   = SNode $ U { uCopy = c, uMove = m, uState = s, uChildren = [] }
+newNode (SNode SU{}) c m s   = SNode $ E { eCopy = c, eMove = m, eChildren = [] }
 
 appendCopy mc c [] = (mc, c)
 appendCopy mc _ ns = (mc+1, mc+1)
@@ -475,7 +440,7 @@ appendNextMove :: GameTree -> GameTree -> GameTree
 appendNextMove gt cex = gt' { maxCopy = mc }
     where
         (mc, r) = appendMove (baseRank gt * 2) (maxCopy gt) (root cex) (root gt)
-        gt'     = setRoot gt (\x -> r)
+        gt'     = setRoot gt r
 
 appendMove :: Int -> Int -> SNode -> SNode -> (Int, SNode)
 appendMove r mc cex n
