@@ -46,7 +46,7 @@ solveAbstract player spec s gt = do
     res <- refinementLoop player spec s cand gt gt
 
     liftLog $ logSolveComplete res
----    liftLog logDumpLog
+    liftLog logDumpLog
 
     return res
 
@@ -80,7 +80,7 @@ findCandidate player spec s gt = do
         gt'             <- setMoves player spec dMap m (gtRoot gt)
         return (Just gt')
     else do
-        mapM_ (learnStates spec player) (gtUnsetNodes gt)
+---        mapM_ (learnStates spec player) (gtUnsetNodes gt)
 ---        computeCounterExample spec player gt
         return Nothing
 
@@ -161,11 +161,11 @@ setMovesOpp player spec dMap model gt = do
     return      $ gtSetChildren gt' cs
 
 getVarsAtRank vars dMap model cpy rnk = do
-    let vars' = map (\v -> v {rank = rnk}) vars
+    let vars' = map (\v -> v {rank = rnk, ecopy = cpy}) vars
     ve <- liftE $ mapM lookupVar vars'
     when (any isNothing ve) $ throwError "Bad expression"
     -- Lookup the dimacs equivalents
-    let vd = zipMaybe1 (map (\v -> Map.lookup (cpy, exprIndex v) dMap) (catMaybes ve)) vars'
+    let vd = zipMaybe1 (map (\v -> Map.lookup (0, exprIndex v) dMap) (catMaybes ve)) vars'
     -- Construct assignments
     when (null vd) $ throwError $ "Bad lookup " ++ show (cpy, rnk) ++ "\n" ++ show (map (\v -> (cpy, exprIndex v, v)) (catMaybes ve))
     return $ map (makeAssignment . (mapFst (\i -> model !! (i-1)))) vd

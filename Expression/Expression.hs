@@ -31,6 +31,7 @@ module Expression.Expression (
     , literal
     , toDimacs
     , makeCopy
+    , setCopy
     , pushCache
     , popCache
     , printExpression
@@ -65,6 +66,7 @@ data ExprVar = ExprVar {
     , varsect   :: Section
     , bit       :: Int
     , rank      :: Int
+    , ecopy     :: Int
     } deriving (Eq, Ord)
 
 instance Show ExprVar where
@@ -500,6 +502,13 @@ makeCopy c d e = do
     put m { copies = (eindex e') : copies }
 
     return e'
+
+setCopy :: Monad m => Section -> Int -> Int -> Expression -> ExpressionT m Expression
+setCopy s r c e = traverseExpression f e
+    where
+        f v = if varsect v == s && rank v == r 
+                then v { ecopy = c }
+                else v
 
 getCopies :: Monad m => ExpressionT m [Int]
 getCopies = do

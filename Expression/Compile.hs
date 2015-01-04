@@ -52,7 +52,8 @@ makeVar vi bit = ExprVar {
     varname = name vi,
     varsect = section vi,
     bit     = bit,
-    rank    = virank vi
+    rank    = virank vi,
+    ecopy   = 0
     }
     
 makeConditions xs = do

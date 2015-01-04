@@ -2,7 +2,6 @@
 module Synthesise.GameFormula (
       makeFml
     , singleStep
-    , groupCrumb
     ) where
 
 import qualified Data.Map as Map
@@ -27,40 +26,23 @@ makeFml spec player s gt = do
     initMove    <- liftE $ moveToExpression (gtMove root)
     s'          <- liftE $ maybeM s (\i -> conjunct [s, i]) initMove
 
+    liftIO $ putStrLn ""
+    liftIO $ putStrLn ""
+    liftIO $ putStrLn "makeFml"
+
     if null (gtChildren root)
     then do
-        fml         <- leafToBottom spec player rank
+        fml         <- leafToBottom spec 0 player rank
         fml'        <- liftE $ conjunct [fml, s']
 
         return fml'
     else do
         let cs      = map gtMovePairs (gtChildren root)
-        steps       <- mapM (mapM (makeStep rank spec player (gtFirstPlayer gt))) cs
-        fml         <- mergeRenamed player (gtFirstPlayer gt) spec rank root (map (map thd3) cs) steps
-        fml'        <- liftE $ conjunct [fml, s']
+        steps       <- concatMapM (mapM (makeStep rank spec player (gtFirstPlayer gt) root)) cs
+        fml'        <- liftE $ conjunct (s' : steps)
         return fml'
 
-mergeRenamed player fp spec rank parentGT (gt:gts) (f:fs) = do
-    let dontRename  = map (setVarRank rank) (svars spec)
-    let parentCopy  = gtCopyId parentGT
-
-    ffml    <- mergeSharedMove player fp spec rank parentCopy gt f
-    fmls    <- zipWithM (mergeSharedMove player fp spec rank parentCopy) gts fs
-    cfmls   <- liftE $ mapM (makeCopy parentCopy dontRename) fmls
-
-    liftE $ conjunct (ffml : cfmls)
-
-mergeSharedMove player fp spec rank parentCopy gts fs = do
-    let statevars   = map (setVarRank rank) (svars spec)
-    let movevars    = if player == Existential
-                        then map (setVarRank rank) (cont spec)
-                        else map (setVarRank rank) (ucont spec)
-    let dontRename  = statevars ++ (if player == fp then movevars else [])
-    let copy g      = maybe parentCopy gtCopyId g
-    fs' <- liftE $ zipWithM (\g f -> makeCopy (copy g) dontRename f) gts fs
-    liftE $ conjunct fs'
-
-makeStep rank spec player first (m1, m2, c) = do
+makeStep rank spec player first gt (m1, m2, c) = do
     let CompiledSpec{..} = spec
     let i = rank - 1
 
@@ -69,38 +51,57 @@ makeStep rank spec player first (m1, m2, c) = do
             let cs = map gtMovePairs (gtChildren (fromJust c))
             if null cs
             then do
-                leafToBottom spec player (rank-1)
+                leafToBottom spec (gtCopyId (fromJust c)) player (rank-1)
             else do
-                steps <- mapM (mapM (makeStep (rank-1) spec player first)) cs
-                mergeRenamed player first spec (rank-1) (fromJust c) (map (map thd3) cs) steps
+                steps <- concatMapM (mapM (makeStep (rank-1) spec player first (fromJust c))) cs
+                liftE $ conjunct steps
         else do
-            leafToBottom spec player (rank-1)
+            leafToBottom spec (gtCopyId gt) player (rank-1)
 
     g' <- liftE $ goalFor player (g !! i)
     goal <- if player == Existential
         then liftE $ disjunct [next, g']
         else liftE $ conjunct [next, g']
 
-    step <- singleStep rank spec player first m1 m2
-    liftE $ conjunct [step, goal]
 
-singleStep rank spec player first m1 m2 = do
+    singleStep rank spec player first gt goal m1 m2 c
+
+singleStep rank spec player first parentGT goal m1 m2 c = do
     let CompiledSpec{..} = spec
     let i   = rank - 1
     let vh  = if player == Existential then vu else vc
+    let copy1 = maybe (gtCopyId parentGT) (gtCopyId . gtParent) c
+    let copy2 = maybe copy1 gtCopyId c
+
+    liftIO $ putStrLn (show (copy1, printMove spec m1, copy2, printMove spec m2))
 
     m1' <- if player == first
         then liftE $ moveToExpression m1
         else liftE $ makeHatMove (vh !! i) m1
 
+    m1Copy <- if isJust m1'
+        then (liftM Just) $ liftE $ setCopy (playerToSection first) rank copy1 (fromJust m1')
+        else return Nothing
+
     m2' <- if player == first
         then liftE $ makeHatMove (vh !! i) m2
         else liftE $ moveToExpression m2
 
-    block <- blockLosingStates rank player
+    m2Copy <- if isJust m2'
+        then (liftM Just) $ liftE $ setCopy (playerToSection (opponent first)) rank copy2 (fromJust m2')
+        else return Nothing
 
-    let moves = catMaybes [m1', m2', block]
-    liftE $ conjunct ([t !! i, vu !! i, vc !! i] ++ moves)
+    block <- return Nothing --blockLosingStates rank player
+
+    tCopy'' <- liftE $ setCopy (playerToSection first) rank copy1 (t !! i)
+    tCopy'  <- liftE $ setCopy (playerToSection (opponent first)) rank copy2 (t !! i)
+    tCopy   <- liftE $ setCopy StateVar (rank-1) copy2 (t !! i)
+    gCopy   <- liftE $ setCopy StateVar (rank-1) copy2 goal
+    vcCopy  <- liftE $ setCopy ContVar rank copy1 (vc !! i)
+    vuCopy  <- liftE $ setCopy UContVar rank copy2 (vu !! i)
+
+    let moves = catMaybes [m1Copy, m2Copy, block]
+    liftE $ conjunct ([tCopy, vuCopy, vcCopy, gCopy] ++ moves)
 
 blockLosingStates rank player = do
     LearnedStates{..} <- get
@@ -137,8 +138,8 @@ makeHatMove valid m = do
 goalFor Existential g   = return g
 goalFor Universal g     = negation g
 
-leafToBottom :: CompiledSpec -> Player -> Int -> SolverT Expression
-leafToBottom spec player rank = do
+leafToBottom :: CompiledSpec -> Int -> Player -> Int -> SolverT Expression
+leafToBottom spec copy player rank = do
     let CompiledSpec{..} = spec
     let i = rank - 1
 
@@ -150,18 +151,21 @@ leafToBottom spec player rank = do
         goal <- if rank == 1
             then liftE $ goalFor player (g !! i)
             else do
-                next <- leafToBottom spec player (rank-1)
+                next <- leafToBottom spec copy player (rank-1)
                 g' <- liftE $ goalFor player (g !! i)
                 if player == Existential
                     then liftE $ disjunct [next, g']
                     else liftE $ conjunct [next, g']
 
         block <- blockLosingStates rank player
-        if isJust block
-        then liftE $ conjunct [t !! i, vu !! i, vc !! i, goal, fromJust block]
-        else liftE $ conjunct [t !! i, vu !! i, vc !! i, goal]
+        fml <- if isJust block
+            then liftE $ conjunct [t !! i, vu !! i, vc !! i, goal, fromJust block]
+            else liftE $ conjunct [t !! i, vu !! i, vc !! i, goal]
 
-groupCrumb []          = []
-groupCrumb (m1:[])     = [(m1,0)]
-groupCrumb (m1:m2:ms)  = (m1,m2) : groupCrumb ms
+        fml'  <- liftE $ setCopy UContVar rank copy fml
+        fml''  <- liftE $ setCopy ContVar rank copy fml'
+        liftE $ setCopy StateVar rank copy fml''
 
+playerToSection :: Player -> Section
+playerToSection Existential = ContVar
+playerToSection Universal   = UContVar
