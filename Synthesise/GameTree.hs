@@ -68,6 +68,7 @@ data NodeType = RootNode | InternalNode deriving (Show, Eq)
 data Node (t :: NodeType) (p :: Player) where
     U :: {
           uCopy         :: Int
+        , uNodeId       :: Int
         , uMove         :: Move
         , uState        :: Move
         , uChildren     :: [Node InternalNode Existential]
@@ -75,18 +76,21 @@ data Node (t :: NodeType) (p :: Player) where
 
     E :: {
           eCopy         :: Int
+        , eNodeId       :: Int
         , eMove         :: Move
         , eChildren     :: [Node InternalNode Universal]
     } -> Node InternalNode Existential
 
     SU :: {
           suCopy        :: Int
+        , suNodeId      :: Int
         , suState       :: Move
         , suChildren    :: [Node InternalNode Existential]
     } -> Node RootNode Universal
 
     SE :: {
           seCopy        :: Int
+        , seNodeId      :: Int
         , seState       :: Move
         , seChildren    :: [Node InternalNode Universal]
     } -> Node RootNode Existential
@@ -104,20 +108,26 @@ class SNodeC (t :: NodeType) (p :: Player) where
     mapNodes f = map (viaSNode f)
 
 instance SNodeC InternalNode Universal where
-    toNode (SNode u@(U _ _ _ _))    = u
-    toNode _                        = error "Conversion to U Node failed"
+    toNode (SNode u@(U{}))  = u
+    toNode _                = error "Conversion to U Node failed"
 
 instance SNodeC RootNode Universal where
-    toNode (SNode u@(SU _ _ _))     = u
-    toNode _                        = error "Conversion to SU Node failed"
+    toNode (SNode u@(SU{})) = u
+    toNode _                = error "Conversion to SU Node failed"
 
 instance SNodeC InternalNode Existential where
-    toNode (SNode e@(E _ _ _))      = e
-    toNode _                        = error "Conversion to E Node failed"
+    toNode (SNode e@(E{}))  = e
+    toNode _                = error "Conversion to E Node failed"
 
 instance SNodeC RootNode Existential where
-    toNode (SNode e@(SE _ _ _))     = e
-    toNode _                        = error "Conversion to SE Node failed"
+    toNode (SNode e@(SE{})) = e
+    toNode _                = error "Conversion to SE Node failed"
+
+newNode :: SNode -> Int -> Int -> Move -> Move -> SNode
+newNode (SNode E{}) id c m s    = SNode $ U { uCopy = c, uNodeId = id, uMove = m, uState = s, uChildren = [] }
+newNode (SNode U{}) id c m s    = SNode $ E { eCopy = c, eNodeId = id, eMove = m, eChildren = [] }
+newNode (SNode SE{}) id c m s   = SNode $ U { uCopy = c, uNodeId = id, uMove = m, uState = s, uChildren = [] }
+newNode (SNode SU{}) id c m s   = SNode $ E { eCopy = c, eNodeId = id, eMove = m, eChildren = [] }
 
 children :: SNode -> [SNode]
 children (SNode n@U{})  = map SNode (uChildren n)
@@ -159,6 +169,10 @@ setStateIfU :: Move -> SNode -> SNode
 setStateIfU m (SNode n@U{}) = SNode (n { uState = m })
 setStateIfU _ n             = n
 
+getStateIfU :: SNode -> Maybe Move
+getStateIfU (SNode n@U{})   = Just (uState n)
+getStateIfU _               = Nothing
+
 copy :: SNode -> Int
 copy (SNode n@U{})     = uCopy n
 copy (SNode n@E{})     = eCopy n
@@ -171,10 +185,17 @@ setCopy c (SNode n@E{})     = SNode (n { eCopy = c })
 setCopy c (SNode n@SU{})    = SNode (n { suCopy = c })
 setCopy c (SNode n@SE{})    = SNode (n { seCopy = c })
 
+nodeId :: SNode -> Int
+nodeId (SNode n@U{})    = uNodeId n
+nodeId (SNode n@E{})    = eNodeId n
+nodeId (SNode n@SU{})   = suNodeId n
+nodeId (SNode n@SE{})   = seNodeId n
+
 data GameTree where
     ETree   :: {
           baseRank      :: Int
         , maxCopy       :: Int
+        , maxId         :: Int
         , crumb         :: [Int]
         , eroot         :: Node RootNode Universal
     } -> GameTree
@@ -182,6 +203,7 @@ data GameTree where
     UTree   :: {
           baseRank      :: Int
         , maxCopy       :: Int
+        , maxId         :: Int
         , crumb         :: [Int]
         , uroot         :: Node RootNode Existential
     } -> GameTree
@@ -204,16 +226,18 @@ updateRoot t@(ETree{..}) f  = t { eroot = (viaSNode f eroot) }
 -- |Construct a new game tree for player and rank specified
 gtNew :: Player -> Int -> GameTree
 gtNew Existential r = ETree {
-      baseRank = r
-    , maxCopy = 0
-    , crumb = []
-    , eroot = SU { suCopy = 0, suState = Nothing, suChildren = [] } }
+      baseRank  = r
+    , maxCopy   = 0
+    , maxId     = 1
+    , crumb     = []
+    , eroot     = SU { suCopy = 0, suNodeId = 0, suState = Nothing, suChildren = [] } }
 
 gtNew Universal r   = UTree { 
-      baseRank = r
-    , maxCopy = 0
-    , crumb = []
-    , uroot = SE { seCopy = 0, seState = Nothing, seChildren = [] } }
+      baseRank  = r
+    , maxCopy   = 0
+    , maxId     = 1
+    , crumb     = []
+    , uroot     = SE { seCopy = 0, seNodeId = 0, seState = Nothing, seChildren = [] } }
 
 -- |Calculates rank of a node (based on base rank)
 gtRank :: GameTree -> Int
@@ -401,65 +425,57 @@ projectNodes n p
     | otherwise = Nothing
 
 appendChild :: GameTree -> GameTree
-appendChild gt = gt' { maxCopy = c }
+appendChild gt = gt' { maxCopy = c, maxId = n }
     where
-        (c, r)  = appendNodeAt (maxCopy gt) (crumb gt) (root gt)
-        gt'     = setRoot gt r
+        (c, n, r)   = appendNodeAt (maxCopy gt) (maxId gt) (crumb gt) (root gt)
+        gt'         = setRoot gt r
 
-appendNodeAt mc [] n       = appendNode mc Nothing Nothing n
-appendNodeAt mc (c:cs) n   = (mc', setChildren n (update n' c ns))
+appendNodeAt mc mn [] n       = appendNode mc mn Nothing Nothing n
+appendNodeAt mc mn (c:cs) n   = (mc', mn', setChildren n (update n' c ns))
     where
-        ns          = children n
-        (mc', n')   = appendNodeAt mc cs (ns !! c)
+        ns              = children n
+        (mc', mn', n')  = appendNodeAt mc mn cs (ns !! c)
 
-appendNode :: Int -> Move -> Move -> SNode -> (Int, SNode)
-appendNode mc m' s' n = (mc', setChildren n (children n ++ [newNode n c' m' s']))
+appendNode :: Int -> Int -> Move -> Move -> SNode -> (Int, Int, SNode)
+appendNode mc mn m' s' n = (mc', mn+1, setChildren n (children n ++ [newNode n mn c' m' s']))
     where
         (mc', c')           = appendCopy mc (copy n) (children n)
 
-append2Nodes :: Int -> Move -> Move -> SNode -> (Int, SNode)
-append2Nodes mc m' s' n = (mc', setChildren n (children n ++ [app n]))
+append2Nodes :: Int -> Int -> Move -> Move -> SNode -> (Int, Int, SNode)
+append2Nodes mc mn m' s' n = (mc', mn+2, setChildren n (children n ++ [n'']))
     where
-        app (SNode E{})   = SNode (U c' m' s' [E c' Nothing []])
-        app (SNode U{})   = SNode (E c' s' [U c' Nothing Nothing []])
-        app (SNode SE{})  = SNode (U c' m' s' [E c' Nothing []])
-        app (SNode SU{})  = SNode (E c' s' [U c' Nothing Nothing []])
-        (mc', c')                   = appendCopy mc (copy n) (children n)
-
-newNode :: SNode -> Int -> Move -> Move -> SNode
-newNode (SNode E{}) c m s    = SNode $ U { uCopy = c, uMove = m, uState = s, uChildren = [] }
-newNode (SNode U{}) c m s    = SNode $ E { eCopy = c, eMove = m, eChildren = [] }
-newNode (SNode SE{}) c m s   = SNode $ U { uCopy = c, uMove = m, uState = s, uChildren = [] }
-newNode (SNode SU{}) c m s   = SNode $ E { eCopy = c, eMove = m, eChildren = [] }
+        n'          = newNode n mn c' m' s'
+        n''         = setChildren n' ([newNode n' (mn + 1) c' Nothing Nothing])
+        (mc', c')   = appendCopy mc (copy n) (children n)
 
 appendCopy mc c [] = (mc, c)
 appendCopy mc _ ns = (mc+1, mc+1)
 
 -- |Appends the first move in the list that is not already in the tree
 appendNextMove :: GameTree -> GameTree -> GameTree
-appendNextMove gt cex = gt' { maxCopy = mc }
+appendNextMove gt cex = gt' { maxCopy = mc, maxId = mn }
     where
-        (mc, r) = appendMove (baseRank gt * 2) (maxCopy gt) (root cex) (root gt)
-        gt'     = setRoot gt r
+        (mc, mn, r) = appendMove (baseRank gt * 2) (maxCopy gt) (maxId gt) (root cex) (root gt)
+        gt'         = setRoot gt r
 
-appendMove :: Int -> Int -> SNode -> SNode -> (Int, SNode)
-appendMove r mc cex n
-    | null cs   = (mc, n)
-    | null ns   = addNew mc (snodeMove (head cs)) (snodeState (head cs)) n
-    | otherwise = foldl addMove (foldl (recur r) (mc, n) ms) nms
+appendMove :: Int -> Int -> Int -> SNode -> SNode -> (Int, Int, SNode)
+appendMove r mc mn cex n
+    | null cs   = (mc, mn, n)
+    | null ns   = addNew mc mn (snodeMove (head cs)) (snodeState (head cs)) n
+    | otherwise = foldl addMove (foldl (recur r) (mc, mn, n) ms) nms
     where
         cs                  = children cex
         ns                  = children n
         moveEq x y          = snodeMove x == snodeMove y || snodeMove y == Nothing
         (ms, nms)           = matchIndices moveEq (children cex) (children n)
         addNew              = if r <= 1 then appendNode else append2Nodes
-        addMove (c, x) y    = addNew c (snodeMove y) (snodeState y) x
+        addMove (c, i, x) y = addNew c i (snodeMove y) (snodeState y) x
 
-recur :: Int -> (Int, SNode) -> (SNode, Int) -> (Int, SNode)
-recur r (mc, n) (m, i)    = (mc', setChildren n (update n' i ns))
+recur :: Int -> (Int, Int, SNode) -> (SNode, Int) -> (Int, Int, SNode)
+recur r (mc, mn, n) (m, i)    = (mc', mn', setChildren n (update n' i ns))
     where
-        ns          = children n
-        (mc', n')   = appendMove (r-1) mc m (ns !! i)
+        ns              = children n
+        (mc', mn', n')  = appendMove (r-1) mc mn m (ns !! i)
 
 matchIndices :: (a -> a -> Bool) -> [a] -> [a] -> ([(a, Int)], [a])
 matchIndices _ [] _         = ([], [])
@@ -475,10 +491,17 @@ printTree :: CompiledSpec -> GameTree -> String
 printTree spec gt = "---\n" ++ printNode spec 0 (root gt) ++ "---"
 
 printNode :: CompiledSpec -> Int -> SNode -> String
-printNode spec t (SNode (E c m cs))     = tab t ++ "E " ++ show c ++ " " ++ printMove spec m ++ "\n" ++ concatMap (printNode spec (t+1)) (map SNode cs)
-printNode spec t (SNode (U c m s cs))   = tab t ++ "U " ++ show c ++ " " ++ printMove spec m ++ " | " ++ printMove spec s ++ "\n" ++ concatMap (printNode spec (t+1)) (map SNode cs)
-printNode spec t (SNode (SE c s cs))    = tab t ++ "SE " ++ show c ++ " " ++ printMove spec s ++ "\n" ++ concatMap (printNode spec (t+1)) (map SNode cs)
-printNode spec t (SNode (SU c s cs))    = tab t ++ "SU " ++ show c ++ " " ++ printMove spec s ++ "\n" ++ concatMap (printNode spec (t+1)) (map SNode cs)
+printNode spec t n = tab t ++ printNodeType n 
+    ++ show (nodeId n) ++ " "
+    ++ printMove spec (snodeMove n) 
+    ++ maybe "" ((" | " ++) . printMove spec) (getStateIfU n) 
+    ++ "\n" ++ concatMap (printNode spec (t+1)) (children n)
+
+printNodeType :: SNode -> String
+printNodeType (SNode n@(E{}))    = "E "
+printNodeType (SNode n@(U{}))    = "U "
+printNodeType (SNode n@(SE{}))   = "SE "
+printNodeType (SNode n@(SU{}))   = "SU "
 
 tab ind = concat (replicate ind "| ") ++ "|-"
 
