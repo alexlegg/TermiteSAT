@@ -70,7 +70,7 @@ data ExprVar = ExprVar {
     } deriving (Eq, Ord)
 
 instance Show ExprVar where
-    show v = let ExprVar{..} = v in varname ++ show rank ++ "[" ++ show bit ++ "]"
+    show v = let ExprVar{..} = v in varname ++ show rank ++ "_" ++ show ecopy ++ "[" ++ show bit ++ "]"
 
 data Var = Var Sign ExprId deriving (Show, Eq, Ord)
 

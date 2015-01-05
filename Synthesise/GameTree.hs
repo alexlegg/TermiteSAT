@@ -17,6 +17,7 @@ module Synthesise.GameTree (
     , gtMove
     , gtState
     , gtCopyId
+    , gtNodeId
     , gtParent
     , gtPathMoves
     , gtMaxDepth
@@ -296,6 +297,9 @@ gtState = snodeState . followGTCrumb
 gtCopyId :: GameTree -> Int
 gtCopyId = copy . followGTCrumb
 
+gtNodeId :: GameTree -> Int
+gtNodeId = nodeId . followGTCrumb
+
 gtParent :: GameTree -> GameTree
 gtParent gt = setCrumb gt (init (crumb gt))
 
@@ -419,10 +423,10 @@ projectMoves t1 t2 = (liftM (setRoot t1)) (projectNodes (root t1) (root t2))
 
 projectNodes :: SNode -> SNode -> Maybe SNode
 projectNodes n p
-    | isNothing (snodeMove n) || snodeMove n == snodeMove p = do
+    | nodeId n == nodeId p = do
         cs <- zipWithM projectNodes (children n) (children p)
         return $ setStateIfU (snodeState p) (setMove (snodeMove p) (setChildren n cs))
-    | otherwise = Nothing
+    | otherwise = D.trace (show (snodeMove n) ++ show (snodeMove p)) $ Nothing
 
 appendChild :: GameTree -> GameTree
 appendChild gt = gt' { maxCopy = c, maxId = n }
@@ -466,10 +470,15 @@ appendMove r mc mn cex n
     where
         cs                  = children cex
         ns                  = children n
-        moveEq x y          = snodeMove x == snodeMove y || snodeMove y == Nothing
+        moveEq x y          = equalModCopy (snodeMove x) (snodeMove y) || snodeMove y == Nothing
         (ms, nms)           = matchIndices moveEq (children cex) (children n)
         addNew              = if r <= 1 then appendNode else append2Nodes
         addMove (c, i, x) y = addNew c i (snodeMove y) (snodeState y) x
+
+equalModCopy (Just xs) (Just ys)    = all (uncurry aEqualModCopy) (zip xs ys)
+    where
+        aEqualModCopy (Assignment sx x) (Assignment sy y) = sx == sy && x {ecopy = 0} == y {ecopy = 0}
+equalModCopy _ _                    = False
 
 recur :: Int -> (Int, Int, SNode) -> (SNode, Int) -> (Int, Int, SNode)
 recur r (mc, mn, n) (m, i)    = (mc', mn', setChildren n (update n' i ns))
@@ -493,6 +502,7 @@ printTree spec gt = "---\n" ++ printNode spec 0 (root gt) ++ "---"
 printNode :: CompiledSpec -> Int -> SNode -> String
 printNode spec t n = tab t ++ printNodeType n 
     ++ show (nodeId n) ++ " "
+    ++ show (copy n) ++ " "
     ++ printMove spec (snodeMove n) 
     ++ maybe "" ((" | " ++) . printMove spec) (getStateIfU n) 
     ++ "\n" ++ concatMap (printNode spec (t+1)) (children n)
@@ -513,10 +523,11 @@ printMove spec (Just as) = interMap ", " (printVar spec) vs
         f (Assignment _ x) (Assignment _ y) = varname x == varname y
 
 printVar :: CompiledSpec -> [Assignment] -> String
-printVar spec as = vname ++ show vrank ++ " = " ++ valsToEnums vi vals
+printVar spec as = vname ++ show vrank ++ "_" ++ show vcopy ++ " = " ++ valsToEnums vi vals
     where
         vname       = let (Assignment _ v) = (head as) in varname v
         vrank       = let (Assignment _ v) = (head as) in rank v
+        vcopy       = let (Assignment _ v) = (head as) in ecopy v
         (Just vi)   = find (\v -> name v == vname) (vinfo spec)
         vals        = signsToVals 1 [0] (map f [0..(sz vi)-1])
         f b         = fmap sign (find (\(Assignment s v) -> bit v == b) as)
