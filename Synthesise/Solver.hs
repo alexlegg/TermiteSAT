@@ -171,15 +171,15 @@ getVarsAtRank vars dMap model cpy rnk = do
     ve <- liftE $ mapM lookupVar vars'
     when (any isNothing ve) $ throwError "Bad expression"
     -- Lookup the dimacs equivalents
-    let vd = zipMaybe1 (map (\v -> Map.lookup (0, exprIndex v) dMap) (catMaybes ve)) vars'
+    let vd = zipMaybe1 (map (\v -> Map.lookup (exprIndex v) dMap) (catMaybes ve)) vars'
     -- Construct assignments
     when (null vd) $ throwError $ "Bad lookup " ++ show cpy ++ " " ++ show rnk
     return $ map (makeAssignment . (mapFst (\i -> model !! (i-1)))) vd
 
 getConflicts vars dMap conflicts cpy rnk = do
-    let vs  = map (\v -> v {rank = rnk}) vars
+    let vs  = map (\v -> v {rank = rnk, ecopy = cpy}) vars
     ve      <- liftE $ mapM lookupVar vs
-    let vd  = zipMaybe1 (map (\v -> Map.lookup (cpy, exprIndex v) dMap) (catMaybes ve)) vs
+    let vd  = zipMaybe1 (map (\v -> Map.lookup (exprIndex v) dMap) (catMaybes ve)) vs
     let cs  = map (\c -> (abs c, c)) conflicts
     let as  = map ((uncurry liftMFst) . mapFst (\i -> lookup i cs)) vd
     return  $ map makeAssignment (catMaybes as)

@@ -30,7 +30,6 @@ module Expression.Expression (
     , falseExpr
     , literal
     , toDimacs
-    , makeCopy
     , setCopy
     , pushCache
     , popCache
@@ -90,7 +89,6 @@ data Expr   = ETrue
             | EFalse
             | ELit ExprVar
             | ENot Var
-            | ECopy Int [ExprVar] Var
             | EEquals Var Var
             | EConjunct [Var]
             | EDisjunct [Var]
@@ -109,7 +107,6 @@ children (ETrue)            = []
 children (EFalse)           = []
 children (ELit _)           = []
 children (ENot v)           = [v]
-children (ECopy c _ v)      = [v]
 children (EEquals x y)      = [x, y]
 children (EConjunct vs)     = vs
 children (EDisjunct vs)     = vs
@@ -119,7 +116,6 @@ setChildren (ETrue) _           = ETrue
 setChildren (EFalse) _          = EFalse
 setChildren (ELit l) _          = ELit l
 setChildren (ENot _) vs         = ENot (head vs)
-setChildren (ECopy c d _) vs    = ECopy c d (head vs)
 setChildren (EEquals _ _) vs    = let (x:y:[]) = vs in EEquals x y
 setChildren (EConjunct _) vs    = EConjunct vs
 setChildren (EDisjunct _) vs    = EDisjunct vs
@@ -134,7 +130,7 @@ data ExprManager = ExprManager {
 } deriving (Eq)
 
 data DimacsCache = DimacsCache {
-      dMap          :: Map.Map (CopyId, ExprId) (Int, [[Int]])
+      dMap          :: Map.Map ExprId (Int, [[Int]])
     , dMax          :: Int
     , childCache    :: Maybe DimacsCache
 } deriving (Eq)
@@ -315,101 +311,26 @@ falseExpr = addExpression EFalse
 literal :: Monad m => ExprVar -> ExpressionT m Expression
 literal = addExpression . ELit
 
-data CopyTree = CopyTree {
-      copyId        :: Int
-    , dontRename    :: [Int]
-    , expressions   :: Set.Set Int
-    , childCopies   :: [CopyTree]
-} deriving (Show, Eq)
-
-emptyCopyTree id r = CopyTree {
-      copyId        = id
-    , dontRename    = r
-    , expressions   = Set.empty
-    , childCopies   = []
-}
-
-insertNode t n = t { childCopies = childCopies t ++ [n] }
-
-insertExpression t e = t { expressions = Set.insert e (expressions t) }
-
-unTree t = (copyId t, Set.toList (expressions t)) : concatMap unTree (childCopies t)
-
-partitionCopies :: MonadIO m => Int -> ExpressionT m CopyTree
-partitionCopies i = do
-    ds              <- getDependencies i
-    copies          <- getCopies
-    let es          = foldl (\s x -> Set.delete x s) ds copies
-    let depCopies   = filter (\x -> Set.member x ds && x /= i) copies
-    ccs             <- mapM partitionCopies depCopies
-
-    (Just e)        <- lookupExpression i
-    case expr e of
-        (ECopy c dr _) -> do
-            let (sc, dc)    = partition (\ct -> copyId ct == c) ccs
-            dr' <- mapM lookupVar dr
-            return $ CopyTree {
-                  copyId        = c
-                , dontRename    = map eindex (catMaybes dr')
-                , expressions   = Set.unions ((Set.delete i es) : (map expressions sc) ++ (map (Set.fromList . dontRename) sc))
-                , childCopies   = dc ++ concatMap childCopies sc
-            }
-        noncopy -> do
-            let (sc, dc)    = partition (\ct -> copyId ct == 0) ccs
-            return $ CopyTree {
-                  copyId        = 0
-                , dontRename    = []
-                , expressions   = Set.unions (es : map expressions sc ++ map (Set.fromList . dontRename) sc)
-                , childCopies   = dc ++ concatMap childCopies sc
-            }
-
-pushUpNoRenames :: CopyTree -> (Set.Set Int, CopyTree)
-pushUpNoRenames t = (push, t { expressions = left, childCopies = tc })
-    where
-        (pushed, tc)    = unzip $ map pushUpNoRenames (childCopies t)
-        (push, left)    = Set.partition isNoRename (Set.unions ((expressions t) : pushed))
-        isNoRename e    = e `elem` (dontRename t)
-
-baseExpr e = case expr e of
-    (ECopy c _ v)   -> (c, var v)
-    _               -> (0, eindex e)
-
-linkNoRenames :: [((Int, Int), Int)] -> CopyTree -> ([(Int, Int)], [((Int, Int), Int)])
-linkNoRenames dMap t = (push', dMap' ++ pdMap)
-    where
-        recur           = map (linkNoRenames dMap) (childCopies t)
-        isNoRename e    = e `elem` (dontRename t)
-        (pushed, cdm)   = unzip recur
-        (kp, fp)        = partition (\(c, i) -> isNoRename i) (concat pushed)
-        push            = Set.filter isNoRename (expressions t)
-        push'           = map (\e -> (copyId t, e)) (Set.toList push) ++ kp ++ map (\(_, e) -> (copyId t, e)) kp
-        dMap'           = dMap ++ concat cdm
-        pdMap           = map (\(c, i) -> ((c, i), fromJust (lookup (copyId t, i) dMap'))) fp
-
-toDimacs :: MonadIO m => Maybe [Assignment] -> Expression -> ExpressionT m (Map.Map (Int, Int) Int, [Int], [[Int]])
+toDimacs :: MonadIO m => Maybe [Assignment] -> Expression -> ExpressionT m (Map.Map ExprId Int, [Int], [[Int]])
 toDimacs a e = do
     (dMap, es, dm)  <- makeDMap e
     avs             <- maybeM [] (mapM assignmentToVar) a
 
-    let ad  = filter (isJust . fst) $ map (\v -> (Map.lookup (0, (var v)) dMap, v)) avs
+    let ad  = filter (isJust . fst) $ map (\v -> (Map.lookup (var v) dMap, v)) avs
     let as  = map (\(Just d, v) -> if sign v == Pos then d else -d) ad
 
     dimacs <- concatMapM (exprToDimacs dMap) es
 
-    let (Just de) = Map.lookup (baseExpr e) dMap
+    let (Just de) = Map.lookup (eindex e) dMap
     return $ (dMap, as, [de] : dm ++ dimacs)
 
 makeDMap e = do
-    ct                      <- partitionCopies (eindex e)
-    let (_, copyTree)       = pushUpNoRenames ct
-    let exprs               = ungroupZip (unTree copyTree)
-
+    exprs                   <- getDependencies (eindex e)
     ExprManager{ dCache }   <- get
-    let (dMap', new, dm)    = findCached dCache exprs
-    let (_, dMap)           = linkNoRenames dMap' ct
+    let (dMap, new, dm)     = findCached dCache (Set.toList exprs)
     return (Map.fromList dMap, new, dm)
 
-findCached :: DimacsCache -> [(CopyId, ExprId)] -> ([((CopyId, ExprId), Int)], [((CopyId, ExprId), Int)], [[Int]])
+findCached :: DimacsCache -> [ExprId] -> ([(ExprId, Int)], [(ExprId, Int)], [[Int]])
 findCached dCache es = (dMap ++ new, new, dimacs)
     where
         lookups             = zip es (repeat Nothing) --(map (`lookupCache` dCache) es)
@@ -418,7 +339,7 @@ findCached dCache es = (dMap ++ new, new, dimacs)
         dMap                = map (mapSnd (fst . fromJust)) found
         dimacs              = concatMap (snd . fromJust . snd) found
 
-lookupCache :: (CopyId, ExprId) -> DimacsCache -> Maybe (Int, [[Int]])
+lookupCache :: ExprId -> DimacsCache -> Maybe (Int, [[Int]])
 lookupCache e ((Map.lookup e) . dMap -> Just d) = Just d
 lookupCache e (childCache -> Just c)            = lookupCache e c
 lookupCache e _                                 = Nothing
@@ -427,37 +348,28 @@ nextDimacsId :: DimacsCache -> Int
 nextDimacsId (childCache -> Just c) = nextDimacsId c
 nextDimacsId (dMax -> i)            = i + 1
 
-insertCache :: (CopyId, ExprId) -> Int -> [[Int]] -> DimacsCache -> DimacsCache
+insertCache :: ExprId -> Int -> [[Int]] -> DimacsCache -> DimacsCache
 insertCache ei di d dc@(childCache -> Just c)   = dc { childCache = Just (insertCache ei di d c) }
 insertCache ei di d dc                          = dc
 ---insertCache ei di d dc                          = dc {  dMap = Map.insert ei (di, d) (dMap dc),
 ---                                                        dMax = max di (dMax dc)
 ---                                                     }
 
-addToCache :: MonadIO m => (CopyId, ExprId) -> Int -> [[Int]] -> ExpressionT m ()
+addToCache :: MonadIO m => ExprId -> Int -> [[Int]] -> ExpressionT m ()
 addToCache ei di d = do
     m <- get
     put m { dCache = insertCache ei di d (dCache m) }
 
-exprToDimacs m ((c, e), ind) = do
+exprToDimacs m (e, ind) = do
     mgr         <- get
     (Just e')   <- lookupExpression e
-    cs          <- mapM (makeChildVar (copies mgr) m c) (children (expr e'))
+    let cs      = map (makeChildVar m) (children (expr e'))
     let dimacs  = makeDimacs (expr e') ind cs
 
-    addToCache (c, e) ind dimacs
+    addToCache e ind dimacs
     return dimacs
 
-makeChildVar copies m c (Var s i) = do
-    -- If the var is a copy we need to skip past it
-    if i `elem` copies
-    then do
-        (Just e)            <- lookupExpression i
-        let (ECopy c' d v)  = expr e
-        (Var s' i')         <- makeChildVar copies m c' v
-        return $ Var (if (s == s') then Pos else Neg) i'
-    else 
-        let (Just i') = Map.lookup (c, i) m in return $ Var s i'
+makeChildVar dMap (Var s i) = let (Just i') = Map.lookup i dMap in (Var s i')
 
 makeDimacs :: Expr -> Int -> [Var] -> [[Int]]
 makeDimacs e i cs = case e of
@@ -469,7 +381,6 @@ makeDimacs e i cs = case e of
                         [i, (lit a), (lit b)], [i, -(lit a), -(lit b)]]
     (EConjunct _)   -> (i : (map (negate . lit) cs)) : (map (\c -> [-i, (lit c)]) cs)
     (EDisjunct _)   -> (-i : map lit cs) : (map (\c -> [i, -(lit c)]) cs)
-    (ECopy _ _ _)   -> error "Copy in makeDimacs"
     where
         (x:_)   = cs
         (a:b:_) = cs
@@ -489,19 +400,7 @@ printExpression' tabs s e = do
         (EDisjunct _)   -> "disj {\n" ++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}"
         (EEquals _ _)   -> "eq {\n" ++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}"
         (ENot _)        -> "not {\n"++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}" 
-        (ECopy c d _)   -> "copy " ++ show c ++ " {" ++ head pcs ++ "}"
         (ELit v)        -> show v
-
-makeCopy :: Monad m => Int -> [ExprVar] -> Expression -> ExpressionT m Expression
-makeCopy c d e = do
-    m@ExprManager{..} <- get
-    let newCopy = c
-    e' <- addExpression (ECopy newCopy d (Var Pos (eindex e)))
-
-    m <- get
-    put m { copies = (eindex e') : copies }
-
-    return e'
 
 setCopy :: Monad m => Section -> Int -> Int -> Expression -> ExpressionT m Expression
 setCopy s r c e = traverseExpression f e
