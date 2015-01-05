@@ -501,7 +501,7 @@ printTree spec gt = "---\n" ++ printNode spec 0 (root gt) ++ "---"
 
 printNode :: CompiledSpec -> Int -> SNode -> String
 printNode spec t n = tab t ++ printNodeType n 
-    ++ show (nodeId n) ++ " "
+---    ++ show (nodeId n) ++ " "
     ++ show (copy n) ++ " "
     ++ printMove spec (snodeMove n) 
     ++ maybe "" ((" | " ++) . printMove spec) (getStateIfU n) 
@@ -523,7 +523,7 @@ printMove spec (Just as) = interMap ", " (printVar spec) vs
         f (Assignment _ x) (Assignment _ y) = varname x == varname y
 
 printVar :: CompiledSpec -> [Assignment] -> String
-printVar spec as = vname ++ show vrank ++ "_" ++ show vcopy ++ " = " ++ valsToEnums vi vals
+printVar spec as = vname ++ show vrank ++ {- "_" ++ show vcopy ++ -} " = " ++ valsToEnums vi vals
     where
         vname       = let (Assignment _ v) = (head as) in varname v
         vrank       = let (Assignment _ v) = (head as) in rank v

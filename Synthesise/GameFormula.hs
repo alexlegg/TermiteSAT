@@ -26,10 +26,6 @@ makeFml spec player s gt = do
     initMove    <- liftE $ moveToExpression (gtMove root)
     s'          <- liftE $ maybeM s (\i -> conjunct [s, i]) initMove
 
-    liftIO $ putStrLn ""
-    liftIO $ putStrLn ""
-    liftIO $ putStrLn "makeFml"
-
     if null (gtChildren root)
     then do
         fml         <- leafToBottom spec 0 player rank
@@ -61,14 +57,12 @@ makeStep rank spec player first gt (m1, m2, c) = do
     singleStep rank spec player first gt next m1 m2 c
 
 singleStep rank spec player first parentGT next m1 m2 c = do
-    let CompiledSpec{..} = spec
-
-    let i           = rank - 1
-    let vh          = if player == Existential then vu else vc
-    let parentCopy  = gtCopyId parentGT
-    let copy1       = maybe parentCopy (gtCopyId . gtParent) c
-    let copy2       = maybe copy1 gtCopyId c
-
+    let CompiledSpec{..}    = spec
+    let i                   = rank - 1
+    let vh                  = if player == Existential then vu else vc
+    let parentCopy          = gtCopyId parentGT
+    let copy1               = maybe parentCopy (gtCopyId . gtParent) c
+    let copy2               = maybe copy1 gtCopyId c
 
     m1' <- if player == first
         then liftE $ moveToExpression m1
@@ -94,7 +88,10 @@ singleStep rank spec player first parentGT next m1 m2 c = do
             return (Just m2c)
         else return Nothing
 
-    block <- return Nothing --blockLosingStates rank player
+    block <- blockLosingStates rank player
+    block <- if isJust block
+        then (liftM Just) $ liftE $ setCopy StateVar rank parentCopy (fromJust block)
+        else return Nothing
 
     goal <- liftE $ goalFor player (g !! i)
     goal <- liftE $ setCopy StateVar (rank-1) copy2 goal
@@ -103,22 +100,11 @@ singleStep rank spec player first parentGT next m1 m2 c = do
         else liftE $ conjunct [next, goal]
     ge <- liftE $ printExpression goal
 
----    when (rank == 1) $ do
----        liftIO $ putStrLn (show copy2)
----        liftIO $ putStrLn ge
-
     step    <- liftE $ conjunct [t !! i, vc !! i, vu !! i]
     step    <- liftE $ setCopy (playerToSection first) rank copy1 step
     step    <- liftE $ setCopy (playerToSection (opponent first)) rank copy2 step
     step    <- liftE $ setCopy StateVar (rank-1) copy2 step
     step    <- liftE $ setCopy StateVar rank parentCopy step
-
----    when (maybe 0 gtNodeId c == 6) $ do
----        tc <- liftE $ printExpression step
----        liftIO $ putStrLn tc
-
----    liftIO $ putStrLn (show rank ++ ": " ++ show (copy1, printMove spec m1, copy2, printMove spec m2))
----    liftIO $ putStrLn (show rank ++ " " ++ show copy1 ++ " " ++ show copy2)
 
     let moves = catMaybes [m1Copy, m2Copy, block]
     liftE $ conjunct (step : goal : moves)

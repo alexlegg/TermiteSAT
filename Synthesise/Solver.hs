@@ -80,7 +80,7 @@ findCandidate player spec s gt = do
         gt'             <- setMoves player spec dMap m (gtRoot gt)
         return (Just gt')
     else do
----        mapM_ (learnStates spec player) (gtUnsetNodes gt)
+        mapM_ (learnStates spec player) (gtUnsetNodes gt)
 ---        computeCounterExample spec player gt
         return Nothing
 
@@ -106,8 +106,12 @@ learnStates spec player gt = do
 
             ls <- get
             if player == Existential
-            then put $ ls { winningUn = Map.alter (\x -> Just (fromMaybe [] x ++ [c])) rank (winningUn ls) }
-            else put $ ls { winningEx = winningEx ls ++ [c] }
+            then do
+                put $ ls { winningUn = Map.alter (\x -> Just (fromMaybe [] x ++ [c])) rank (winningUn ls) }
+                liftLog $ logLosingState (printMove spec (Just c))
+            else do
+                put $ ls { winningEx = winningEx ls ++ [c] }
+                liftLog $ logLosingState (printMove spec (Just c))
         else do
             -- Player loses for all states here
             -- TODO Learn something
@@ -145,18 +149,20 @@ setMoves player spec dMap model gt = do
 setMovesPlayer player spec dMap model gt = do
     let vars    = if player == Existential then cont spec else ucont spec
     move        <- getVarsAtRank vars dMap model (gtCopyId gt) (gtRank gt)
-    state       <- getVarsAtRank (svars spec) dMap model (gtCopyId gt) (gtRank gt - 1)
-    let gt'     = if player == Universal
-                    then gtSetMove (gtSetState gt state) move
-                    else gtSetMove gt move
+    gt'         <- if player == Universal
+        then do
+            state <- getVarsAtRank (svars spec) dMap model (gtCopyId gt) (gtRank gt - 1)
+            return $ gtSetMove (gtSetState gt state) move
+        else return $ gtSetMove gt move
     cs          <- mapM (setMovesOpp player spec dMap model) (gtChildren gt')
     return      $ gtSetChildren gt' cs
 
 setMovesOpp player spec dMap model gt = do
-    state       <- getVarsAtRank (svars spec) dMap model (gtCopyId gt) (gtRank gt - 1)
-    let gt'     = if opponent player == Universal
-                    then gtSetState gt state
-                    else gt
+    gt' <- if opponent player == Universal
+        then do
+            state <- getVarsAtRank (svars spec) dMap model (gtCopyId gt) (gtRank gt - 1)
+            return $ gtSetState gt state
+        else return gt
     cs          <- mapM (setMovesPlayer player spec dMap model) (gtChildren gt')
     return      $ gtSetChildren gt' cs
 
@@ -167,7 +173,7 @@ getVarsAtRank vars dMap model cpy rnk = do
     -- Lookup the dimacs equivalents
     let vd = zipMaybe1 (map (\v -> Map.lookup (0, exprIndex v) dMap) (catMaybes ve)) vars'
     -- Construct assignments
-    when (null vd) $ throwError $ "Bad lookup " ++ show (cpy, rnk) ++ "\n" ++ show (map (\v -> (cpy, exprIndex v, v)) (catMaybes ve))
+    when (null vd) $ throwError $ "Bad lookup " ++ show cpy ++ " " ++ show rnk
     return $ map (makeAssignment . (mapFst (\i -> model !! (i-1)))) vd
 
 getConflicts vars dMap conflicts cpy rnk = do
