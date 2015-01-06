@@ -70,9 +70,12 @@ singleStep rank spec player first parentGT next m1 m2 c = do
 
     m1Copy <- if isJust m1'
         then do
-            m1c <- liftE $ setCopy (playerToSection first) rank copy1 (fromJust m1')
-            m1c <- liftE $ setCopy HatVar rank copy1 m1c
-            m1c <- liftE $ setCopy StateVar rank parentCopy m1c
+            let m1Map = Map.fromList [
+                              ((playerToSection first, rank), copy1)
+                            , ((HatVar, rank), copy1)
+                            , ((StateVar, rank), parentCopy)
+                            ]
+            m1c <- liftE $ setCopy m1Map (fromJust m1')
             return (Just m1c)
         else return Nothing
 
@@ -82,31 +85,37 @@ singleStep rank spec player first parentGT next m1 m2 c = do
 
     m2Copy <- if isJust m2'
         then do
-            m2c <- liftE $ setCopy (playerToSection (opponent first)) rank copy2 (fromJust m2')
-            m2c <- liftE $ setCopy HatVar rank copy2 m2c
-            m2c <- liftE $ setCopy StateVar rank parentCopy m2c
+            let m2Map = Map.fromList [
+                          ((playerToSection (opponent first), rank), copy2)
+                        , ((HatVar, rank), copy2)
+                        , ((StateVar, rank), parentCopy)
+                        ]
+            m2c <- liftE $ setCopy m2Map (fromJust m2')
             return (Just m2c)
         else return Nothing
 
     block <- blockLosingStates rank player
     block <- if isJust block
-        then (liftM Just) $ liftE $ setCopy StateVar rank parentCopy (fromJust block)
+        then (liftM Just) $ liftE $ setCopy (Map.singleton (StateVar, rank) parentCopy) (fromJust block)
         else return Nothing
 
     goal <- liftE $ goalFor player (g !! i)
-    goal <- liftE $ setCopy StateVar (rank-1) copy2 goal
+    goal <- liftE $ setCopy (Map.singleton (StateVar, (rank-1)) copy2) goal
     goal <- if player == Existential
         then liftE $ disjunct [next, goal]
         else liftE $ conjunct [next, goal]
-    ge <- liftE $ printExpression goal
 
     step <- liftE $ getCached (rank, parentCopy, copy1, copy2)
     step <- if isJust step then (return (fromJust step)) else do
         step    <- liftE $ conjunct [t !! i, vc !! i, vu !! i]
-        step    <- liftE $ setCopy (playerToSection first) rank copy1 step
-        step    <- liftE $ setCopy (playerToSection (opponent first)) rank copy2 step
-        step    <- liftE $ setCopy StateVar (rank-1) copy2 step
-        step    <- liftE $ setCopy StateVar rank parentCopy step
+        let cMap = Map.fromList [
+                      ((playerToSection first, rank), copy1)
+                    , ((playerToSection (opponent first), rank), copy2)
+                    , ((StateVar, rank-1), copy2)
+                    , ((StateVar, rank), parentCopy)
+                    ]
+        step    <- liftE $ setCopy cMap step
+
         liftE $ cacheStep (rank, parentCopy, copy1, copy2) step
         return step
 
@@ -158,7 +167,7 @@ leafToBottom spec copy player rank = do
     if rank == 0
     then do
         g <- liftE $ goalFor player (g !! 0)
-        liftE $ setCopy StateVar rank copy g
+        liftE $ setCopy (Map.singleton (StateVar, rank) copy) g
     else do
         goal <- if rank == 1
             then liftE $ goalFor player (g !! i)
@@ -174,10 +183,13 @@ leafToBottom spec copy player rank = do
             then liftE $ conjunct [t !! i, vu !! i, vc !! i, goal, fromJust block]
             else liftE $ conjunct [t !! i, vu !! i, vc !! i, goal]
 
-        fml <- liftE $ setCopy UContVar rank copy fml
-        fml <- liftE $ setCopy ContVar rank copy fml
-        fml <- liftE $ setCopy StateVar (rank-1) copy fml
-        liftE $ setCopy StateVar rank copy fml
+        let cMap = Map.fromList [
+                      ((UContVar, rank), copy)
+                    , ((ContVar, rank), copy)
+                    , ((StateVar, rank), copy)
+                    , ((StateVar, rank-1), copy)
+                    ]
+        liftE $ setCopy cMap fml
 
 playerToSection :: Player -> Section
 playerToSection Existential = ContVar

@@ -360,12 +360,10 @@ printExpression' tabs s e = do
         (ENot _)        -> "not {\n"++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}" 
         (ELit v)        -> show v
 
-setCopy :: Monad m => Section -> Int -> Int -> Expression -> ExpressionT m Expression
-setCopy s r c e = traverseExpression f e
+setCopy :: Monad m => (Map.Map (Section, Int) Int) -> Expression -> ExpressionT m Expression
+setCopy cMap e = traverseExpression f e
     where
-        f v = if varsect v == s && rank v == r 
-                then v { ecopy = c }
-                else v
+        f v = v { ecopy = fromMaybe (ecopy v) (Map.lookup (varsect v, rank v) cMap) }
 
 -- |Contructs an assignment from a model-var pair
 makeAssignment :: (Int, ExprVar) -> Assignment
