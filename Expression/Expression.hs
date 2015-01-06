@@ -8,6 +8,10 @@ module Expression.Expression (
     , Var(..)
     , Assignment(..)
 
+    , pushManager
+    , popManager
+    , cacheStep
+    , getCached
     , exprIndex
     , flipSign
     , emptyManager
@@ -123,8 +127,8 @@ data ExprManager = ExprManager {
       maxIndex      :: ExprId
     , exprMap       :: Map.Map ExprId Expr
     , depMap        :: Map.Map ExprId (Set.Set ExprId)
-    , copies        :: [ExprId]
     , indexMap      :: Map.Map Expr ExprId
+    , stepCache     :: Map.Map (Int, Int, Int, Int) ExprId
     , parentMgr     :: Maybe ExprManager
 } deriving (Eq)
 
@@ -142,10 +146,38 @@ emptyManager = ExprManager {
                   maxIndex      = 1
                 , exprMap       = Map.empty
                 , depMap        = Map.empty
-                , copies        = []
                 , indexMap      = Map.empty
+                , stepCache     = Map.empty
                 , parentMgr     = Nothing
                 }
+
+pushManager :: Monad m => ExpressionT m ()
+pushManager = do
+    m@ExprManager{..} <- get
+    put $ emptyManager {
+          maxIndex  = maxIndex
+        , parentMgr = Just m
+        }
+
+popManager :: Monad m => ExpressionT m ()
+popManager = do
+    ExprManager{..} <- get
+    put (fromJust parentMgr)
+
+mgrLookup :: Ord a => (ExprManager -> Map.Map a b) -> a -> (Maybe ExprManager) -> (Maybe b)
+mgrLookup lMap k (Just mgr) = maybe (mgrLookup lMap k (parentMgr mgr)) Just (Map.lookup k (lMap mgr))
+mgrLookup lMap k Nothing    = Nothing
+
+cacheStep :: Monad m => (Int, Int, Int, Int) -> Expression -> ExpressionT m ()
+cacheStep ni e = do
+    m <- get
+    put $ m { stepCache = Map.insert ni (eindex e) (stepCache m) }
+
+getCached :: Monad m => (Int, Int, Int, Int) -> ExpressionT m (Maybe Expression)
+getCached i = do
+    m <- get
+    let ei = mgrLookup stepCache i (Just m)
+    maybeM Nothing lookupExpression ei
 
 addExpression :: Monad m => Expr -> ExpressionT m Expression
 addExpression e = do
@@ -165,10 +197,9 @@ addExpression e = do
 
 childDependencies e = do
     m@ExprManager{..} <- get
-    let cs = filter (\x -> not (var x `elem` copies)) (children e)
+    let cs = children e
     let deps = map (\x -> Map.lookup (var x) depMap) cs
     return $ Set.unions (Set.fromList (map var (children e)) : catMaybes deps)
-
 
 lookupExpression :: Monad m => Int -> ExpressionT m (Maybe Expression)
 lookupExpression i = do
@@ -335,11 +366,6 @@ setCopy s r c e = traverseExpression f e
         f v = if varsect v == s && rank v == r 
                 then v { ecopy = c }
                 else v
-
-getCopies :: Monad m => ExpressionT m [Int]
-getCopies = do
-    m <- get
-    return (copies m)
 
 -- |Contructs an assignment from a model-var pair
 makeAssignment :: (Int, ExprVar) -> Assignment

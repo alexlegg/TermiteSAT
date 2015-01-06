@@ -501,7 +501,7 @@ printTree spec gt = "---\n" ++ printNode spec 0 (root gt) ++ "---"
 
 printNode :: CompiledSpec -> Int -> SNode -> String
 printNode spec t n = tab t ++ printNodeType n 
----    ++ show (nodeId n) ++ " "
+    ++ show (nodeId n) ++ " "
     ++ show (copy n) ++ " "
     ++ printMove spec (snodeMove n) 
     ++ maybe "" ((" | " ++) . printMove spec) (getStateIfU n) 

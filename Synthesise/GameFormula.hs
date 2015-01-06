@@ -100,11 +100,15 @@ singleStep rank spec player first parentGT next m1 m2 c = do
         else liftE $ conjunct [next, goal]
     ge <- liftE $ printExpression goal
 
-    step    <- liftE $ conjunct [t !! i, vc !! i, vu !! i]
-    step    <- liftE $ setCopy (playerToSection first) rank copy1 step
-    step    <- liftE $ setCopy (playerToSection (opponent first)) rank copy2 step
-    step    <- liftE $ setCopy StateVar (rank-1) copy2 step
-    step    <- liftE $ setCopy StateVar rank parentCopy step
+    step <- liftE $ getCached (rank, parentCopy, copy1, copy2)
+    step <- if isJust step then (return (fromJust step)) else do
+        step    <- liftE $ conjunct [t !! i, vc !! i, vu !! i]
+        step    <- liftE $ setCopy (playerToSection first) rank copy1 step
+        step    <- liftE $ setCopy (playerToSection (opponent first)) rank copy2 step
+        step    <- liftE $ setCopy StateVar (rank-1) copy2 step
+        step    <- liftE $ setCopy StateVar rank parentCopy step
+        liftE $ cacheStep (rank, parentCopy, copy1, copy2) step
+        return step
 
     let moves = catMaybes [m1Copy, m2Copy, block]
     liftE $ conjunct (step : goal : moves)
