@@ -30,6 +30,7 @@ module Expression.Expression (
     , falseExpr
     , literal
     , toDimacs
+    , getMaxId
     , setCopy
     , pushCache
     , popCache
@@ -311,24 +312,38 @@ falseExpr = addExpression EFalse
 literal :: Monad m => ExprVar -> ExpressionT m Expression
 literal = addExpression . ELit
 
-toDimacs :: MonadIO m => Maybe [Assignment] -> Expression -> ExpressionT m (Map.Map ExprId Int, [Int], [[Int]])
+toDimacs :: MonadIO m => Maybe [Assignment] -> Expression -> ExpressionT m ([Int], [[Int]])
 toDimacs a e = do
-    (dMap, es, dm)  <- makeDMap e
-    avs             <- maybeM [] (mapM assignmentToVar) a
+    ds      <- getDependencies (eindex e)
+    es      <- (liftM catMaybes) $ mapM lookupExpression (Set.toList ds)
+    avs     <- maybeM [] (mapM assignmentToVar) a
+    let as  = map (\a -> if sign a == Pos then var a else -(var a)) avs
+    let dm  = concatMap makeDimacs es
+    return $ (as, [eindex e] : dm)
 
-    let ad  = filter (isJust . fst) $ map (\v -> (Map.lookup (var v) dMap, v)) avs
-    let as  = map (\(Just d, v) -> if sign v == Pos then d else -d) ad
+getMaxId :: Monad m => ExpressionT m Int
+getMaxId = do
+    ExprManager{..} <- get
+    return maxIndex
 
-    dimacs <- concatMapM (exprToDimacs dMap) es
+makeDimacs :: Expression -> [[Int]]
+makeDimacs e = case expr e of
+    (ETrue)         -> [[i]]
+    (EFalse)        -> [[-i]]
+    (ENot _)        -> [[-i, -(lit x)], [i, (lit x)]]
+    (ELit _)        -> []
+    (EEquals _ _)   -> [[-i, -(lit a), (lit b)], [-i, (lit a), -(lit b)],
+                        [i, (lit a), (lit b)], [i, -(lit a), -(lit b)]]
+    (EConjunct _)   -> (i : (map (negate . lit) cs)) : (map (\c -> [-i, (lit c)]) cs)
+    (EDisjunct _)   -> (-i : map lit cs) : (map (\c -> [i, -(lit c)]) cs)
+    where
+        i       = eindex e
+        cs      = children (expr e)
+        (x:_)   = cs
+        (a:b:_) = children (expr e)
 
-    let (Just de) = Map.lookup (eindex e) dMap
-    return $ (dMap, as, [de] : dm ++ dimacs)
-
-makeDMap e = do
-    exprs                   <- getDependencies (eindex e)
-    ExprManager{ dCache }   <- get
-    let (dMap, new, dm)     = findCached dCache (Set.toList exprs)
-    return (Map.fromList dMap, new, dm)
+---    addToCache e ind dimacs
+    
 
 findCached :: DimacsCache -> [ExprId] -> ([(ExprId, Int)], [(ExprId, Int)], [[Int]])
 findCached dCache es = (dMap ++ new, new, dimacs)
@@ -360,31 +375,7 @@ addToCache ei di d = do
     m <- get
     put m { dCache = insertCache ei di d (dCache m) }
 
-exprToDimacs m (e, ind) = do
-    mgr         <- get
-    (Just e')   <- lookupExpression e
-    let cs      = map (makeChildVar m) (children (expr e'))
-    let dimacs  = makeDimacs (expr e') ind cs
 
-    addToCache e ind dimacs
-    return dimacs
-
-makeChildVar dMap (Var s i) = let (Just i') = Map.lookup i dMap in (Var s i')
-
-makeDimacs :: Expr -> Int -> [Var] -> [[Int]]
-makeDimacs e i cs = case e of
-    (ETrue)         -> [[i]]
-    (EFalse)        -> [[-i]]
-    (ENot _)        -> [[-i, -(lit x)], [i, (lit x)]]
-    (ELit _)        -> []
-    (EEquals _ _)   -> [[-i, -(lit a), (lit b)], [-i, (lit a), -(lit b)],
-                        [i, (lit a), (lit b)], [i, -(lit a), -(lit b)]]
-    (EConjunct _)   -> (i : (map (negate . lit) cs)) : (map (\c -> [-i, (lit c)]) cs)
-    (EDisjunct _)   -> (-i : map lit cs) : (map (\c -> [i, -(lit c)]) cs)
-    where
-        (x:_)   = cs
-        (a:b:_) = cs
-    
 printExpression :: Monad m => Expression -> ExpressionT m String
 printExpression = printExpression' 0 ""
 

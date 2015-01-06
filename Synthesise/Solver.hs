@@ -70,14 +70,15 @@ refinementLoop player spec s (Just cand) origGT absGT = do
 
 findCandidate :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Maybe GameTree)
 findCandidate player spec s gt = do
-    fml             <- makeFml spec player s gt
-    (dMap, _, d)    <- liftE $ toDimacs Nothing fml
-    res             <- liftIO $ satSolve (maximum $ Map.elems dMap) [] d
+    fml     <- makeFml spec player s gt
+    (_, d)  <- liftE $ toDimacs Nothing fml
+    maxId   <- liftE $ getMaxId
+    res     <- liftIO $ satSolve maxId [] d
 
     if satisfiable res
     then do
         let (Just m)    = model res
-        gt'             <- setMoves player spec dMap m (gtRoot gt)
+        gt'             <- setMoves player spec m (gtRoot gt)
         return (Just gt')
     else do
         mapM_ (learnStates spec player) (gtUnsetNodes gt)
@@ -92,17 +93,24 @@ learnStates spec player gt = do
 
     fakes           <- liftE $ trueExpr
     fml             <- makeFml spec player fakes gt'
-    (dMap, a, d)    <- liftE $ toDimacs (Just s) fml
+    (a, d)          <- liftE $ toDimacs (Just s) fml
+    maxId           <- liftE $ getMaxId
 
-    res <- liftIO $ satSolve (maximum $ Map.elems dMap) a d
+    liftIO $ putStrLn $ printTree spec gt'
+    liftIO $ putStrLn (show a)
+    liftIO $ putStrLn (show maxId)
+
+    res <- liftIO $ satSolve maxId a d
 
     when (unsatisfiable res) $ do
-        noAssumps <- liftIO $ satSolve (maximum $ Map.elems dMap) [] d
+        noAssumps <- liftIO $ satSolve maxId [] d
 
         if (satisfiable noAssumps)
         then do
-            core <- liftIO $ minimiseCore (maximum $ Map.elems dMap) (fromJust (conflicts res)) d
-            c <- getConflicts (svars spec) dMap core 0 rank
+            core <- liftIO $ minimiseCore maxId (fromJust (conflicts res)) d
+            c <- getConflicts (svars spec) core 0 rank
+
+            liftIO $ putStrLn (show c)
 
             ls <- get
             if player == Existential
@@ -139,47 +147,47 @@ verifyLoop player spec s (i, gt) = do
 
 refine gt cex = return $ appendNextMove gt cex
 
-setMoves player spec dMap model gt = do
+setMoves player spec model gt = do
     let f       = if player == gtFirstPlayer gt then setMovesPlayer else setMovesOpp 
-    cs          <- mapM (f player spec dMap model) (gtChildren gt)
+    cs          <- mapM (f player spec model) (gtChildren gt)
     let gt'     = gtSetChildren gt cs
-    init        <- getVarsAtRank (svars spec) dMap model 0 (gtBaseRank gt)
+    init        <- getVarsAtRank (svars spec) model 0 (gtBaseRank gt)
     return      $ gtSetInit init gt'
 
-setMovesPlayer player spec dMap model gt = do
+setMovesPlayer player spec model gt = do
     let vars    = if player == Existential then cont spec else ucont spec
-    move        <- getVarsAtRank vars dMap model (gtCopyId gt) (gtRank gt)
+    move        <- getVarsAtRank vars model (gtCopyId gt) (gtRank gt)
     gt'         <- if player == Universal
         then do
-            state <- getVarsAtRank (svars spec) dMap model (gtCopyId gt) (gtRank gt - 1)
+            state <- getVarsAtRank (svars spec) model (gtCopyId gt) (gtRank gt - 1)
             return $ gtSetMove (gtSetState gt state) move
         else return $ gtSetMove gt move
-    cs          <- mapM (setMovesOpp player spec dMap model) (gtChildren gt')
+    cs          <- mapM (setMovesOpp player spec model) (gtChildren gt')
     return      $ gtSetChildren gt' cs
 
-setMovesOpp player spec dMap model gt = do
+setMovesOpp player spec model gt = do
     gt' <- if opponent player == Universal
         then do
-            state <- getVarsAtRank (svars spec) dMap model (gtCopyId gt) (gtRank gt - 1)
+            state <- getVarsAtRank (svars spec) model (gtCopyId gt) (gtRank gt - 1)
             return $ gtSetState gt state
         else return gt
-    cs          <- mapM (setMovesPlayer player spec dMap model) (gtChildren gt')
+    cs          <- mapM (setMovesPlayer player spec model) (gtChildren gt')
     return      $ gtSetChildren gt' cs
 
-getVarsAtRank vars dMap model cpy rnk = do
+getVarsAtRank vars model cpy rnk = do
     let vars' = map (\v -> v {rank = rnk, ecopy = cpy}) vars
     ve <- liftE $ mapM lookupVar vars'
     when (any isNothing ve) $ throwError "Bad expression"
     -- Lookup the dimacs equivalents
-    let vd = zipMaybe1 (map (\v -> Map.lookup (exprIndex v) dMap) (catMaybes ve)) vars'
+    let vd = zip (map exprIndex (catMaybes ve)) vars'
     -- Construct assignments
     when (null vd) $ throwError $ "Bad lookup " ++ show cpy ++ " " ++ show rnk
     return $ map (makeAssignment . (mapFst (\i -> model !! (i-1)))) vd
 
-getConflicts vars dMap conflicts cpy rnk = do
+getConflicts vars conflicts cpy rnk = do
     let vs  = map (\v -> v {rank = rnk, ecopy = cpy}) vars
     ve      <- liftE $ mapM lookupVar vs
-    let vd  = zipMaybe1 (map (\v -> Map.lookup (exprIndex v) dMap) (catMaybes ve)) vs
+    let vd  = zip (map exprIndex (catMaybes ve)) vs
     let cs  = map (\c -> (abs c, c)) conflicts
     let as  = map ((uncurry liftMFst) . mapFst (\i -> lookup i cs)) vd
     return  $ map makeAssignment (catMaybes as)
