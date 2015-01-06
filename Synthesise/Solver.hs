@@ -36,12 +36,8 @@ solveAbstract player spec s gt = do
     pLearn <- printLearnedStates spec player
     liftLog $ logSolve gt player pLearn
 
-    liftE $ pushCache
-
     cand <- findCandidate player spec s gt
     liftLog $ logCandidate cand
-
-    liftE $ popCache
 
     res <- refinementLoop player spec s cand gt gt
 
@@ -96,10 +92,6 @@ learnStates spec player gt = do
     (a, d)          <- liftE $ toDimacs (Just s) fml
     maxId           <- liftE $ getMaxId
 
-    liftIO $ putStrLn $ printTree spec gt'
-    liftIO $ putStrLn (show a)
-    liftIO $ putStrLn (show maxId)
-
     res <- liftIO $ satSolve maxId a d
 
     when (unsatisfiable res) $ do
@@ -109,8 +101,6 @@ learnStates spec player gt = do
         then do
             core <- liftIO $ minimiseCore maxId (fromJust (conflicts res)) d
             c <- getConflicts (svars spec) core 0 rank
-
-            liftIO $ putStrLn (show c)
 
             ls <- get
             if player == Existential

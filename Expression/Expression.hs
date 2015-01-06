@@ -32,8 +32,6 @@ module Expression.Expression (
     , toDimacs
     , getMaxId
     , setCopy
-    , pushCache
-    , popCache
     , printExpression
     , makeAssignment
     , assignmentToExpression
@@ -127,13 +125,7 @@ data ExprManager = ExprManager {
     , depMap        :: Map.Map ExprId (Set.Set ExprId)
     , copies        :: [ExprId]
     , indexMap      :: Map.Map Expr ExprId
-    , dCache        :: DimacsCache
-} deriving (Eq)
-
-data DimacsCache = DimacsCache {
-      dMap          :: Map.Map ExprId (Int, [[Int]])
-    , dMax          :: Int
-    , childCache    :: Maybe DimacsCache
+    , parentMgr     :: Maybe ExprManager
 } deriving (Eq)
 
 instance Show ExprManager where
@@ -152,30 +144,8 @@ emptyManager = ExprManager {
                 , depMap        = Map.empty
                 , copies        = []
                 , indexMap      = Map.empty
-                , dCache        = emptyCache 1
+                , parentMgr     = Nothing
                 }
-
-emptyCache di = DimacsCache {
-                  dMap          = Map.empty
-                , dMax          = di
-                , childCache    = Nothing
-                }
-
-pushCache :: Monad m => ExpressionT m ()
-pushCache = do
-    m <- get
-    put m { dCache = add (dCache m) }
-    where
-        add dc@(childCache -> Just c)   = dc { childCache = Just (add c) }
-        add dc@(childCache -> Nothing)  = dc { childCache = Just (emptyCache (dMax dc)) }
-
-popCache :: Monad m => ExpressionT m ()
-popCache = do
-    m <- get
-    put m { dCache = fromJust (rem (dCache m)) }
-    where
-        rem dc@(childCache -> Just c)   = Just (dc { childCache = rem c })
-        rem dc@(childCache -> Nothing)  = Nothing
 
 addExpression :: Monad m => Expr -> ExpressionT m Expression
 addExpression e = do
@@ -341,40 +311,6 @@ makeDimacs e = case expr e of
         cs      = children (expr e)
         (x:_)   = cs
         (a:b:_) = children (expr e)
-
----    addToCache e ind dimacs
-    
-
-findCached :: DimacsCache -> [ExprId] -> ([(ExprId, Int)], [(ExprId, Int)], [[Int]])
-findCached dCache es = (dMap ++ new, new, dimacs)
-    where
-        lookups             = zip es (repeat Nothing) --(map (`lookupCache` dCache) es)
-        (found, notfound)   = partition (isJust . snd) lookups
-        new                 = zip (map fst notfound) [(nextDimacsId dCache)..]
-        dMap                = map (mapSnd (fst . fromJust)) found
-        dimacs              = concatMap (snd . fromJust . snd) found
-
-lookupCache :: ExprId -> DimacsCache -> Maybe (Int, [[Int]])
-lookupCache e ((Map.lookup e) . dMap -> Just d) = Just d
-lookupCache e (childCache -> Just c)            = lookupCache e c
-lookupCache e _                                 = Nothing
-
-nextDimacsId :: DimacsCache -> Int
-nextDimacsId (childCache -> Just c) = nextDimacsId c
-nextDimacsId (dMax -> i)            = i + 1
-
-insertCache :: ExprId -> Int -> [[Int]] -> DimacsCache -> DimacsCache
-insertCache ei di d dc@(childCache -> Just c)   = dc { childCache = Just (insertCache ei di d c) }
-insertCache ei di d dc                          = dc
----insertCache ei di d dc                          = dc {  dMap = Map.insert ei (di, d) (dMap dc),
----                                                        dMax = max di (dMax dc)
----                                                     }
-
-addToCache :: MonadIO m => ExprId -> Int -> [[Int]] -> ExpressionT m ()
-addToCache ei di d = do
-    m <- get
-    put m { dCache = insertCache ei di d (dCache m) }
-
 
 printExpression :: Monad m => Expression -> ExpressionT m String
 printExpression = printExpression' 0 ""
