@@ -36,7 +36,7 @@ for f in FAMILIES:
 ###         "ide"  : 5,
 ###         "uart"  : 13 }
 
-MAX_K_F = {"spi" : 2,
+MAX_K_F = {"spi" : 3,
          "queue" : 3,
          "ide"  : 1,
          "uart"  : 3 }
@@ -60,6 +60,7 @@ def call_termite_sat(family, scale, args=None):
 
     fullargs = list(args)
     fullargs.insert(0, TERMITE_SAT)
+    fullargs = fullargs + ["-d0"]
     fullargs = fullargs + ["-k", str(KVAL[family][scale])]
     tslfn = TSL_DIR + "/" + family + str(scale) + ".tsl"
     fullargs = fullargs + [tslfn]

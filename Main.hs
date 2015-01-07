@@ -15,24 +15,31 @@ import Synthesise.Synthesise
 
 data Option = InputFile String
             | Bound String
+            | DebugMode (Maybe String)
 
 data Config = Config { tslFile      :: String
                      , bound        :: Int
+                     , debugMode    :: Int
                      } deriving (Show, Eq)
 
 defaultConfig = Config {
-    tslFile     = "",
-    bound       = 3
+      tslFile     = ""
+    , bound       = 3
+    , debugMode   = 1
     }
 
 options =
-    [ Option ['k']  ["bound"]   (ReqArg Bound "K") "Bounded reachability unroll length"]
+    [ Option ['k']  ["bound"]   (ReqArg Bound "K")      "Bounded reachability unroll length"
+    , Option ['d']  ["debug"]   (OptArg DebugMode "D")  "Debug mode. 0 = None, 1 = Output at end, 2 = Dump throughout"
+    ]
 
 addOption (InputFile fn) c  = c {tslFile = fn}
 addOption (Bound k) c       = c {bound = (read k)}
+addOption (DebugMode d) c   = maybe c (\x -> c {debugMode = read x}) d
 
 main = do
-    putStrLn "TermiteSAT v0.1"
+    putStrLn "------------------------------------"
+    putStrLn "TermiteSAT  v0.1"
     timeIt $ mainTimed
 
 mainTimed = do
@@ -41,13 +48,23 @@ mainTimed = do
     res <- case config of
         Left e -> return $ Left e
         Right config -> do
+            putStrLn $ "TSL file    " ++ tslFile config
+            putStrLn $ "Max Rank    " ++ show (bound config)
+            putStrLn $ "Debug Mode  " ++ case debugMode config of
+                0 -> "No output"
+                1 -> "Print log"
+                2 -> "Continuous log dumping"
+
             f <- readFile (tslFile config)
             let log = runEitherT (run config f)
-            printLog log
+            printLog (debugMode config) log
 
     case res of
-        Left s  -> putStrLn s
-        Right r -> putStrLn (show r)
+        Left s      -> putStrLn s
+        Right True  -> putStrLn "Realisable"
+        Right False -> putStrLn "Unrealisable"
+
+    putStrLn "------------------------------------"
 
 getConfig :: IO (Either String Config)
 getConfig = do

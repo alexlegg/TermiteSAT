@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, RecordWildCards #-}
 module Utils.Logger (
       LoggerT(..)
     , printLog
@@ -45,12 +45,31 @@ instance Show SynthTrace where
 data TraceCrumb = VerifyCrumb Int Int | RefineCrumb Int
     deriving (Show, Eq)
 
-type LoggerT m = StateT (Maybe SynthTrace, [TraceCrumb], Maybe CompiledSpec) m
+data DebugMode = NoDebug | FinalLogOnly | DumpLogs deriving (Show, Eq)
 
-printLog :: LoggerT IO a -> IO (a)
-printLog logger = do
-    (r, (trace, _, spec)) <- runStateT logger (Nothing, [], Nothing)
-    when (isJust trace && isJust spec) $ do
+data Log = Log {
+      trace     :: Maybe SynthTrace
+    , crumb     :: [TraceCrumb]
+    , spec      :: Maybe CompiledSpec
+    , debugMode :: DebugMode
+    }
+
+emptyLog dm = Log {
+      trace     = Nothing
+    , crumb     = []
+    , spec      = Nothing
+    , debugMode = case dm of
+        0   -> NoDebug
+        1   -> FinalLogOnly
+        2   -> DumpLogs
+    }
+
+type LoggerT m = StateT Log m
+
+printLog :: Int -> LoggerT IO a -> IO (a)
+printLog dm logger = do
+    (r, Log{..}) <- runStateT logger (emptyLog dm)
+    when (debugMode /= NoDebug && isJust trace && isJust spec) $ do
         putStrLn "Printing final log to debug.html"
         withFile "debug.html" WriteMode $ \h -> do
             renderHtmlToByteStringIO (BS.hPut h) (outputLog (fromJust spec) (fromJust trace))
@@ -58,8 +77,8 @@ printLog logger = do
 
 logDumpLog :: LoggerT IO ()
 logDumpLog = do
-    (trace, _, spec) <- get
-    when (isJust trace && isJust spec) $ liftIO $ do
+    Log{..} <- get
+    when (debugMode == DumpLogs && isJust trace && isJust spec) $ liftIO $ do
         withFile "debug_dump.html" WriteMode $ \h -> do
             renderHtmlToByteStringIO (BS.hPut h) (outputLog (fromJust spec) (fromJust trace))
 
@@ -145,55 +164,62 @@ updateAt f ((RefineCrumb c):cs) t   = t { refinement = adjust (updateAt f cs) c 
 
 logSolve :: Monad m => GameTree -> Player -> [String] -> LoggerT m ()
 logSolve gt player pLearn = do
-    (trace, crumb, spec) <- get
-    let newTrace = SynthTrace {
-          inputGT = gt
-        , candidate = Nothing
-        , prevLearned = pLearn
-        , learned = Nothing
-        , player = player
-        , result = Nothing
-        , verification = []
-        , refinement = []
-    }
-    let trace' = if isJust trace
-        then insertAt newTrace crumb (fromJust trace)
-        else newTrace
-    put (Just trace', crumb, spec)
+    log@Log{..} <- get
+    when (debugMode /= NoDebug) $ do
+        let newTrace = SynthTrace {
+              inputGT = gt
+            , candidate = Nothing
+            , prevLearned = pLearn
+            , learned = Nothing
+            , player = player
+            , result = Nothing
+            , verification = []
+            , refinement = []
+        }
+        let trace' = if isJust trace
+            then insertAt newTrace crumb (fromJust trace)
+            else newTrace
+        put $ log { trace = Just trace' }
 
 logCandidate :: Monad m => Maybe GameTree -> LoggerT m ()
 logCandidate cand = do
-    (trace, crumb, spec) <- get
-    put (Just $ updateAt (\t -> t { candidate = cand }) crumb (fromJust trace), crumb, spec)
+    log@Log{..} <- get
+    when (debugMode /= NoDebug) $ do
+        put $ log { trace = Just $ updateAt (\t -> t { candidate = cand }) crumb (fromJust trace) }
 
 logSolveComplete :: Monad m => Maybe GameTree -> LoggerT m ()
 logSolveComplete gt = do
-    (trace, crumb, spec) <- get
-    let trace' = updateAt (\x -> x { result = gt }) crumb (fromJust trace)
-    put (Just trace', if null crumb then [] else init crumb, spec)
+    log@Log{..} <- get
+    when (debugMode /= NoDebug) $ do
+        let trace' = updateAt (\x -> x { result = gt }) crumb (fromJust trace)
+        put $ log { trace = Just trace', crumb = if null crumb then [] else init crumb }
 
 logVerify :: Monad m => Int -> LoggerT m ()
 logVerify i = do
-    (trace, crumb, spec) <- get
-    let currentTrace = follow (fromJust trace) crumb
-    if i > 0
-    then do
-        put (trace, crumb ++ [VerifyCrumb ((length (verification currentTrace))-1) i], spec)
-    else do
-        put (trace, crumb ++ [VerifyCrumb (length (verification currentTrace)) i], spec)
+    log@Log{..} <- get
+    when (debugMode /= NoDebug) $ do
+        let currentTrace = follow (fromJust trace) crumb
+        if i > 0
+        then do
+            put $ log { crumb = crumb ++ [VerifyCrumb ((length (verification currentTrace))-1) i] }
+        else do
+            put $ log { crumb = crumb ++ [VerifyCrumb (length (verification currentTrace)) i] }
 
 logRefine :: Monad m => LoggerT m ()
 logRefine = do
-    (trace, crumb, spec) <- get
-    let currentTrace = follow (fromJust trace) crumb
-    put (trace, crumb ++ [RefineCrumb (length (refinement currentTrace))], spec)
+    log@Log{..} <- get
+    when (debugMode /= NoDebug) $ do
+        let currentTrace = follow (fromJust trace) crumb
+        put $ log { crumb = crumb ++ [RefineCrumb (length (refinement currentTrace))] }
 
 logLosingState :: Monad m => String -> LoggerT m ()
 logLosingState s = do
-    (trace, crumb, spec) <- get
-    put (Just $ updateAt (\t -> t { learned = Just s }) crumb (fromJust trace), crumb, spec)
+    log@Log{..} <- get
+    when (debugMode /= NoDebug) $ do
+        put $ log { trace = Just $ updateAt (\t -> t { learned = Just s }) crumb (fromJust trace) }
 
 logSpec :: Monad m => CompiledSpec -> LoggerT m ()
-logSpec spec = do
-    (trace, crumb, _) <- get
-    put (trace, crumb, Just spec)
+logSpec cspec = do
+    log@Log{..} <- get
+    when (debugMode /= NoDebug) $ do
+        put $ log { spec = Just cspec }
