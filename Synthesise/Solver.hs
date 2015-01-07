@@ -36,10 +36,12 @@ solveAbstract player spec s gt = do
     pLearn <- printLearnedStates spec player
     liftLog $ logSolve gt player pLearn
 
+---    liftE $ pushManager
     cand <- findCandidate player spec s gt
     liftLog $ logCandidate cand
 
     res <- refinementLoop player spec s cand gt gt
+---    liftE $ popManager
 
     liftLog $ logSolveComplete res
     liftLog logDumpLog
@@ -77,7 +79,9 @@ findCandidate player spec s gt = do
         gt'             <- setMoves player spec m (gtRoot gt)
         return (Just gt')
     else do
+---        liftE $ pushManager
         mapM_ (learnStates spec player) (gtUnsetNodes gt)
+---        liftE $ popManager
 ---        computeCounterExample spec player gt
         return Nothing
 
