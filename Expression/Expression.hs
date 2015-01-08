@@ -170,6 +170,10 @@ mgrLookup :: Ord a => (ExprManager -> Map.Map a b) -> a -> (Maybe ExprManager) -
 mgrLookup lMap k (Just mgr) = maybe (mgrLookup lMap k (parentMgr mgr)) Just (Map.lookup k (lMap mgr))
 mgrLookup lMap k Nothing    = Nothing
 
+mgrLookup2 :: Ord a => (ExprManager -> Map.Map a b) -> a -> (Maybe ExprManager) -> (Maybe b)
+mgrLookup2 lMap k (Just mgr) = maybe (mgrLookup2 lMap k (parentMgr mgr)) Just (Map.lookup k (lMap mgr))
+mgrLookup2 lMap k Nothing    = Nothing
+
 cacheStep :: Monad m => (Int, Int, Int, Int) -> Expression -> ExpressionT m ()
 cacheStep ni e = do
     m <- get
@@ -179,8 +183,8 @@ getCached :: Monad m => (Int, Int, Int, Int) -> ExpressionT m (Maybe Expression)
 getCached i = do
     m <- get
     let ei = mgrLookup stepCache i (Just m)
-    trace (if isNothing ei then "cache miss" else "cache hit") $ maybeM Nothing lookupExpression ei
----    maybeM Nothing lookupExpression ei
+---    trace (if isNothing ei then "cache miss" else "cache hit") $ maybeM Nothing lookupExpression ei
+    maybeM Nothing lookupExpression ei
 
 insertExpression :: Monad m => Expr -> ExpressionT m Expression
 insertExpression e = do
@@ -207,7 +211,7 @@ insertExpressionWithId i e = do
 addExpression :: Monad m => Expr -> ExpressionT m Expression
 addExpression e = do
     m <- get
-    case mgrLookup indexMap e (Just m) of
+    case mgrLookup2 indexMap e (Just m) of
         Nothing -> do
             insertExpression e
         Just i -> do
@@ -222,7 +226,7 @@ childDependencies e = do
 lookupExpression :: Monad m => Int -> ExpressionT m (Maybe Expression)
 lookupExpression i = do
     mgr <- get
-    case (mgrLookup exprMap i (Just mgr)) of
+    case (mgrLookup2 exprMap i (Just mgr)) of
         Nothing     -> return Nothing
         (Just exp)  -> return $ Just (Expression { eindex = i, expr = exp })
 
