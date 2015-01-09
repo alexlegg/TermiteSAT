@@ -66,7 +66,7 @@ makeConditions xs = do
             conjunct (y : prev)
 
 -- |The 'compile' function takes an AST and converts it to an Expression inside the Expressions State Monad
-compile :: Monad m => AST -> ExpressionT m Expression
+compile :: MonadIO m => AST -> ExpressionT m Expression
 
 compile HAST.T = do
     trueExpr

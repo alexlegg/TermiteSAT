@@ -13,7 +13,8 @@ TESTS           = [ ("Base", []) ]
 TSL_DIR         = "specs/tsl-files"
 M4_DIR          = "specs/"
 LOGFN           = "benchmarks.log"
-FAMILIES        = ["spi", "queue", "uart", "ide"]
+###FAMILIES        = ["spi", "queue", "uart", "ide"]
+FAMILIES        = ["queue"]
 M4FILE          = {
                   "spi" : "spi.m4"
                 , "queue" : "queue.m4"
@@ -37,15 +38,15 @@ for f in FAMILIES:
 ###         "uart"  : 13 }
 
 MAX_K_F = {"spi" : 3,
-         "queue" : 3,
+         "queue" : 5,
          "ide"  : 1,
          "uart"  : 3 }
 
 for k in range(1, MAX_K+1):
-    KVAL["spi"][k] = (k*2) + 4
+###    KVAL["spi"][k] = (k*2) + 4
     KVAL["queue"][k] = (k*3)
-    KVAL["ide"][k] = k + 19
-    KVAL["uart"][k] = (k*3) + 5
+###    KVAL["ide"][k] = k + 19
+###    KVAL["uart"][k] = (k*3) + 5
 
 #Clear logfile
 f = open(LOGFN, 'w')

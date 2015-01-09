@@ -120,7 +120,7 @@ singleStep spec rank first player parentCopy copy1 copy2 next = do
                     , ((StateVar, rank-1), copy2)
                     , ((StateVar, rank), parentCopy)
                     ]
-        step    <- liftE $ setCopy cMap step
+        step    <- liftE $ setCopyStep cMap step
         liftE $ cacheStep (rank, parentCopy, copy1, copy2) step
         liftE $ conjunct (step : goal : catMaybes [block])
 
