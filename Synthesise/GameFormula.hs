@@ -61,31 +61,39 @@ makeStep rank spec player first gt (m1, m2, c) = do
         then liftE $ moveToExpression m1
         else liftE $ makeHatMove (vh !! i) m1
 
-    m1Copy <- if isJust m1'
-        then do
-            let m1Map = Map.fromList [
+    m1Copy <- case m1' of
+        (Just m) -> do
+            mc <- liftE $ getCached (rank, parentCopy, copy1, copy2, exprIndex m)
+            case mc of
+                (Just mc)   -> return (Just mc)
+                Nothing     -> do
+                    let m1Map = Map.fromList [
                               ((playerToSection first, rank), copy1)
                             , ((HatVar, rank), copy1)
                             , ((StateVar, rank), parentCopy)
                             ]
-            m1c <- liftE $ setCopy m1Map (fromJust m1')
-            return (Just m1c)
-        else return Nothing
+                    m1c <- liftE $ setCopy m1Map m
+                    return (Just m1c)
+        Nothing -> return Nothing
 
     m2' <- if player == first
         then liftE $ makeHatMove (vh !! i) m2
         else liftE $ moveToExpression m2
 
-    m2Copy <- if isJust m2'
-        then do
-            let m2Map = Map.fromList [
-                          ((playerToSection (opponent first), rank), copy2)
-                        , ((HatVar, rank), copy2)
-                        , ((StateVar, rank), parentCopy)
-                        ]
-            m2c <- liftE $ setCopy m2Map (fromJust m2')
-            return (Just m2c)
-        else return Nothing
+    m2Copy <- case m2' of
+        (Just m) -> do
+            mc <- liftE $ getCached (rank, parentCopy, copy1, copy2, exprIndex m)
+            case mc of
+                (Just mc)   -> return (Just mc)
+                Nothing     -> do
+                    let m2Map = Map.fromList [
+                                  ((playerToSection (opponent first), rank), copy2)
+                                , ((HatVar, rank), copy2)
+                                , ((StateVar, rank), parentCopy)
+                                ]
+                    m2c <- liftE $ setCopy m2Map m
+                    return (Just m2c)
+        Nothing -> return Nothing
 
     step <- singleStep spec rank first player parentCopy copy1 copy2 next
 
@@ -97,31 +105,40 @@ singleStep spec rank first player parentCopy copy1 copy2 next = do
     let CompiledSpec{..}    = spec
 
     goal <- liftE $ goalFor player (g !! i)
-    goal <- liftE $ setCopy (Map.singleton (StateVar, (rank-1)) copy2) goal
+    goalc <- liftE $ getCached (rank, parentCopy, copy1, copy2, exprIndex goal)
+    goal <- case goalc of
+        (Just g)    -> return g
+        Nothing     -> liftE $ setCopy (Map.singleton (StateVar, (rank-1)) copy2) goal
+
     goal <- if player == Existential
         then liftE $ disjunct [next, goal]
         else liftE $ conjunct [next, goal]
 
     block <- blockLosingStates rank player
     block <- if isJust block
-        then (liftM Just) $ liftE $ setCopy (Map.singleton (StateVar, rank) parentCopy) (fromJust block)
+        then do
+            blockc <- liftE $ getCached (rank, parentCopy, copy1, copy2, exprIndex (fromJust block))
+            case blockc of
+                (Just b)    -> return (Just b)
+                Nothing     -> (liftM Just) $ liftE $ setCopy (Map.singleton (StateVar, rank) parentCopy) (fromJust block)
         else return Nothing
 
-    step <- liftE $ getCached (rank, parentCopy, copy1, copy2)
+    stepc <- liftE $ conjunct [t !! i, vc !! i, vu !! i]
+    step <- liftE $ getCached (rank, parentCopy, copy1, copy2, exprIndex stepc)
 
     if isJust step
     then do
         liftE $ conjunct (fromJust step : goal : catMaybes [block])
     else do
-        step    <- liftE $ conjunct [t !! i, vc !! i, vu !! i]
+        stepc   <- liftE $ conjunct [t !! i, vc !! i, vu !! i]
         let cMap = Map.fromList [
                       ((playerToSection first, rank), copy1)
                     , ((playerToSection (opponent first), rank), copy2)
                     , ((StateVar, rank-1), copy2)
                     , ((StateVar, rank), parentCopy)
                     ]
-        step    <- liftE $ setCopyStep cMap step
-        liftE $ cacheStep (rank, parentCopy, copy1, copy2) step
+        step    <- liftE $ setCopyStep cMap stepc
+        liftE $ cacheStep (rank, parentCopy, copy1, copy2, exprIndex stepc) step
         liftE $ conjunct (step : goal : catMaybes [block])
 
 blockLosingStates rank player = do

@@ -131,8 +131,7 @@ data ExprManager = ExprManager {
     , exprMap       :: IMap.IntMap Expr
     , depMap        :: IMap.IntMap (Set.Set ExprId)
     , indexMap      :: Map.Map Expr ExprId
-    , stepCache     :: Map.Map (Int, Int, Int, Int) ExprId
-    , copyCache     :: Map.Map (Int, Int, Section) ExprId
+    , stepCache     :: Map.Map (Int, Int, Int, Int, Int) ExprId
     , parentMgr     :: Maybe ExprManager
 } deriving (Eq)
 
@@ -147,7 +146,6 @@ emptyManager = ExprManager {
                 , depMap        = IMap.empty
                 , indexMap      = Map.empty
                 , stepCache     = Map.empty
-                , copyCache     = Map.empty
                 , parentMgr     = Nothing
                 }
 
@@ -180,12 +178,12 @@ mgrILookup :: (ExprManager -> IMap.IntMap a) -> Int -> (Maybe ExprManager) -> (M
 mgrILookup lMap k (Just mgr)    = maybe (mgrILookup lMap k (parentMgr mgr)) Just (IMap.lookup k (lMap mgr))
 mgrILookup lMap k Nothing       = Nothing
 
-cacheStep :: MonadIO m => (Int, Int, Int, Int) -> Expression -> ExpressionT m ()
+cacheStep :: MonadIO m => (Int, Int, Int, Int, Int) -> Expression -> ExpressionT m ()
 cacheStep ni e = do
     m <- get
     put $ m { stepCache = Map.insert ni (eindex e) (stepCache m) }
 
-getCached :: MonadIO m => (Int, Int, Int, Int) -> ExpressionT m (Maybe Expression)
+getCached :: MonadIO m => (Int, Int, Int, Int, Int) -> ExpressionT m (Maybe Expression)
 getCached i = do
     m <- get
     let ei = mgrLookup stepCache i (Just m)
