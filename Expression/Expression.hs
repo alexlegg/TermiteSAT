@@ -7,6 +7,7 @@ module Expression.Expression (
     , Sign(..)
     , Var(..)
     , Assignment(..)
+    , MoveCacheType(..)
 
     , setAssignmentRankCopy
     , pushManager
@@ -131,7 +132,7 @@ setChildren (EEquals _ _) vs    = let (x:y:[]) = vs in EEquals x y
 setChildren (EConjunct _) vs    = EConjunct vs
 setChildren (EDisjunct _) vs    = EDisjunct vs
 
-data MoveCacheType = RegularMove | HatMove | BlockedState
+data MoveCacheType = RegularMove | HatMove | BlockedState deriving (Show, Eq, Ord)
 
 data ExprManager = ExprManager {
       maxIndex      :: ExprId
@@ -139,7 +140,7 @@ data ExprManager = ExprManager {
     , depMap        :: IMap.IntMap (Set.Set ExprId)
     , indexMap      :: Map.Map Expr ExprId
     , stepCache     :: Map.Map (Int, Int, Int, Int, Int) ExprId
-    , moveCache     :: Map.Map ([Assignment], Bool) ExprId
+    , moveCache     :: Map.Map (MoveCacheType, [Assignment]) ExprId
     , parentMgr     :: Maybe ExprManager
     , checkDupes    :: Bool
 } deriving (Eq)
@@ -210,12 +211,12 @@ getCached i = do
 ---    trace (if isNothing ei then "cache miss" else "cache hit") $ maybeM Nothing lookupExpression ei
     maybeM Nothing lookupExpression ei
 
-cacheMove :: MonadIO m => ([Assignment], Bool) -> Expression -> ExpressionT m ()
+cacheMove :: MonadIO m => (MoveCacheType, [Assignment]) -> Expression -> ExpressionT m ()
 cacheMove mi e = do
     m <- get
     put m { moveCache = Map.insert mi (eindex e) (moveCache m) }
 
-getCachedMove :: MonadIO m => ([Assignment], Bool) -> ExpressionT m (Maybe Expression)
+getCachedMove :: MonadIO m => (MoveCacheType, [Assignment]) -> ExpressionT m (Maybe Expression)
 getCachedMove mi = do
     m <- get
     let ei = mgrLookup moveCache mi (Just m)

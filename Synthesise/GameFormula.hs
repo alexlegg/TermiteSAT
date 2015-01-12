@@ -26,23 +26,18 @@ makeFml spec player s gt = do
     s'          <- liftE $ maybeM s (\i -> conjunct [s, i]) initMove
     let maxCopy = gtMaxCopy gt
 
-    block <- makeBlockingExpressions player rank maxCopy
----    when (maxCopy /= 0) $ do
----        liftIO $ putStrLn $ (show player) ++ " " ++ show rank
----        blockp <- liftE $ mapM printExpression block
----        liftIO $ mapM putStrLn blockp
----        throwError "stop"
+    block <- {-# SCC do_blocking #-} makeBlockingExpressions player rank maxCopy
 
     if null (gtChildren root)
     then do
-        fml         <- leafToBottom spec 0 (gtFirstPlayer gt) player rank
+        fml         <- {-# SCC do_steps2 #-} leafToBottom spec 0 (gtFirstPlayer gt) player rank
         fml'        <- liftE $ conjunct (fml : s' : block)
 
         return fml'
     else do
         let cs      = map gtMovePairs (gtChildren root)
-        steps       <- concatMapM (mapM (makeSteps rank spec player (gtFirstPlayer gt) root)) cs
-        moves       <- concatMapM (concatMapM (makeMoves rank spec player (gtFirstPlayer gt) root)) cs
+        steps       <- {-# SCC do_steps #-} concatMapM (mapM (makeSteps rank spec player (gtFirstPlayer gt) root)) cs
+        moves       <- {-# SCC do_moves #-} concatMapM (concatMapM (makeMoves rank spec player (gtFirstPlayer gt) root)) cs
 
         fml'        <- liftE $ conjunct (s' : block ++ (catMaybes moves) ++ steps)
         return fml'
@@ -164,36 +159,31 @@ makeBlockingExpressions player rank copy = do
             concatMapM (\(r, c) -> blockExpression winningEx r c) blah
 
 blockExpression as rank copy = do
-    let ass = map (map (\a -> setAssignmentRankCopy a rank copy)) as
-    liftE $ mapM blockAssignment ass
+    liftE $ forM (map (map (\a -> setAssignmentRankCopy a rank copy)) as) $ \a -> do
+        cached <- getCachedMove (BlockedState, a)
+        case cached of
+            (Just b)    -> return b
+            Nothing     -> do
+                b <- blockAssignment a
+                cacheMove (BlockedState, a) b
+                return b
 
 makeBlockEx blocking (rank, copy) = do
     let as = fromMaybe [] (Map.lookup rank blocking)
     blockExpression as rank copy
 
----getCacheOrCopy es copy = do
----    mapM (setCopyAll copy) es
----    mapM doCopies es
----    where
----        doCopies e = do
----            cache <- getCached (0, copy, copy, copy, exprIndex e)
----            if isJust cache
----            then return (fromJust cache)
----            else do
----                ce <- setCopyAll copy e
----                cacheStep (0, copy, copy, copy, exprIndex e) ce
----                return ce
-
 makeMoveExpression Nothing _ _          = return Nothing
 makeMoveExpression (Just a) hat vars    = do
-    cached <- getCachedMove (a, hat)
+    let mType = if hat then HatMove else RegularMove
+    cached <- getCachedMove (mType, a)
     case cached of
         (Just m)    -> return (Just m)
         Nothing     -> do
             move <- if hat
                 then assignmentToExpression a
                 else makeHatMove vars a
-            cacheMove (a, hat) move
+            let mType = if hat then HatMove else RegularMove
+            cacheMove (mType, a) move
             return $ Just move
 
 moveToExpression Nothing    = return Nothing

@@ -76,7 +76,7 @@ executable TermiteSAT-prof
 
   ghc-options:          -O2
                         -threaded
-                        -fprof-auto
+                        -fprof-auto-exported
                         -prof
                         "-with-rtsopts=-N -p -s -h -i0.1"
 
