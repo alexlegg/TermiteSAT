@@ -23,23 +23,23 @@ makeFml spec player s gt = do
     let root    = gtRoot gt
     let rank    = gtRank root
     initMove    <- liftE $ moveToExpression (gtMove root)
-    s'          <- liftE $ maybeM s (\i -> conjunct [s, i]) initMove
+    let s'      = s : catMaybes [initMove]
     let maxCopy = gtMaxCopy gt
 
-    block <- {-# SCC do_blocking #-} makeBlockingExpressions player rank maxCopy
+    block <- makeBlockingExpressions player rank maxCopy
 
     if null (gtChildren root)
     then do
-        fml         <- {-# SCC do_steps2 #-} leafToBottom spec 0 (gtFirstPlayer gt) player rank
-        fml'        <- liftE $ conjunct (fml : s' : block)
+        fml         <- leafToBottom spec 0 (gtFirstPlayer gt) player rank
+        fml'        <- liftE $ conjunctQuick (fml : s' ++ block)
 
         return fml'
     else do
         let cs      = map gtMovePairs (gtChildren root)
-        steps       <- {-# SCC do_steps #-} concatMapM (mapM (makeSteps rank spec player (gtFirstPlayer gt) root)) cs
-        moves       <- {-# SCC do_moves #-} concatMapM (concatMapM (makeMoves rank spec player (gtFirstPlayer gt) root)) cs
+        steps       <- concatMapM (mapM (makeSteps rank spec player (gtFirstPlayer gt) root)) cs
+        moves       <- concatMapM (concatMapM (makeMoves rank spec player (gtFirstPlayer gt) root)) cs
 
-        fml'        <- liftE $ conjunct (s' : block ++ (catMaybes moves) ++ steps)
+        fml'        <- liftE $ conjunctQuick (s' ++ block ++ (catMaybes moves) ++ steps)
         return fml'
 
 makeMoves :: Int -> CompiledSpec -> Player -> Player -> GameTree -> (Move, Move, Maybe GameTree) -> SolverT [Maybe Expression]

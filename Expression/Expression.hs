@@ -30,6 +30,7 @@ module Expression.Expression (
     , setRank
     , setHatVar
     , conjunct
+    , conjunctQuick
     , disjunct
     , equate
     , implicate
@@ -56,6 +57,7 @@ import Control.Monad.ST.Safe
 import qualified Data.Map.Strict as Map
 import qualified Data.IntMap as IMap
 import qualified Data.Set as Set
+import qualified Data.IntSet as ISet
 import Data.List
 import Data.Bits (testBit)
 import Data.Foldable (foldlM)
@@ -137,7 +139,7 @@ data MoveCacheType = RegularMove | HatMove | BlockedState deriving (Show, Eq, Or
 data ExprManager = ExprManager {
       maxIndex      :: ExprId
     , exprMap       :: IMap.IntMap Expr
-    , depMap        :: IMap.IntMap (Set.Set ExprId)
+    , depMap        :: IMap.IntMap ISet.IntSet
     , indexMap      :: Map.Map Expr ExprId
     , stepCache     :: Map.Map (Int, Int, Int, Int, Int) ExprId
     , moveCache     :: Map.Map (MoveCacheType, [Assignment]) ExprId
@@ -230,7 +232,7 @@ insertExpression e = do
     put m {
         maxIndex    = maxIndex+1,
         exprMap     = IMap.insert i e exprMap,
-        depMap      = IMap.insert i (Set.insert i deps) depMap,
+        depMap      = IMap.insert i (ISet.insert i deps) depMap,
         indexMap    = Map.insert e i indexMap}
     return $ Expression { eindex = i, expr = e }
 
@@ -240,7 +242,7 @@ insertExpressionWithId i e = do
     deps <- childDependencies e
     put m {
         exprMap     = IMap.insert i e exprMap,
-        depMap      = IMap.insert i (Set.insert i deps) depMap,
+        depMap      = IMap.insert i (ISet.insert i deps) depMap,
         indexMap    = Map.insert e i indexMap}
     return $ Expression { eindex = i, expr = e }
 
@@ -262,7 +264,7 @@ childDependencies e = do
     m <- get
     let cs = children e
     let deps = map (\x -> mgrILookup depMap (var x) (Just m)) cs
-    return $ Set.unions (Set.fromList (map var (children e)) : catMaybes deps)
+    return $ ISet.unions (ISet.fromList (map var (children e)) : catMaybes deps)
 
 lookupExpression :: MonadIO m => Int -> ExpressionT m (Maybe Expression)
 lookupExpression i = do
@@ -283,10 +285,10 @@ getChildren e = do
     es <- mapM (lookupExpression . var) (children (expr e))
     return (catMaybes es)
 
-getDependencies :: MonadIO m => Int -> ExpressionT m (Set.Set Int)
+getDependencies :: MonadIO m => Int -> ExpressionT m ISet.IntSet
 getDependencies i = do
     mgr <- get
-    return $ fromMaybe Set.empty (mgrILookup depMap i (Just mgr))
+    return $ fromMaybe ISet.empty (mgrILookup depMap i (Just mgr))
 
 foldlExpression :: MonadIO m => (a -> Expression -> a) -> a -> Expression -> ExpressionT m a
 foldlExpression f x e = do
@@ -313,7 +315,7 @@ traverseExpression f e = do
 traverseExpression2 :: MonadIO m => (ExprVar -> ExprVar) -> Expression -> ExpressionT m Expression
 traverseExpression2 f e = do
     ds  <- getDependencies (eindex e)
-    es  <- (liftM catMaybes) $ mapM lookupExpression (Set.toList ds)
+    es  <- (liftM catMaybes) $ mapM lookupExpression (ISet.toList ds)
     done <- applyTraverse f es Map.empty
     let (Just e') = Map.lookup (eindex e) done
     liftM fromJust $ lookupExpression e'
@@ -370,6 +372,11 @@ conjunct []     = addExpression EFalse
 conjunct (e:[]) = return e
 conjunct es     = addExpression (EConjunct (concatMap liftConjuncts es))
 
+conjunctQuick :: MonadIO m => [Expression] -> ExpressionT m Expression
+conjunctQuick []        = addExpression EFalse
+conjunctQuick (e:[])    = return e
+conjunctQuick es        = insertExpression (EConjunct (concatMap liftConjuncts es))
+
 -- |The 'disjunct' function takes a list of Expressions and produces one disjunction Expression
 disjunct :: MonadIO m => [Expression] -> ExpressionT m Expression
 disjunct []     = addExpression ETrue
@@ -411,7 +418,7 @@ literal = addExpression . ELit
 toDimacs :: MonadIO m => Maybe [Assignment] -> Expression -> ExpressionT m ([Int], [[Int]])
 toDimacs a e = do
     ds      <- getDependencies (eindex e)
-    es      <- (liftM catMaybes) $ mapM lookupExpression (Set.toList ds)
+    es      <- (liftM catMaybes) $ mapM lookupExpression (ISet.toList ds)
     avs     <- maybeM [] (mapM assignmentToVar) a
     let as  = map (\a -> if sign a == Pos then var a else -(var a)) avs
     let dm  = concatMap makeDimacs es
@@ -472,7 +479,7 @@ setCopyStep cMap e = copyTraverse f e
 
 copyTraverse :: MonadIO m => (ExprVar -> ExprVar) -> Expression -> ExpressionT m Expression
 copyTraverse f e = do
-    ds          <- (liftM Set.toList) $ getDependencies (eindex e)
+    ds          <- (liftM ISet.toList) $ getDependencies (eindex e)
     eds         <- mapM (liftM fromJust . lookupExpression) ds
     cs          <- mapM (makeCopy f) eds
     let cMap    = Map.fromList cs
