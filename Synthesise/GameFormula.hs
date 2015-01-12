@@ -24,20 +24,31 @@ makeFml spec player s gt = do
     let rank    = gtRank root
     initMove    <- liftE $ moveToExpression (gtMove root)
     s'          <- liftE $ maybeM s (\i -> conjunct [s, i]) initMove
+    let maxCopy = gtMaxCopy gt
+
+    block <- makeBlockingExpressions player rank maxCopy
+---    when (maxCopy /= 0) $ do
+---        liftIO $ putStrLn $ (show player) ++ " " ++ show rank
+---        blockp <- liftE $ mapM printExpression block
+---        liftIO $ mapM putStrLn blockp
+---        throwError "stop"
 
     if null (gtChildren root)
     then do
         fml         <- leafToBottom spec 0 (gtFirstPlayer gt) player rank
-        fml'        <- liftE $ conjunct [fml, s']
+        fml'        <- liftE $ conjunct (fml : s' : block)
 
         return fml'
     else do
         let cs      = map gtMovePairs (gtChildren root)
-        steps       <- concatMapM (mapM (makeStep rank spec player (gtFirstPlayer gt) root)) cs
-        fml'        <- liftE $ conjunct (s' : steps)
+        steps       <- concatMapM (mapM (makeSteps rank spec player (gtFirstPlayer gt) root)) cs
+        moves       <- concatMapM (concatMapM (makeMoves rank spec player (gtFirstPlayer gt) root)) cs
+
+        fml'        <- liftE $ conjunct (s' : block ++ (catMaybes moves) ++ steps)
         return fml'
 
-makeStep rank spec player first gt (m1, m2, c) = do
+makeMoves :: Int -> CompiledSpec -> Player -> Player -> GameTree -> (Move, Move, Maybe GameTree) -> SolverT [Maybe Expression]
+makeMoves rank spec player first gt (m1, m2, c) = do
     let CompiledSpec{..}    = spec
     let i                   = rank - 1
     let parentCopy          = gtCopyId gt 
@@ -45,21 +56,15 @@ makeStep rank spec player first gt (m1, m2, c) = do
     let copy2               = maybe copy1 gtCopyId c
     let vh                  = if player == Existential then vu else vc
 
-    next <- if isJust c
-        then do
-            let cs = map gtMovePairs (gtChildren (fromJust c))
-            if null cs
-            then do
-                leafToBottom spec (gtCopyId (fromJust c)) first player (rank-1)
-            else do
-                steps <- concatMapM (mapM (makeStep (rank-1) spec player first (fromJust c))) cs
-                liftE $ conjunct steps
-        else do
-            leafToBottom spec (gtCopyId gt) first player (rank-1)
+    next <- if isJust c 
+    then do
+        let cs = map gtMovePairs (gtChildren (fromJust c))
+        if not (null cs)
+        then concatMapM (concatMapM (makeMoves (rank-1) spec player first (fromJust c))) cs
+        else return []
+    else return []
 
-    m1' <- if player == first
-        then liftE $ moveToExpression m1
-        else liftE $ makeHatMove (vh !! i) m1
+    m1' <- liftE $ makeMoveExpression m1 (player == first) (vh !! i)
 
     m1Copy <- case m1' of
         (Just m) -> do
@@ -76,9 +81,7 @@ makeStep rank spec player first gt (m1, m2, c) = do
                     return (Just m1c)
         Nothing -> return Nothing
 
-    m2' <- if player == first
-        then liftE $ makeHatMove (vh !! i) m2
-        else liftE $ moveToExpression m2
+    m2' <- liftE $ makeMoveExpression m2 (player /= first) (vh !! i)
 
     m2Copy <- case m2' of
         (Just m) -> do
@@ -95,10 +98,29 @@ makeStep rank spec player first gt (m1, m2, c) = do
                     return (Just m2c)
         Nothing -> return Nothing
 
-    step <- singleStep spec rank first player parentCopy copy1 copy2 next
+    return $ m1Copy : m2Copy : next
 
-    let moves = catMaybes [m1Copy, m2Copy]
-    liftE $ conjunct (step : moves)
+makeSteps rank spec player first gt (m1, m2, c) = do
+    let CompiledSpec{..}    = spec
+    let i                   = rank - 1
+    let parentCopy          = gtCopyId gt 
+    let copy1               = maybe parentCopy (gtCopyId . gtParent) c
+    let copy2               = maybe copy1 gtCopyId c
+    let vh                  = if player == Existential then vu else vc
+
+    next <- if isJust c
+        then do
+            let cs = map gtMovePairs (gtChildren (fromJust c))
+            if null cs
+            then do
+                leafToBottom spec (gtCopyId (fromJust c)) first player (rank-1)
+            else do
+                steps <- concatMapM (mapM (makeSteps (rank-1) spec player first (fromJust c))) cs
+                liftE $ conjunct steps
+        else do
+            leafToBottom spec (gtCopyId gt) first player (rank-1)
+
+    singleStep spec rank first player parentCopy copy1 copy2 next
 
 singleStep spec rank first player parentCopy copy1 copy2 next = do
     let i                   = rank - 1
@@ -114,45 +136,65 @@ singleStep spec rank first player parentCopy copy1 copy2 next = do
         then liftE $ disjunct [next, goal]
         else liftE $ conjunct [next, goal]
 
-    block <- blockLosingStates rank player
-    block <- if isJust block
-        then do
-            blockc <- liftE $ getCached (rank, parentCopy, copy1, copy2, exprIndex (fromJust block))
-            case blockc of
-                (Just b)    -> return (Just b)
-                Nothing     -> (liftM Just) $ liftE $ setCopy (Map.singleton (StateVar, rank) parentCopy) (fromJust block)
-        else return Nothing
+    step <- liftE $ getCached (rank, parentCopy, copy1, copy2, exprIndex (t !! i))
 
-    stepc <- liftE $ conjunct [t !! i, vc !! i, vu !! i]
-    step <- liftE $ getCached (rank, parentCopy, copy1, copy2, exprIndex stepc)
+    step <- if isJust step
+        then return (fromJust step)
+        else do
+            let cMap = Map.fromList [
+                          ((playerToSection first, rank), copy1)
+                        , ((playerToSection (opponent first), rank), copy2)
+                        , ((StateVar, rank-1), copy2)
+                        , ((StateVar, rank), parentCopy)
+                        ]
+            step    <- liftE $ setCopyStep cMap (t !! i)
+            liftE $ cacheStep (rank, parentCopy, copy1, copy2, exprIndex (t !! i)) step
+            return step
 
-    if isJust step
-    then do
-        liftE $ conjunct (fromJust step : goal : catMaybes [block])
-    else do
-        stepc   <- liftE $ conjunct [t !! i, vc !! i, vu !! i]
-        let cMap = Map.fromList [
-                      ((playerToSection first, rank), copy1)
-                    , ((playerToSection (opponent first), rank), copy2)
-                    , ((StateVar, rank-1), copy2)
-                    , ((StateVar, rank), parentCopy)
-                    ]
-        step    <- liftE $ setCopyStep cMap stepc
-        liftE $ cacheStep (rank, parentCopy, copy1, copy2, exprIndex stepc) step
-        liftE $ conjunct (step : goal : catMaybes [block])
+    liftE $ conjunct [step, goal]
 
-blockLosingStates rank player = do
+makeBlockingExpressions :: Player -> Int -> Int -> SolverT [Expression]
+makeBlockingExpressions player rank copy = do
     LearnedStates{..} <- get
-    let block = if player == Existential
-        then fromMaybe [] (Map.lookup (rank - 1) winningUn)
-        else winningEx
+    let blah = [(r, c) | r <- [0..rank], c <- [0..copy]]
+    if player == Existential
+        then do
+            concatMapM (makeBlockEx winningUn) (concatMap (\r -> map (\c -> (r, c)) [0..copy]) [0..rank])
+        else do
+            concatMapM (\(r, c) -> blockExpression winningEx r c) blah
 
-    if null block
-    then return Nothing
-    else do 
-        bs <- liftE $ mapM blockAssignment block
-        b <- liftE $ conjunct bs
-        return (Just b)
+blockExpression as rank copy = do
+    let ass = map (map (\a -> setAssignmentRankCopy a rank copy)) as
+    liftE $ mapM blockAssignment ass
+
+makeBlockEx blocking (rank, copy) = do
+    let as = fromMaybe [] (Map.lookup rank blocking)
+    blockExpression as rank copy
+
+---getCacheOrCopy es copy = do
+---    mapM (setCopyAll copy) es
+---    mapM doCopies es
+---    where
+---        doCopies e = do
+---            cache <- getCached (0, copy, copy, copy, exprIndex e)
+---            if isJust cache
+---            then return (fromJust cache)
+---            else do
+---                ce <- setCopyAll copy e
+---                cacheStep (0, copy, copy, copy, exprIndex e) ce
+---                return ce
+
+makeMoveExpression Nothing _ _          = return Nothing
+makeMoveExpression (Just a) hat vars    = do
+    cached <- getCachedMove (a, hat)
+    case cached of
+        (Just m)    -> return (Just m)
+        Nothing     -> do
+            move <- if hat
+                then assignmentToExpression a
+                else makeHatMove vars a
+            cacheMove (a, hat) move
+            return $ Just move
 
 moveToExpression Nothing    = return Nothing
 moveToExpression (Just a)   = do
@@ -161,17 +203,11 @@ moveToExpression (Just a)   = do
 
 -- Ensures that a player can't force the other player into an invalid move
 makeHatMove valid m = do
-    if isJust m
-    then do
-        let (Just m') = m
-        move <- assignmentToExpression m'
-        move_hat <- setHatVar move
-        valid_hat <- setHatVar valid
-        imp <- implicate valid_hat move
-        c <- conjunct [move_hat, imp]
-        return (Just c)
-    else
-        return Nothing
+    move <- assignmentToExpression m
+    move_hat <- setHatVar move
+    valid_hat <- setHatVar valid
+    imp <- implicate valid_hat move
+    conjunct [move_hat, imp]
 
 goalFor Existential g   = return g
 goalFor Universal g     = negation g

@@ -8,6 +8,7 @@ import Control.Monad.Trans.Either
 import Data.Maybe
 
 import Utils.Logger
+import Utils.Utils
 import Expression.Parse
 import Expression.Compile
 import Expression.Expression
@@ -61,6 +62,8 @@ synthesise' k spec = do
     vcs <- iterateNM (k-1) unrollExpression vc
     vus <- iterateNM (k-1) unrollExpression vu
 
+    ts <- zipWith3M (\t vc vu -> conjunct [t, vc, vu]) ts vcs vus
+
     let cspec = CompiledSpec {
           t     = ts
         , g     = gs
@@ -77,7 +80,7 @@ synthesise' k spec = do
 
     init <- compile init
     init <- setRank k init
-
+    
     evalStateT (checkRank cspec k init) emptyLearnedStates
 
 iterateNM :: Monad m => Int -> (a -> m a) -> a -> m [a]

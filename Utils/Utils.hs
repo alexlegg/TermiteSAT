@@ -19,6 +19,7 @@ module Utils.Utils (
     , fst4 , snd4 , thd4, fth4
     , unzipM
     , maybeM
+    , zipWith3M
     , floor2
     ) where
 
@@ -134,3 +135,5 @@ maybeM b f Nothing  = return b
 floor2 :: Int -> Int
 floor2 x = (quot x 2) * 2
 
+zipWith3M :: Monad m => (a -> b -> c -> m d) -> [a] -> [b] -> [c] -> m [d]
+zipWith3M f as bs cs = sequence (zipWith3 f as bs cs)

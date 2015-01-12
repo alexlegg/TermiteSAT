@@ -34,13 +34,14 @@ solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Ma
 solveAbstract player spec s gt = do
 ---    liftIO $ putStrLn ("Solve abstract for " ++ show player)
     pLearn <- printLearnedStates spec player
-    liftLog $ logSolve gt player pLearn
+    liftLog $ logSolve gt player []
 
     liftE $ pushManager
     cand <- findCandidate player spec s gt
-    liftLog $ logCandidate cand
+    let cand' = (fmap gtCached) cand
+    liftLog $ logCandidate cand'
 
-    res <- refinementLoop player spec s cand gt gt
+    res <- refinementLoop player spec s cand' gt gt
     liftE $ popManager
 
     liftLog $ logSolveComplete res
@@ -105,6 +106,7 @@ learnStates spec player gt = do
         then do
             core <- liftIO $ minimiseCore maxId (fromJust (conflicts res)) d
             c <- getConflicts (svars spec) core 0 rank
+            ce <- liftE $ blockAssignment c
 
             ls <- get
             if player == Existential
@@ -123,8 +125,10 @@ learnStates spec player gt = do
 printLearnedStates spec player = do
     LearnedStates{..} <- get
     if player == Existential
-    then return $ map (\(k, a) -> "rank " ++ show k ++ ": " ++ printMove spec (Just a)) (ungroupZip (Map.toList winningUn))
-    else return $ map (printMove spec . Just) winningEx
+    then do
+        return $ map (\(k, e) -> printMove spec (Just e)) (ungroupZip (Map.toList winningUn))
+    else do
+        return $ map (printMove spec . Just) winningEx
 
 verify :: Player -> CompiledSpec -> Expression -> GameTree -> GameTree -> SolverT (Maybe GameTree)
 verify player spec s gt cand = do

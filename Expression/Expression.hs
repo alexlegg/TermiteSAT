@@ -8,10 +8,14 @@ module Expression.Expression (
     , Var(..)
     , Assignment(..)
 
+    , setAssignmentRankCopy
     , pushManager
     , popManager
+    , stopDuplicateChecking
     , cacheStep
     , getCached
+    , cacheMove
+    , getCachedMove
     , exprIndex
     , flipSign
     , emptyManager
@@ -36,6 +40,7 @@ module Expression.Expression (
     , toDimacs
     , getMaxId
     , setCopy
+    , setCopyAll
     , setCopyStep
     , printExpression
     , makeAssignment
@@ -126,13 +131,17 @@ setChildren (EEquals _ _) vs    = let (x:y:[]) = vs in EEquals x y
 setChildren (EConjunct _) vs    = EConjunct vs
 setChildren (EDisjunct _) vs    = EDisjunct vs
 
+data MoveCacheType = RegularMove | HatMove | BlockedState
+
 data ExprManager = ExprManager {
       maxIndex      :: ExprId
     , exprMap       :: IMap.IntMap Expr
     , depMap        :: IMap.IntMap (Set.Set ExprId)
     , indexMap      :: Map.Map Expr ExprId
     , stepCache     :: Map.Map (Int, Int, Int, Int, Int) ExprId
+    , moveCache     :: Map.Map ([Assignment], Bool) ExprId
     , parentMgr     :: Maybe ExprManager
+    , checkDupes    :: Bool
 } deriving (Eq)
 
 data Section = StateVar | ContVar | UContVar | HatVar
@@ -140,27 +149,38 @@ data Section = StateVar | ContVar | UContVar | HatVar
 
 data Assignment = Assignment Sign ExprVar deriving (Eq, Ord)
 
+setAssignmentRankCopy :: Assignment -> Int -> Int -> Assignment
+setAssignmentRankCopy (Assignment s v) r c = Assignment s (v { rank = r, ecopy = c })
+
 emptyManager = ExprManager { 
                   maxIndex      = 3
                 , exprMap       = IMap.empty
                 , depMap        = IMap.empty
                 , indexMap      = Map.empty
                 , stepCache     = Map.empty
+                , moveCache     = Map.empty
                 , parentMgr     = Nothing
+                , checkDupes    = True
                 }
 
 pushManager :: MonadIO m => ExpressionT m ()
 pushManager = do
     m@ExprManager{..} <- get
     put $ emptyManager {
-          maxIndex  = maxIndex
-        , parentMgr = Just m
+          maxIndex      = maxIndex
+        , parentMgr     = Just m
+        , checkDupes    = checkDupes
         }
 
 popManager :: MonadIO m => ExpressionT m ()
 popManager = do
     ExprManager{..} <- get
     put (fromJust parentMgr)
+
+stopDuplicateChecking :: MonadIO m => ExpressionT m ()
+stopDuplicateChecking = do
+    m <- get
+    put m { checkDupes = False }
 
 mgrLookup :: Ord a => (ExprManager -> Map.Map a b) -> a -> (Maybe ExprManager) -> (Maybe b)
 mgrLookup lMap k (Just mgr) = maybe (mgrLookup lMap k (parentMgr mgr)) Just (Map.lookup k (lMap mgr))
@@ -190,6 +210,17 @@ getCached i = do
 ---    trace (if isNothing ei then "cache miss" else "cache hit") $ maybeM Nothing lookupExpression ei
     maybeM Nothing lookupExpression ei
 
+cacheMove :: MonadIO m => ([Assignment], Bool) -> Expression -> ExpressionT m ()
+cacheMove mi e = do
+    m <- get
+    put m { moveCache = Map.insert mi (eindex e) (moveCache m) }
+
+getCachedMove :: MonadIO m => ([Assignment], Bool) -> ExpressionT m (Maybe Expression)
+getCachedMove mi = do
+    m <- get
+    let ei = mgrLookup moveCache mi (Just m)
+    maybeM Nothing lookupExpression ei
+
 insertExpression :: MonadIO m => Expr -> ExpressionT m Expression
 insertExpression e = do
     m@ExprManager{..} <- get
@@ -217,11 +248,14 @@ addExpression ETrue     = return $ Expression { eindex = 1, expr = ETrue }
 addExpression EFalse    = return $ Expression { eindex = 2, expr = EFalse }
 addExpression e         = do
     m <- get
-    case mgrLookup2 indexMap e (Just m) of
-        Nothing -> do
-            insertExpression e
-        Just i -> do
-            return $ Expression { eindex = i, expr = e }
+    if checkDupes m
+    then do
+        case mgrLookup2 indexMap e (Just m) of
+            Nothing -> do
+                insertExpression e
+            Just i -> do
+                return $ Expression { eindex = i, expr = e }
+    else insertExpression e
 
 childDependencies e = do
     m <- get
@@ -305,12 +339,12 @@ tryToApply f (pool, doneMap) e = do
 -- ##########################################################
 
 setRank :: MonadIO m => Int -> Expression -> ExpressionT m Expression
-setRank r = traverseExpression (setVarRank r)
+setRank r = traverseExpression2 (setVarRank r)
     
 setVarRank r v = v {rank = r}
 
 setHatVar :: MonadIO m => Expression -> ExpressionT m Expression
-setHatVar = traverseExpression setVarHat
+setHatVar = traverseExpression2 setVarHat
 
 setVarHat v = if varsect v == UContVar || varsect v == ContVar
                 then v {varname = varname v ++ "_hat", varsect = HatVar}
@@ -421,9 +455,14 @@ printExpression' tabs s e = do
         (ELit v)        -> show v
 
 setCopy :: MonadIO m => (Map.Map (Section, Int) Int) -> Expression -> ExpressionT m Expression
-setCopy cMap e = traverseExpression f e
+setCopy cMap e = traverseExpression2 f e
     where
         f v = v { ecopy = fromMaybe (ecopy v) (Map.lookup (varsect v, rank v) cMap) }
+
+setCopyAll :: MonadIO m => Int -> Expression -> ExpressionT m Expression
+setCopyAll copy e = traverseExpression2 f e
+    where
+        f v = v { ecopy = copy }
 
 setCopyStep :: MonadIO m => (Map.Map (Section, Int) Int) -> Expression -> ExpressionT m Expression
 setCopyStep cMap e = copyTraverse f e

@@ -11,6 +11,7 @@ module Synthesise.GameTree (
     , gtAtBottom
     , gtRoot
     , gtBaseRank
+    , gtMaxCopy
     , gtFirstPlayer
     , gtCrumb
     , gtMoves
@@ -35,6 +36,7 @@ module Synthesise.GameTree (
     , gtNew
     , gtLeaves
     , makePathTree
+    , gtCached
     , gtSetMove
     , gtSetState
     , gtSetInit
@@ -72,6 +74,7 @@ data Node (t :: NodeType) (p :: Player) where
         , uNodeId       :: Int
         , uMove         :: Move
         , uState        :: Move
+        , uChanged      :: Bool
         , uChildren     :: [Node InternalNode Existential]
     } -> Node InternalNode Universal
 
@@ -79,6 +82,7 @@ data Node (t :: NodeType) (p :: Player) where
           eCopy         :: Int
         , eNodeId       :: Int
         , eMove         :: Move
+        , eChanged      :: Bool
         , eChildren     :: [Node InternalNode Universal]
     } -> Node InternalNode Existential
 
@@ -86,6 +90,7 @@ data Node (t :: NodeType) (p :: Player) where
           suCopy        :: Int
         , suNodeId      :: Int
         , suState       :: Move
+        , suChanged     :: Bool
         , suChildren    :: [Node InternalNode Existential]
     } -> Node RootNode Universal
 
@@ -93,6 +98,7 @@ data Node (t :: NodeType) (p :: Player) where
           seCopy        :: Int
         , seNodeId      :: Int
         , seState       :: Move
+        , seChanged     :: Bool
         , seChildren    :: [Node InternalNode Universal]
     } -> Node RootNode Existential
 
@@ -125,10 +131,10 @@ instance SNodeC RootNode Existential where
     toNode _                = error "Conversion to SE Node failed"
 
 newNode :: SNode -> Int -> Int -> Move -> Move -> SNode
-newNode (SNode E{}) id c m s    = SNode $ U { uCopy = c, uNodeId = id, uMove = m, uState = s, uChildren = [] }
-newNode (SNode U{}) id c m s    = SNode $ E { eCopy = c, eNodeId = id, eMove = m, eChildren = [] }
-newNode (SNode SE{}) id c m s   = SNode $ U { uCopy = c, uNodeId = id, uMove = m, uState = s, uChildren = [] }
-newNode (SNode SU{}) id c m s   = SNode $ E { eCopy = c, eNodeId = id, eMove = m, eChildren = [] }
+newNode (SNode E{}) id c m s    = SNode $ U { uCopy = c, uNodeId = id, uMove = m, uChanged = False, uState = s, uChildren = [] }
+newNode (SNode U{}) id c m s    = SNode $ E { eCopy = c, eNodeId = id, eMove = m, eChanged = False, eChildren = [] }
+newNode (SNode SE{}) id c m s   = SNode $ U { uCopy = c, uNodeId = id, uMove = m, uChanged = False, uState = s, uChildren = [] }
+newNode (SNode SU{}) id c m s   = SNode $ E { eCopy = c, eNodeId = id, eMove = m, eChanged = False, eChildren = [] }
 
 children :: SNode -> [SNode]
 children (SNode n@U{})  = map SNode (uChildren n)
@@ -148,11 +154,23 @@ snodeMove (SNode n@E{})     = eMove n
 snodeMove (SNode n@SU{})    = suState n
 snodeMove (SNode n@SE{})    = seState n
 
+isChanged :: SNode -> Bool
+isChanged (SNode n@U{})     = uChanged n
+isChanged (SNode n@E{})     = eChanged n
+isChanged (SNode n@SU{})    = suChanged n
+isChanged (SNode n@SE{})    = seChanged n
+
+setChanged :: SNode -> Bool -> SNode
+setChanged (SNode n@U{}) c  = SNode (n { uChanged = c })
+setChanged (SNode n@E{}) c  = SNode (n { eChanged = c })
+setChanged (SNode n@SU{}) c = SNode (n { suChanged = c })
+setChanged (SNode n@SE{}) c = SNode (n { seChanged = c })
+
 setMove :: Move -> SNode -> SNode
-setMove m (SNode n@U{})     = SNode (n { uMove = m })
-setMove m (SNode n@E{})     = SNode (n { eMove = m })
-setMove s (SNode n@SU{})    = SNode (n { suState = s })
-setMove s (SNode n@SE{})    = SNode (n { seState = s })
+setMove m (SNode n@U{..})   = SNode (n { uMove = m, uChanged = uChanged || m /= uMove })
+setMove m (SNode n@E{..})   = SNode (n { eMove = m, eChanged = eChanged || m /= eMove })
+setMove s (SNode n@SU{..})  = SNode (n { suState = s, suChanged = suChanged || s /= suState })
+setMove s (SNode n@SE{..})  = SNode (n { seState = s, seChanged = seChanged || s /= seState })
 
 snodeState :: SNode -> Move
 snodeState (SNode n@U{})     = uState n
@@ -231,14 +249,14 @@ gtNew Existential r = ETree {
     , maxCopy   = 0
     , maxId     = 1
     , crumb     = []
-    , eroot     = SU { suCopy = 0, suNodeId = 0, suState = Nothing, suChildren = [] } }
+    , eroot     = SU { suCopy = 0, suNodeId = 0, suState = Nothing, suChanged = False, suChildren = [] } }
 
 gtNew Universal r   = UTree { 
       baseRank  = r
     , maxCopy   = 0
     , maxId     = 1
     , crumb     = []
-    , uroot     = SE { seCopy = 0, seNodeId = 0, seState = Nothing, seChildren = [] } }
+    , uroot     = SE { seCopy = 0, seNodeId = 0, seState = Nothing, seChanged = False, seChildren = [] } }
 
 -- |Calculates rank of a node (based on base rank)
 gtRank :: GameTree -> Int
@@ -258,6 +276,9 @@ isENode _               = False
 -- |Returns the root node of the tree
 gtBaseRank :: GameTree -> Int
 gtBaseRank = baseRank
+
+gtMaxCopy :: GameTree -> Int
+gtMaxCopy = maxCopy
 
 -- |Returns the first player of the tree (i.e. ETree or UTree)
 gtFirstPlayer :: GameTree -> Player
@@ -405,6 +426,11 @@ makePathTree gt = setCrumb (updateRoot gt (makePN (crumb gt))) (replicate (lengt
         makePN [] n     = n
         makePN (c:cs) n = setChildren n [makePN cs (children n !! c)]
 
+gtCached :: GameTree -> GameTree
+gtCached gt = setRoot gt (mapChildren (root gt))
+    where
+        mapChildren n = setChildren (setChanged n False) (map mapChildren (children n))
+
 gtSetMove :: GameTree -> [Assignment] -> GameTree
 gtSetMove gt as = updateGTCrumb gt (setMove (Just as))
 
@@ -501,8 +527,9 @@ printTree spec gt = "---\n" ++ printNode spec 0 (root gt) ++ "---"
 
 printNode :: CompiledSpec -> Int -> SNode -> String
 printNode spec t n = tab t ++ printNodeType n 
-    ++ show (nodeId n) ++ " "
+---    ++ show (nodeId n) ++ " "
     ++ show (copy n) ++ " "
+---    ++ show (isChanged n) ++ " "
     ++ printMove spec (snodeMove n) 
     ++ maybe "" ((" | " ++) . printMove spec) (getStateIfU n) 
     ++ "\n" ++ concatMap (printNode spec (t+1)) (children n)
