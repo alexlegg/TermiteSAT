@@ -190,3 +190,8 @@ getConflicts vars conflicts cpy rnk = do
     let as  = map ((uncurry liftMFst) . mapFst (\i -> lookup i cs)) vd
     return  $ map makeAssignment (catMaybes as)
 
+shortenStrategy player spec s gt = do
+    if player == Existential
+    then do
+        liftIO $ putStrLn "strategy shortening"
+    else return ()

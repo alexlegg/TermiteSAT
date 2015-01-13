@@ -26,6 +26,8 @@ makeFml spec player s gt = do
     let s'      = s : catMaybes [initMove]
     let maxCopy = gtMaxCopy gt
 
+    liftIO $ putStrLn "makeFml"
+
     block <- makeBlockingExpressions player rank maxCopy
 
     if null (gtChildren root)
@@ -39,7 +41,7 @@ makeFml spec player s gt = do
         steps       <- concatMapM (mapM (makeSteps rank spec player (gtFirstPlayer gt) root)) cs
         moves       <- concatMapM (concatMapM (makeMoves rank spec player (gtFirstPlayer gt) root)) cs
 
-        fml'        <- liftE $ conjunctQuick (s' ++ block ++ (catMaybes moves) ++ steps)
+        fml'        <- liftE $ conjunctQuick (s' ++ block ++ (catMaybes moves) ++ map snd steps)
         return fml'
 
 makeMoves :: Int -> CompiledSpec -> Player -> Player -> GameTree -> (Move, Move, Maybe GameTree) -> SolverT [Maybe Expression]
@@ -111,11 +113,14 @@ makeSteps rank spec player first gt (m1, m2, c) = do
                 leafToBottom spec (gtCopyId (fromJust c)) first player (rank-1)
             else do
                 steps <- concatMapM (mapM (makeSteps (rank-1) spec player first (fromJust c))) cs
-                liftE $ conjunct steps
+                liftIO $ mapM (putStrLn . printTree spec) (map fst steps)
+                liftE $ conjunct (map snd steps)
         else do
             leafToBottom spec (gtCopyId gt) first player (rank-1)
 
-    singleStep spec rank first player parentCopy copy1 copy2 next
+    s <- singleStep spec rank first player parentCopy copy1 copy2 next
+---    liftIO $ putStrLn (show (gtNodeId gt, exprIndex s))
+    return (gt, s)
 
 singleStep spec rank first player parentCopy copy1 copy2 next = do
     let i                   = rank - 1
@@ -151,12 +156,11 @@ singleStep spec rank first player parentCopy copy1 copy2 next = do
 makeBlockingExpressions :: Player -> Int -> Int -> SolverT [Expression]
 makeBlockingExpressions player rank copy = do
     LearnedStates{..} <- get
-    let blah = [(r, c) | r <- [0..rank], c <- [0..copy]]
     if player == Existential
         then do
             concatMapM (makeBlockEx winningUn) (concatMap (\r -> map (\c -> (r, c)) [0..copy]) [0..rank])
         else do
-            concatMapM (\(r, c) -> blockExpression winningEx r c) blah
+            concatMapM (\(r, c) -> blockExpression winningEx r c) [(r, c) | r <- [0..rank], c <- [0..copy]]
 
 blockExpression as rank copy = do
     liftE $ forM (map (map (\a -> setAssignmentRankCopy a rank copy)) as) $ \a -> do

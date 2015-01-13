@@ -40,6 +40,7 @@ module Synthesise.GameTree (
     , gtSetMove
     , gtSetState
     , gtSetInit
+    , gtSetExprId
     , projectMoves
     , appendChild
     , appendNextMove
@@ -75,6 +76,7 @@ data Node (t :: NodeType) (p :: Player) where
         , uMove         :: Move
         , uState        :: Move
         , uChanged      :: Bool
+        , uExprId       :: Maybe Int
         , uChildren     :: [Node InternalNode Existential]
     } -> Node InternalNode Universal
 
@@ -83,6 +85,7 @@ data Node (t :: NodeType) (p :: Player) where
         , eNodeId       :: Int
         , eMove         :: Move
         , eChanged      :: Bool
+        , eExprId       :: Maybe Int
         , eChildren     :: [Node InternalNode Universal]
     } -> Node InternalNode Existential
 
@@ -91,6 +94,7 @@ data Node (t :: NodeType) (p :: Player) where
         , suNodeId      :: Int
         , suState       :: Move
         , suChanged     :: Bool
+        , suExprId      :: Maybe Int
         , suChildren    :: [Node InternalNode Existential]
     } -> Node RootNode Universal
 
@@ -99,6 +103,7 @@ data Node (t :: NodeType) (p :: Player) where
         , seNodeId      :: Int
         , seState       :: Move
         , seChanged     :: Bool
+        , seExprId      :: Maybe Int
         , seChildren    :: [Node InternalNode Universal]
     } -> Node RootNode Existential
 
@@ -131,10 +136,10 @@ instance SNodeC RootNode Existential where
     toNode _                = error "Conversion to SE Node failed"
 
 newNode :: SNode -> Int -> Int -> Move -> Move -> SNode
-newNode (SNode E{}) id c m s    = SNode $ U { uCopy = c, uNodeId = id, uMove = m, uChanged = False, uState = s, uChildren = [] }
-newNode (SNode U{}) id c m s    = SNode $ E { eCopy = c, eNodeId = id, eMove = m, eChanged = False, eChildren = [] }
-newNode (SNode SE{}) id c m s   = SNode $ U { uCopy = c, uNodeId = id, uMove = m, uChanged = False, uState = s, uChildren = [] }
-newNode (SNode SU{}) id c m s   = SNode $ E { eCopy = c, eNodeId = id, eMove = m, eChanged = False, eChildren = [] }
+newNode (SNode E{}) id c m s    = SNode $ U { uCopy = c, uNodeId = id, uMove = m, uChanged = False, uExprId = Nothing, uState = s, uChildren = [] }
+newNode (SNode U{}) id c m s    = SNode $ E { eCopy = c, eNodeId = id, eMove = m, eChanged = False, eExprId = Nothing, eChildren = [] }
+newNode (SNode SE{}) id c m s   = SNode $ U { uCopy = c, uNodeId = id, uMove = m, uChanged = False, uExprId = Nothing, uState = s, uChildren = [] }
+newNode (SNode SU{}) id c m s   = SNode $ E { eCopy = c, eNodeId = id, eMove = m, eChanged = False, eExprId = Nothing, eChildren = [] }
 
 children :: SNode -> [SNode]
 children (SNode n@U{})  = map SNode (uChildren n)
@@ -249,14 +254,14 @@ gtNew Existential r = ETree {
     , maxCopy   = 0
     , maxId     = 1
     , crumb     = []
-    , eroot     = SU { suCopy = 0, suNodeId = 0, suState = Nothing, suChanged = False, suChildren = [] } }
+    , eroot     = SU { suCopy = 0, suNodeId = 0, suState = Nothing, suChanged = False, suExprId = Nothing, suChildren = [] } }
 
 gtNew Universal r   = UTree { 
       baseRank  = r
     , maxCopy   = 0
     , maxId     = 1
     , crumb     = []
-    , uroot     = SE { seCopy = 0, seNodeId = 0, seState = Nothing, seChanged = False, seChildren = [] } }
+    , uroot     = SE { seCopy = 0, seNodeId = 0, seState = Nothing, seChanged = False, seExprId = Nothing, seChildren = [] } }
 
 -- |Calculates rank of a node (based on base rank)
 gtRank :: GameTree -> Int
@@ -443,6 +448,9 @@ gtSetInit s gt = updateRoot gt fsi
         fsi (SNode n@(SU{}))    = SNode (n { suState = Just s })
         fsi (SNode n@(SE{}))    = SNode (n { seState = Just s })
 
+gtSetExprId :: GameTree -> Int -> GameTree
+gtSetExprId gt e = gt
+
 -- |Project moves from one game tree onto another
 projectMoves :: GameTree -> GameTree -> Maybe GameTree
 projectMoves t1 t2 = (liftM (setRoot t1)) (projectNodes (root t1) (root t2))
@@ -523,16 +531,23 @@ matchIndices f (x:xs) ys    = if isJust m
         match i a (b:bs)    = if f a b then Just i else match (i+1) a bs
 
 printTree :: CompiledSpec -> GameTree -> String
-printTree spec gt = "---\n" ++ printNode spec 0 (root gt) ++ "---"
+printTree spec gt = "---\n" ++ printNode spec 0 (Just (crumb gt)) (root gt) ++ "---"
 
-printNode :: CompiledSpec -> Int -> SNode -> String
-printNode spec t n = tab t ++ printNodeType n 
+printNode :: CompiledSpec -> Int -> Maybe [Int] -> SNode -> String
+printNode spec t cs n = tab t 
+    ++ (if maybe False null cs then "*" else "")
+    ++ printNodeType n 
 ---    ++ show (nodeId n) ++ " "
     ++ show (copy n) ++ " "
 ---    ++ show (isChanged n) ++ " "
     ++ printMove spec (snodeMove n) 
     ++ maybe "" ((" | " ++) . printMove spec) (getStateIfU n) 
-    ++ "\n" ++ concatMap (printNode spec (t+1)) (children n)
+    ++ "\n" ++ concatMap (printNode spec (t+1) (nextC cs)) (children n)
+    where
+        nextC Nothing       = Nothing
+        nextC (Just [])     = Nothing
+        nextC (Just (c:cs)) = Just cs
+        
 
 printNodeType :: SNode -> String
 printNodeType (SNode n@(E{}))    = "E "
