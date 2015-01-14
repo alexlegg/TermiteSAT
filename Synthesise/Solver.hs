@@ -38,10 +38,9 @@ solveAbstract player spec s gt = do
 
     liftE $ pushManager
     cand <- findCandidate player spec s gt
-    let cand' = (fmap gtCached) cand
-    liftLog $ logCandidate cand'
+    liftLog $ logCandidate cand
 
-    res <- refinementLoop player spec s cand' gt gt
+    res <- refinementLoop player spec s cand gt gt
     liftE $ popManager
 
     liftLog $ logSolveComplete res
@@ -69,8 +68,8 @@ refinementLoop player spec s (Just cand) origGT absGT = do
 
 findCandidate :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Maybe GameTree)
 findCandidate player spec s gt = do
-    fml     <- makeFml spec player s gt
-    (_, d)  <- liftE $ toDimacs Nothing fml
+    (es, f) <- makeFml spec player s gt
+    (_, d)  <- liftE $ toDimacs Nothing f
     maxId   <- liftE $ getMaxId
     res     <- liftIO $ satSolve maxId [] d
 
@@ -78,11 +77,10 @@ findCandidate player spec s gt = do
     then do
         let (Just m)    = model res
         gt'             <- setMoves player spec m (gtRoot gt)
+        gtShortened     <- shortenStrategy player spec f gt es
         return (Just gt')
     else do
----        liftE $ pushManager
         mapM_ (learnStates spec player) (gtUnsetNodes gt)
----        liftE $ popManager
 ---        computeCounterExample spec player gt
         return Nothing
 
@@ -93,7 +91,7 @@ learnStates spec player gt = do
     let rank        = gtBaseRank gt'
 
     fakes           <- liftE $ trueExpr
-    fml             <- makeFml spec player fakes gt'
+    (es, fml)       <- makeFml spec player fakes gt'
     (a, d)          <- liftE $ toDimacs (Just s) fml
     maxId           <- liftE $ getMaxId
 
@@ -190,8 +188,18 @@ getConflicts vars conflicts cpy rnk = do
     let as  = map ((uncurry liftMFst) . mapFst (\i -> lookup i cs)) vd
     return  $ map makeAssignment (catMaybes as)
 
-shortenStrategy player spec s gt = do
-    if player == Existential
-    then do
-        liftIO $ putStrLn "strategy shortening"
-    else return ()
+shortenStrategy Existential spec fml gt es = do
+    liftIO $ putStrLn "shortening"
+    mapM (shortenLeaf spec (gtBaseRank gt) fml) es
+    return gt
+shortenStrategy _ _ _ gt _ = return gt
+
+shortenLeaf spec rank fml (e:es) = do
+    ne      <- liftE $ negation e
+    fml'    <- liftE $ conjunctQuick [fml, ne]
+    (_, d)  <- liftE $ toDimacs Nothing fml'
+    maxId   <- liftE $ getMaxId
+    res     <- liftIO $ satSolve maxId [] d
+    liftIO $ putStrLn $ show rank ++ ": " ++ show (satisfiable res)
+    shortenLeaf spec (rank-1) fml es
+shortenLeaf spec rank d [] = return ()

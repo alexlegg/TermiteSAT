@@ -13,6 +13,7 @@ module Synthesise.GameTree (
     , gtBaseRank
     , gtMaxCopy
     , gtFirstPlayer
+    , gtExprId
     , gtCrumb
     , gtMoves
     , gtMove
@@ -41,6 +42,7 @@ module Synthesise.GameTree (
     , gtSetState
     , gtSetInit
     , gtSetExprId
+    , gtSetExprIds
     , projectMoves
     , appendChild
     , appendNextMove
@@ -215,6 +217,18 @@ nodeId (SNode n@E{})    = eNodeId n
 nodeId (SNode n@SU{})   = suNodeId n
 nodeId (SNode n@SE{})   = seNodeId n
 
+exprId :: SNode -> Maybe Int
+exprId (SNode n@U{})    = uExprId n
+exprId (SNode n@E{})    = eExprId n
+exprId (SNode n@SU{})   = suExprId n
+exprId (SNode n@SE{})   = seExprId n
+
+setExprId :: Maybe Int -> SNode -> SNode
+setExprId e (SNode n@U{})   = SNode $ n { uExprId = e } 
+setExprId e (SNode n@E{})   = SNode $ n { eExprId = e }
+setExprId e (SNode n@SU{})  = SNode $ n { suExprId = e }
+setExprId e (SNode n@SE{})  = SNode $ n { seExprId = e }
+
 data GameTree where
     ETree   :: {
           baseRank      :: Int
@@ -292,6 +306,9 @@ gtFirstPlayer (UTree{}) = Universal
 
 gtRoot :: GameTree -> GameTree
 gtRoot gt = setCrumb gt []
+
+gtExprId :: GameTree -> Maybe Int
+gtExprId = exprId . followGTCrumb
 
 -- |Returns the crumb for a gametree
 gtCrumb :: GameTree -> [Int]
@@ -448,8 +465,14 @@ gtSetInit s gt = updateRoot gt fsi
         fsi (SNode n@(SU{}))    = SNode (n { suState = Just s })
         fsi (SNode n@(SE{}))    = SNode (n { seState = Just s })
 
-gtSetExprId :: GameTree -> Int -> GameTree
-gtSetExprId gt e = gt
+gtSetExprId :: Int -> GameTree -> GameTree
+gtSetExprId e gt = updateGTCrumb gt (setExprId (Just e))
+
+gtSetExprIds :: [(Int, Int)] -> GameTree -> GameTree
+gtSetExprIds n2e gt = updateRoot gt f
+    where
+        f n = setChildren (g n) (map f (children n))
+        g n = setExprId (lookup (nodeId n) n2e) n
 
 -- |Project moves from one game tree onto another
 projectMoves :: GameTree -> GameTree -> Maybe GameTree
@@ -538,15 +561,18 @@ printNode spec t cs n = tab t
     ++ (if maybe False null cs then "*" else "")
     ++ printNodeType n 
 ---    ++ show (nodeId n) ++ " "
-    ++ show (copy n) ++ " "
+---    ++ show (copy n) ++ " "
+    ++ "(" ++ show (exprId n) ++ ") "
 ---    ++ show (isChanged n) ++ " "
     ++ printMove spec (snodeMove n) 
     ++ maybe "" ((" | " ++) . printMove spec) (getStateIfU n) 
-    ++ "\n" ++ concatMap (printNode spec (t+1) (nextC cs)) (children n)
+    ++ "\n" ++ concatMap (uncurry (printNode spec (t+1))) (nextC cs (children n))
     where
-        nextC Nothing       = Nothing
-        nextC (Just [])     = Nothing
-        nextC (Just (c:cs)) = Just cs
+        nextC Nothing ns        = zip (repeat Nothing) ns
+        nextC (Just []) ns      = zip (repeat Nothing) ns
+        nextC (Just (c:cs)) ns  = attachC c cs 0 ns
+        attachC _ _ _ []        = []
+        attachC c cs i (n:ns)   = (if c == i then Just cs else Nothing, n) : attachC c cs (i+1) ns
         
 
 printNodeType :: SNode -> String

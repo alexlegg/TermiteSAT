@@ -1,6 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 module Synthesise.GameFormula (
       makeFml
+---    , getStepExpressions
     ) where
 
 import qualified Data.Map as Map
@@ -19,6 +20,7 @@ import Synthesise.SolverT
 import Utils.Logger
 import Utils.Utils
 
+makeFml :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ([[Expression]], Expression)
 makeFml spec player s gt = do
     let root    = gtRoot gt
     let rank    = gtRank root
@@ -26,23 +28,24 @@ makeFml spec player s gt = do
     let s'      = s : catMaybes [initMove]
     let maxCopy = gtMaxCopy gt
 
-    liftIO $ putStrLn "makeFml"
-
     block <- makeBlockingExpressions player rank maxCopy
 
     if null (gtChildren root)
     then do
-        fml         <- leafToBottom spec 0 (gtFirstPlayer gt) player rank
+        (es, fml)   <- leafToBottom spec 0 (gtFirstPlayer gt) player rank
         fml'        <- liftE $ conjunctQuick (fml : s' ++ block)
 
-        return fml'
+        return ([es], fml')
     else do
-        let cs      = map gtMovePairs (gtChildren root)
-        steps       <- concatMapM (mapM (makeSteps rank spec player (gtFirstPlayer gt) root)) cs
-        moves       <- concatMapM (concatMapM (makeMoves rank spec player (gtFirstPlayer gt) root)) cs
+        let cs      = concatMap gtMovePairs (gtChildren root)
+        steps       <- mapM (makeSteps rank spec player (gtFirstPlayer gt) root) cs
+        moves       <- concatMapM (makeMoves rank spec player (gtFirstPlayer gt) root) cs
 
-        fml'        <- liftE $ conjunctQuick (s' ++ block ++ (catMaybes moves) ++ map snd steps)
-        return fml'
+        step        <- liftE $ conjunctQuick (map snd steps)
+        let es = map (step :) (concatMap fst steps)
+
+        fml'        <- liftE $ conjunctQuick (step : s' ++ block ++ (catMaybes moves))
+        return (es, fml')
 
 makeMoves :: Int -> CompiledSpec -> Player -> Player -> GameTree -> (Move, Move, Maybe GameTree) -> SolverT [Maybe Expression]
 makeMoves rank spec player first gt (m1, m2, c) = do
@@ -97,6 +100,7 @@ makeMoves rank spec player first gt (m1, m2, c) = do
 
     return $ m1Copy : m2Copy : next
 
+makeSteps :: Int -> CompiledSpec -> Player -> Player -> GameTree -> (Move, Move, Maybe GameTree) -> SolverT ([[Expression]], Expression)
 makeSteps rank spec player first gt (m1, m2, c) = do
     let CompiledSpec{..}    = spec
     let i                   = rank - 1
@@ -105,22 +109,23 @@ makeSteps rank spec player first gt (m1, m2, c) = do
     let copy2               = maybe copy1 gtCopyId c
     let vh                  = if player == Existential then vu else vc
 
-    next <- if isJust c
+    (es, next) <- if isJust c
         then do
-            let cs = map gtMovePairs (gtChildren (fromJust c))
+            let cs = concatMap gtMovePairs (gtChildren (fromJust c))
             if null cs
             then do
-                leafToBottom spec (gtCopyId (fromJust c)) first player (rank-1)
+                (es, step) <- leafToBottom spec (gtCopyId (fromJust c)) first player (rank-1)
+                return ([es], step)
             else do
-                steps <- concatMapM (mapM (makeSteps (rank-1) spec player first (fromJust c))) cs
-                liftIO $ mapM (putStrLn . printTree spec) (map fst steps)
-                liftE $ conjunct (map snd steps)
+                steps <- mapM (makeSteps (rank-1) spec player first (fromJust c)) cs
+                conj <- liftE $ conjunct (map snd steps)
+                return (map (conj :) (concatMap fst steps), conj)
         else do
-            leafToBottom spec (gtCopyId gt) first player (rank-1)
+            (es, step) <- leafToBottom spec (gtCopyId gt) first player (rank-1)
+            return ([es], step)
 
     s <- singleStep spec rank first player parentCopy copy1 copy2 next
----    liftIO $ putStrLn (show (gtNodeId gt, exprIndex s))
-    return (gt, s)
+    return (es, s)
 
 singleStep spec rank first player parentCopy copy1 copy2 next = do
     let i                   = rank - 1
@@ -206,22 +211,57 @@ makeHatMove valid m = do
 goalFor Existential g   = return g
 goalFor Universal g     = negation g
 
-leafToBottom :: CompiledSpec -> Int -> Player -> Player -> Int -> SolverT Expression
+leafToBottom :: CompiledSpec -> Int -> Player -> Player -> Int -> SolverT ([Expression], Expression)
 leafToBottom spec copy first player rank = do
     let CompiledSpec{..}    = spec
     let i                   = rank - 1
 
-    when (rank < 0) $ throwError "leafToBottom called on a tree that's too long"
-
     if rank == 0
     then do
-        g <- liftE $ goalFor player (g !! 0)
-        liftE $ setCopy (Map.singleton (StateVar, rank) copy) g
+        g   <- liftE $ goalFor player (g !! 0)
+        cg  <- liftE $ setCopy (Map.singleton (StateVar, rank) copy) g
+        return ([], cg)
     else do
-        next <- leafToBottom spec copy first player (rank - 1)
+        (es, next) <- leafToBottom spec copy first player (rank - 1)
 
-        singleStep spec rank first player copy copy copy next
+        step <- singleStep spec rank first player copy copy copy next
+        return (step : es, step)
 
 playerToSection :: Player -> Section
 playerToSection Existential = ContVar
 playerToSection Universal   = UContVar
+
+---getStepExpressions :: CompiledSpec -> GameTree -> SolverT [[Expression]]
+---getStepExpressions spec gt = do
+---    let root    = gtRoot gt
+---    let rank    = gtRank root
+
+---    if null (gtChildren root)
+---    then return []
+---    else do
+---        let cs      = concatMap (map thd3 . gtMovePairs) (gtChildren root)
+---        concatMapM (getStepExpr rank spec root) cs
+
+---getStepExpr :: Int -> CompiledSpec -> GameTree -> Maybe GameTree -> SolverT [[Expression]]
+---getStepExpr rank spec parent child = do
+---    let CompiledSpec{..}    = spec
+---    let i                   = rank - 1
+---    let parentCopy          = gtCopyId parent
+---    let copy1               = maybe parentCopy (gtCopyId . gtParent) child
+---    let copy2               = maybe copy1 gtCopyId child
+
+---    step <- liftE $ getCached (rank, parentCopy, copy1, copy2, exprIndex (t !! i))
+
+---    if isJust child
+---    then do
+---        let cs = concatMap (map thd3 . gtMovePairs) (gtChildren (fromJust child))
+---        if null cs
+---        then do
+---            steps <- liftE $ mapM (\r -> getCached (r, copy2, copy2, copy2, exprIndex (t !! (r-1)))) (reverse [1..rank-1])
+---            return [fromJust step : map fromJust steps]
+---        else do
+---            steps   <- concatMapM (getStepExpr (rank-1) spec (fromJust child)) cs
+---            return (map (fromJust step :) steps)
+---    else do
+---        steps <- liftE $ mapM (\r -> getCached (r, copy2, copy2, copy2, exprIndex (t !! (r-1)))) (reverse [1..rank-1])
+---        return [fromJust step : map fromJust steps]
