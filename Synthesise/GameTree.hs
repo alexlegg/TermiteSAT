@@ -558,11 +558,11 @@ printTree spec gt = "---\n" ++ printNode spec 0 (Just (crumb gt)) (root gt) ++ "
 
 printNode :: CompiledSpec -> Int -> Maybe [Int] -> SNode -> String
 printNode spec t cs n = tab t 
-    ++ (if maybe False null cs then "*" else "")
+---    ++ (if maybe False null cs then "*" else "")
     ++ printNodeType n 
 ---    ++ show (nodeId n) ++ " "
 ---    ++ show (copy n) ++ " "
-    ++ "(" ++ show (exprId n) ++ ") "
+---    ++ "(" ++ show (exprId n) ++ ") "
 ---    ++ show (isChanged n) ++ " "
     ++ printMove spec (snodeMove n) 
     ++ maybe "" ((" | " ++) . printMove spec) (getStateIfU n) 

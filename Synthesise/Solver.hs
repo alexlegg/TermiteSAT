@@ -8,6 +8,7 @@ module Synthesise.Solver (
 import Data.Maybe
 import Data.List
 import Data.Tuple.Update
+import Data.Foldable (foldlM)
 import System.IO
 import Control.Monad.State
 import Control.Monad.Trans.Either
@@ -75,9 +76,8 @@ findCandidate player spec s gt = do
 
     if satisfiable res
     then do
-        let (Just m)    = model res
-        gt'             <- setMoves player spec m (gtRoot gt)
-        gtShortened     <- shortenStrategy player spec f gt es
+        (Just m)    <- shortenStrategy player f (model res) es
+        gt'         <- setMoves player spec m (gtRoot gt)
         return (Just gt')
     else do
         mapM_ (learnStates spec player) (gtUnsetNodes gt)
@@ -188,18 +188,20 @@ getConflicts vars conflicts cpy rnk = do
     let as  = map ((uncurry liftMFst) . mapFst (\i -> lookup i cs)) vd
     return  $ map makeAssignment (catMaybes as)
 
-shortenStrategy Existential spec fml gt es = do
-    liftIO $ putStrLn "shortening"
-    mapM (shortenLeaf spec (gtBaseRank gt) fml) es
-    return gt
-shortenStrategy _ _ _ gt _ = return gt
+shortenStrategy Existential fml model es = do
+    let reversedEs = map reverse es
+    (_, m') <- foldlM shortenLeaf (fml, model) reversedEs
+    return m'
+shortenStrategy _ _ m _ = return m
 
-shortenLeaf spec rank fml (e:es) = do
+shortenLeaf (fml, m) (e:es) = do
     ne      <- liftE $ negation e
     fml'    <- liftE $ conjunctQuick [fml, ne]
     (_, d)  <- liftE $ toDimacs Nothing fml'
     maxId   <- liftE $ getMaxId
     res     <- liftIO $ satSolve maxId [] d
-    liftIO $ putStrLn $ show rank ++ ": " ++ show (satisfiable res)
-    shortenLeaf spec (rank-1) fml es
-shortenLeaf spec rank d [] = return ()
+    if satisfiable res
+    then do
+        shortenLeaf (fml', model res) es
+    else do
+        return (fml, m)
