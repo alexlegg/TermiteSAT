@@ -12,7 +12,6 @@ module Expression.Expression (
     , setAssignmentRankCopy
     , pushManager
     , popManager
-    , stopDuplicateChecking
     , cacheStep
     , getCached
     , cacheMove
@@ -144,7 +143,7 @@ data ExprManager = ExprManager {
     , stepCache     :: Map.Map (Int, Int, Int, Int, Int) ExprId
     , moveCache     :: Map.Map (MoveCacheType, [Assignment]) ExprId
     , parentMgr     :: Maybe ExprManager
-    , checkDupes    :: Bool
+    , dimacsCache   :: IMap.IntMap [[Int]]
 } deriving (Eq)
 
 data Section = StateVar | ContVar | UContVar | HatVar
@@ -163,7 +162,7 @@ emptyManager = ExprManager {
                 , stepCache     = Map.empty
                 , moveCache     = Map.empty
                 , parentMgr     = Nothing
-                , checkDupes    = True
+                , dimacsCache   = IMap.empty
                 }
 
 pushManager :: MonadIO m => ExpressionT m ()
@@ -172,18 +171,12 @@ pushManager = do
     put $ emptyManager {
           maxIndex      = maxIndex
         , parentMgr     = Just m
-        , checkDupes    = checkDupes
         }
 
 popManager :: MonadIO m => ExpressionT m ()
 popManager = do
     ExprManager{..} <- get
     put (fromJust parentMgr)
-
-stopDuplicateChecking :: MonadIO m => ExpressionT m ()
-stopDuplicateChecking = do
-    m <- get
-    put m { checkDupes = False }
 
 mgrLookup :: Ord a => (ExprManager -> Map.Map a b) -> a -> (Maybe ExprManager) -> (Maybe b)
 mgrLookup lMap k (Just mgr) = maybe (mgrLookup lMap k (parentMgr mgr)) Just (Map.lookup k (lMap mgr))
@@ -251,14 +244,11 @@ addExpression ETrue     = return $ Expression { eindex = 1, expr = ETrue }
 addExpression EFalse    = return $ Expression { eindex = 2, expr = EFalse }
 addExpression e         = do
     m <- get
-    if checkDupes m
-    then do
-        case mgrLookup2 indexMap e (Just m) of
-            Nothing -> do
-                insertExpression e
-            Just i -> do
-                return $ Expression { eindex = i, expr = e }
-    else insertExpression e
+    case mgrLookup2 indexMap e (Just m) of
+        Nothing -> do
+            insertExpression e
+        Just i -> do
+            return $ Expression { eindex = i, expr = e }
 
 childDependencies e = do
     m <- get
@@ -417,12 +407,25 @@ literal = addExpression . ELit
 
 toDimacs :: MonadIO m => Maybe [Assignment] -> Expression -> ExpressionT m ([Int], [[Int]])
 toDimacs a e = do
-    ds      <- getDependencies (eindex e)
-    es      <- (liftM catMaybes) $ mapM lookupExpression (ISet.toList ds)
+    ds      <- (liftM ISet.toList) $ getDependencies (eindex e)
+
+    mgr             <- get
+    let cached      = zip ds (map (\d -> mgrILookup dimacsCache d (Just mgr)) ds)
+    let (new, cs)   = partition (isNothing . snd) cached
+
+    es      <- (liftM catMaybes) $ mapM lookupExpression (map fst new)
+
     avs     <- maybeM [] (mapM assignmentToVar) a
     let as  = map (\a -> if sign a == Pos then var a else -(var a)) avs
-    let dm  = concatMap makeDimacs es
-    return $ (as, [eindex e] : dm)
+
+    let dm  = map makeDimacs es
+
+    let cacheThis = zip (map eindex es) dm
+
+    m <- get
+    put $ m { dimacsCache = foldl (\m (i, d) -> IMap.insert i d m) (dimacsCache m) cacheThis }
+
+    return $ (as, [eindex e] : concatMap (fromJust . snd) cs ++ concat dm)
 
 getMaxId :: MonadIO m => ExpressionT m Int
 getMaxId = do
