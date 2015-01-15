@@ -41,6 +41,7 @@ executable TermiteSAT
                         , blaze-html
                         , timeit
                         , array
+                        , vector
 
   default-language:       Haskell2010
 
@@ -69,6 +70,7 @@ executable TermiteSAT-prof
                         , blaze-html
                         , timeit
                         , array
+                        , vector
   else
     buildable:          False
 

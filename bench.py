@@ -7,13 +7,13 @@ import sys
 
 MIN_K           = 1
 MAX_K           = 25
-MAX_TIME        = 3 * 60 * 60 # 2 Hours
+MAX_TIME        = 1 * 60 * 60 # 1 Hours
 TERMITE_SAT     = ".cabal-sandbox/bin/TermiteSAT"
 TESTS           = [ ("Base", []) ]
 TSL_DIR         = "specs/tsl-files"
 M4_DIR          = "specs/"
 LOGFN           = "benchmarks.log"
-FAMILIES        = ["spi", "queue", "uart", "ide"]
+FAMILIES        = ["queue", "spi", "uart", "ide"]
 ###FAMILIES        = ["uart"]
 M4FILE          = {
                   "spi" : "spi.m4"
@@ -37,10 +37,10 @@ for f in FAMILIES:
 ###         "ide"  : 5,
 ###         "uart"  : 13 }
 
-MAX_K_F = {"spi" : 4,
-         "queue" : 5,
-         "ide"  : 4,
-         "uart"  : 4 }
+MAX_K_F = {"spi" : 25,
+         "queue" : 25,
+         "ide"  : 25,
+         "uart"  : 25 }
 
 for k in range(1, MAX_K+1):
     KVAL["spi"][k] = (k*2) + 4

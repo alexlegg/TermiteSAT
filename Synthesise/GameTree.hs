@@ -41,7 +41,6 @@ module Synthesise.GameTree (
     , gtSetMove
     , gtSetState
     , gtSetInit
-    , gtSetExprId
     , gtSetExprIds
     , projectMoves
     , appendChild
@@ -78,7 +77,7 @@ data Node (t :: NodeType) (p :: Player) where
         , uMove         :: Move
         , uState        :: Move
         , uChanged      :: Bool
-        , uExprId       :: Maybe Int
+        , uExprId       :: (Maybe Int, Maybe Int)
         , uChildren     :: [Node InternalNode Existential]
     } -> Node InternalNode Universal
 
@@ -87,7 +86,7 @@ data Node (t :: NodeType) (p :: Player) where
         , eNodeId       :: Int
         , eMove         :: Move
         , eChanged      :: Bool
-        , eExprId       :: Maybe Int
+        , eExprId       :: (Maybe Int, Maybe Int)
         , eChildren     :: [Node InternalNode Universal]
     } -> Node InternalNode Existential
 
@@ -96,7 +95,7 @@ data Node (t :: NodeType) (p :: Player) where
         , suNodeId      :: Int
         , suState       :: Move
         , suChanged     :: Bool
-        , suExprId      :: Maybe Int
+        , suExprId      :: (Maybe Int, Maybe Int)
         , suChildren    :: [Node InternalNode Existential]
     } -> Node RootNode Universal
 
@@ -105,7 +104,7 @@ data Node (t :: NodeType) (p :: Player) where
         , seNodeId      :: Int
         , seState       :: Move
         , seChanged     :: Bool
-        , seExprId      :: Maybe Int
+        , seExprId      :: (Maybe Int, Maybe Int)
         , seChildren    :: [Node InternalNode Universal]
     } -> Node RootNode Existential
 
@@ -138,10 +137,10 @@ instance SNodeC RootNode Existential where
     toNode _                = error "Conversion to SE Node failed"
 
 newNode :: SNode -> Int -> Int -> Move -> Move -> SNode
-newNode (SNode E{}) id c m s    = SNode $ U { uCopy = c, uNodeId = id, uMove = m, uChanged = False, uExprId = Nothing, uState = s, uChildren = [] }
-newNode (SNode U{}) id c m s    = SNode $ E { eCopy = c, eNodeId = id, eMove = m, eChanged = False, eExprId = Nothing, eChildren = [] }
-newNode (SNode SE{}) id c m s   = SNode $ U { uCopy = c, uNodeId = id, uMove = m, uChanged = False, uExprId = Nothing, uState = s, uChildren = [] }
-newNode (SNode SU{}) id c m s   = SNode $ E { eCopy = c, eNodeId = id, eMove = m, eChanged = False, eExprId = Nothing, eChildren = [] }
+newNode (SNode E{}) id c m s    = SNode $ U { uCopy = c, uNodeId = id, uMove = m, uChanged = False, uExprId = (Nothing, Nothing), uState = s, uChildren = [] }
+newNode (SNode U{}) id c m s    = SNode $ E { eCopy = c, eNodeId = id, eMove = m, eChanged = False, eExprId = (Nothing, Nothing), eChildren = [] }
+newNode (SNode SE{}) id c m s   = SNode $ U { uCopy = c, uNodeId = id, uMove = m, uChanged = False, uExprId = (Nothing, Nothing), uState = s, uChildren = [] }
+newNode (SNode SU{}) id c m s   = SNode $ E { eCopy = c, eNodeId = id, eMove = m, eChanged = False, eExprId = (Nothing, Nothing), eChildren = [] }
 
 children :: SNode -> [SNode]
 children (SNode n@U{})  = map SNode (uChildren n)
@@ -217,13 +216,13 @@ nodeId (SNode n@E{})    = eNodeId n
 nodeId (SNode n@SU{})   = suNodeId n
 nodeId (SNode n@SE{})   = seNodeId n
 
-exprId :: SNode -> Maybe Int
+exprId :: SNode -> (Maybe Int, Maybe Int)
 exprId (SNode n@U{})    = uExprId n
 exprId (SNode n@E{})    = eExprId n
 exprId (SNode n@SU{})   = suExprId n
 exprId (SNode n@SE{})   = seExprId n
 
-setExprId :: Maybe Int -> SNode -> SNode
+setExprId :: (Maybe Int, Maybe Int) -> SNode -> SNode
 setExprId e (SNode n@U{})   = SNode $ n { uExprId = e } 
 setExprId e (SNode n@E{})   = SNode $ n { eExprId = e }
 setExprId e (SNode n@SU{})  = SNode $ n { suExprId = e }
@@ -268,14 +267,14 @@ gtNew Existential r = ETree {
     , maxCopy   = 0
     , maxId     = 1
     , crumb     = []
-    , eroot     = SU { suCopy = 0, suNodeId = 0, suState = Nothing, suChanged = False, suExprId = Nothing, suChildren = [] } }
+    , eroot     = SU { suCopy = 0, suNodeId = 0, suState = Nothing, suChanged = False, suExprId = (Nothing, Nothing), suChildren = [] } }
 
 gtNew Universal r   = UTree { 
       baseRank  = r
     , maxCopy   = 0
     , maxId     = 1
     , crumb     = []
-    , uroot     = SE { seCopy = 0, seNodeId = 0, seState = Nothing, seChanged = False, seExprId = Nothing, seChildren = [] } }
+    , uroot     = SE { seCopy = 0, seNodeId = 0, seState = Nothing, seChanged = False, seExprId = (Nothing, Nothing), seChildren = [] } }
 
 -- |Calculates rank of a node (based on base rank)
 gtRank :: GameTree -> Int
@@ -307,8 +306,8 @@ gtFirstPlayer (UTree{}) = Universal
 gtRoot :: GameTree -> GameTree
 gtRoot gt = setCrumb gt []
 
-gtExprId :: GameTree -> Maybe Int
-gtExprId = exprId . followGTCrumb
+gtExprId :: Player -> GameTree -> Maybe Int
+gtExprId p gt = (if p == Existential then fst else snd) $ exprId (followGTCrumb gt)
 
 -- |Returns the crumb for a gametree
 gtCrumb :: GameTree -> [Int]
@@ -465,14 +464,12 @@ gtSetInit s gt = updateRoot gt fsi
         fsi (SNode n@(SU{}))    = SNode (n { suState = Just s })
         fsi (SNode n@(SE{}))    = SNode (n { seState = Just s })
 
-gtSetExprId :: Int -> GameTree -> GameTree
-gtSetExprId e gt = updateGTCrumb gt (setExprId (Just e))
-
-gtSetExprIds :: [(Int, Int)] -> GameTree -> GameTree
-gtSetExprIds n2e gt = updateRoot gt f
+gtSetExprIds :: Player -> [(Int, Int)] -> GameTree -> GameTree
+gtSetExprIds p n2e gt = updateRoot gt f
     where
-        f n = setChildren (g n) (map f (children n))
-        g n = setExprId (lookup (nodeId n) n2e) n
+        f n = setChildren (g p n) (map f (children n))
+        g Existential n = setExprId (lookup (nodeId n) n2e, snd (exprId n)) n
+        g Universal n   = setExprId (fst (exprId n), lookup (nodeId n) n2e) n
 
 -- |Project moves from one game tree onto another
 projectMoves :: GameTree -> GameTree -> Maybe GameTree
@@ -481,8 +478,11 @@ projectMoves t1 t2 = (liftM (setRoot t1)) (projectNodes (root t1) (root t2))
 projectNodes :: SNode -> SNode -> Maybe SNode
 projectNodes n p
     | nodeId n == nodeId p = do
-        cs <- zipWithM projectNodes (children n) (children p)
-        return $ setStateIfU (snodeState p) (setMove (snodeMove p) (setChildren n cs))
+        cs          <- zipWithM projectNodes (children n) (children p)
+        let move    = setMove (snodeMove p) (setChildren n cs)
+        let state   = setStateIfU (snodeState p) move
+        let ids     = setExprId (exprId p) state
+        return ids
     | otherwise = D.trace (show (snodeMove n) ++ show (snodeMove p)) $ Nothing
 
 appendChild :: GameTree -> GameTree
@@ -498,16 +498,22 @@ appendNodeAt mc mn (c:cs) n   = (mc', mn', setChildren n (update n' c ns))
         (mc', mn', n')  = appendNodeAt mc mn cs (ns !! c)
 
 appendNode :: Int -> Int -> Move -> Move -> SNode -> (Int, Int, SNode)
-appendNode mc mn m' s' n = (mc', mn+1, setChildren n (children n ++ [newNode n mn c' m' s']))
+appendNode mc mn m' s' n = (mc', mn+1, n')
     where
-        (mc', c')           = appendCopy mc (copy n) (children n)
+        (mc', c')   = appendCopy mc (copy n) (children n)
+        n'          = case children n of
+            [] -> setChildren n [newNode n mn c' m' s']
+            cs -> setExprId (Nothing, Nothing) $ setChildren n (children n ++ [newNode n mn c' m' s'])
 
 append2Nodes :: Int -> Int -> Move -> Move -> SNode -> (Int, Int, SNode)
-append2Nodes mc mn m' s' n = (mc', mn+2, setChildren n (children n ++ [n'']))
+append2Nodes mc mn m' s' n = (mc', mn+2, node)
     where
         n'          = newNode n mn c' m' s'
         n''         = setChildren n' ([newNode n' (mn + 1) c' Nothing Nothing])
         (mc', c')   = appendCopy mc (copy n) (children n)
+        node        = case children n of
+            [] -> setChildren n [n'']
+            cs -> setExprId (Nothing, Nothing) $ setChildren n (children n ++ [n''])
 
 appendCopy mc c [] = (mc, c)
 appendCopy mc _ ns = (mc+1, mc+1)
@@ -538,10 +544,11 @@ equalModCopy (Just xs) (Just ys)    = all (uncurry aEqualModCopy) (zip xs ys)
 equalModCopy _ _                    = False
 
 recur :: Int -> (Int, Int, SNode) -> (SNode, Int) -> (Int, Int, SNode)
-recur r (mc, mn, n) (m, i)    = (mc', mn', setChildren n (update n' i ns))
+recur r (mc, mn, n) (m, i)    = (mc', mn', setChildren n' (update c' i ns))
     where
         ns              = children n
-        (mc', mn', n')  = appendMove (r-1) mc mn m (ns !! i)
+        (mc', mn', c')  = appendMove (r-1) mc mn m (ns !! i)
+        n'              = if mc' /= mc then setExprId (Nothing, Nothing) n else n
 
 matchIndices :: (a -> a -> Bool) -> [a] -> [a] -> ([(a, Int)], [a])
 matchIndices _ [] _         = ([], [])
@@ -562,10 +569,10 @@ printNode spec t cs n = tab t
     ++ printNodeType n 
 ---    ++ show (nodeId n) ++ " "
 ---    ++ show (copy n) ++ " "
----    ++ "(" ++ show (exprId n) ++ ") "
+    ++ "(" ++ show (exprId n) ++ ") "
 ---    ++ show (isChanged n) ++ " "
-    ++ printMove spec (snodeMove n) 
-    ++ maybe "" ((" | " ++) . printMove spec) (getStateIfU n) 
+---    ++ printMove spec (snodeMove n) 
+---    ++ maybe "" ((" | " ++) . printMove spec) (getStateIfU n) 
     ++ "\n" ++ concatMap (uncurry (printNode spec (t+1))) (nextC cs (children n))
     where
         nextC Nothing ns        = zip (repeat Nothing) ns

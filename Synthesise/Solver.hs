@@ -37,6 +37,8 @@ solveAbstract player spec s gt = do
     pLearn <- printLearnedStates spec player
     liftLog $ logSolve gt player []
 
+---    liftIO $ putStrLn (show (gtMaxCopy gt))
+
     liftE $ pushManager
     cand <- findCandidate player spec s gt
     liftLog $ logCandidate cand
@@ -69,15 +71,15 @@ refinementLoop player spec s (Just cand) origGT absGT = do
 
 findCandidate :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Maybe GameTree)
 findCandidate player spec s gt = do
-    (es, f) <- makeFml spec player s gt
-    (_, d)  <- liftE $ toDimacs Nothing f
-    maxId   <- liftE $ getMaxId
-    res     <- liftIO $ satSolve maxId [] d
+    (es, f, gt')    <- makeFml spec player s gt
+    (_, d)          <- liftE $ toDimacs Nothing f
+    maxId           <- liftE $ getMaxId
+    res             <- liftIO $ satSolve maxId [] d
 
     if satisfiable res
     then do
         (Just m)    <- shortenStrategy player f (model res) es
-        gt'         <- setMoves player spec m (gtRoot gt)
+        gt'         <- setMoves player spec m (gtRoot gt')
         return (Just gt')
     else do
         mapM_ (learnStates spec player) (gtUnsetNodes gt)
@@ -91,8 +93,8 @@ learnStates spec player gt = do
     let rank        = gtBaseRank gt'
 
     fakes           <- liftE $ trueExpr
-    (es, fml)       <- makeFml spec player fakes gt'
-    (a, d)          <- liftE $ toDimacs (Just s) fml
+    (es, f, _)      <- makeFml spec player fakes gt'
+    (a, d)          <- liftE $ toDimacs (Just s) f
     maxId           <- liftE $ getMaxId
 
     res <- liftIO $ satSolve maxId a d

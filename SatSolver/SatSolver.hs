@@ -10,6 +10,7 @@ import Foreign
 import Foreign.C.Types
 import Control.Monad
 import Control.Monad.Loops
+import qualified Data.Vector.Storable as SV
 
 data GlucoseSolver
 

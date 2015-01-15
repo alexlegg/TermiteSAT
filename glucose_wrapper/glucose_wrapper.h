@@ -6,6 +6,7 @@ typedef struct glucose_solver_t glucose_solver;
 glucose_solver  *glucose_new();
 void            glucose_delete(glucose_solver *s);
 void            addAssumption(glucose_solver *s, int lit);
+
 void            addClause_addLit(glucose_solver *s, int lit);
 bool            addClause(glucose_solver *s);
 void            addVar(glucose_solver *s);

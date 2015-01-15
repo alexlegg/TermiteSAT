@@ -1,6 +1,7 @@
 module Utils.Utils (
       zipMaybe1
     , zipMaybe2
+    , catMaybeFst
     , mapFst
     , mapSnd
     , concatMapM
@@ -40,6 +41,11 @@ zipMaybe2 as bs = mapMaybe f (zip as bs)
     f (a, b) = do
         b' <- b
         return (a, b')
+
+catMaybeFst :: [(Maybe a, b)] -> [(a, b)]
+catMaybeFst []                  = []
+catMaybeFst ((Just a, b):xs)    = (a, b) : catMaybeFst xs
+catMaybeFst ((Nothing, _):xs)   = catMaybeFst xs
 
 mapFst :: (a -> b) -> (a, c) -> (b, c)
 mapFst f (x,y) = (f x,y)
