@@ -39,12 +39,12 @@ solveAbstract player spec s gt = do
 
 ---    liftIO $ putStrLn (show (gtMaxCopy gt))
 
-    liftE $ pushManager
+---    liftE $ pushManager
     cand <- findCandidate player spec s gt
     liftLog $ logCandidate cand
 
     res <- refinementLoop player spec s cand gt gt
-    liftE $ popManager
+---    liftE $ popManager
 
     liftLog $ logSolveComplete res
     liftLog logDumpLog
@@ -74,7 +74,7 @@ findCandidate player spec s gt = do
     (es, f, gt')    <- makeFml spec player s gt
     (_, d)          <- liftE $ toDimacs Nothing f
     maxId           <- liftE $ getMaxId
-    res             <- liftIO $ satSolve maxId [] d
+    res             <- satSolve maxId [] d
 
     if satisfiable res
     then do
@@ -97,14 +97,14 @@ learnStates spec player gt = do
     (a, d)          <- liftE $ toDimacs (Just s) f
     maxId           <- liftE $ getMaxId
 
-    res <- liftIO $ satSolve maxId a d
+    res <- satSolve maxId a d
 
     when (unsatisfiable res) $ do
-        noAssumps <- liftIO $ satSolve maxId [] d
+        noAssumps <- satSolve maxId [] d
 
         if (satisfiable noAssumps)
         then do
-            core <- liftIO $ minimiseCore maxId (fromJust (conflicts res)) d
+            core <- minimiseCore maxId (fromJust (conflicts res)) d
             c <- getConflicts (svars spec) core 0 rank
             ce <- liftE $ blockAssignment c
 
@@ -201,7 +201,7 @@ shortenLeaf (fml, m) (e:es) = do
     fml'    <- liftE $ conjunctQuick [fml, ne]
     (_, d)  <- liftE $ toDimacs Nothing fml'
     maxId   <- liftE $ getMaxId
-    res     <- liftIO $ satSolve maxId [] d
+    res     <- satSolve maxId [] d
     if satisfiable res
     then do
         shortenLeaf (fml', model res) es

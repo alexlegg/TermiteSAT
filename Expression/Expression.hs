@@ -425,7 +425,11 @@ toDimacs a e = do
     m <- get
     put $ m { dimacsCache = foldl (\m (i, d) -> IMap.insert i d m) (dimacsCache m) cacheThis }
 
-    return $ (as, [eindex e] : concatMap (fromJust . snd) cs ++ concat dm)
+    let dimacs = [eindex e] : concatMap (fromJust . snd) cs ++ concat dm
+    return $ (as, dimacs)
+
+duplicates :: Eq a => [a] -> [a]
+duplicates (x:xs) = if x `elem` xs then [x] else [] ++ duplicates xs
 
 getMaxId :: MonadIO m => ExpressionT m Int
 getMaxId = do

@@ -9,8 +9,10 @@ module SatSolver.SatSolver (
 import Foreign
 import Foreign.C.Types
 import Control.Monad
+import Control.Monad.IO.Class
 import Control.Monad.Loops
 import qualified Data.Vector.Storable as SV
+import Synthesise.SolverT
 
 data GlucoseSolver
 
@@ -23,8 +25,11 @@ data SatResult = SatResult {
 unsatisfiable :: SatResult -> Bool
 unsatisfiable = not . satisfiable
 
-satSolve :: Int -> [Int] -> [[Int]] -> IO SatResult
-satSolve max assumptions clauses = do
+satSolve :: Int -> [Int] -> [[Int]] -> SolverT SatResult
+satSolve max assumptions clauses = liftIO $ callSolver max assumptions clauses
+
+callSolver :: Int -> [Int] -> [[Int]] -> IO SatResult
+callSolver max assumptions clauses = do
     solver <- c_glucose_new
 
     -- Add one var so we can ignore 0
@@ -58,8 +63,12 @@ satSolve max assumptions clauses = do
         conflicts = fmap (map fromIntegral) conflicts
         }
 
-minimiseCore :: Int -> [Int] -> [[Int]] -> IO [Int]
+minimiseCore :: Int -> [Int] -> [[Int]] -> SolverT [Int]
 minimiseCore max assumptions clauses = do
+    liftIO $ doMinimiseCore max assumptions clauses
+
+doMinimiseCore :: Int -> [Int] -> [[Int]] -> IO [Int]
+doMinimiseCore max assumptions clauses = do
     solver <- c_glucose_new
 
     replicateM_ (max+1) (c_glucose_addVar solver)
