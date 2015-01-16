@@ -23,6 +23,11 @@ extern "C" {
         }
     }
 
+    void clearAssumptions(glucose_solver *s)
+    {
+        s->assumps.clear();
+    }
+
     void addClause_addLit(glucose_solver *s, int lit)
     {
         if (lit > 0) {
@@ -45,6 +50,8 @@ extern "C" {
         {
             if (clause[i] > 0) {
                 s->clause.push(mkLit(abs(clause[i]), false));
+            } else if (clause[i] == 0) {
+                printf("error");
             } else {
                 s->clause.push(mkLit(abs(clause[i]), true));
             }

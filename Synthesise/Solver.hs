@@ -72,8 +72,6 @@ refinementLoop player spec s (Just cand) origGT absGT = do
 findCandidate :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Maybe GameTree)
 findCandidate player spec s gt = do
     (es, f, gt')    <- makeFml spec player s gt
-    (_, d)          <- liftE $ toDimacs Nothing f
-    maxId           <- liftE $ getMaxId
     res             <- satSolve Nothing f
 
     if satisfiable res
@@ -94,33 +92,25 @@ learnStates spec player gt = do
 
     fakes           <- liftE $ trueExpr
     (es, f, _)      <- makeFml spec player fakes gt'
-    (a, d)          <- liftE $ toDimacs (Just s) f
-    maxId           <- liftE $ getMaxId
+    core            <- minimiseCore (Just s) f
 
-    res <- satSolve (Just s) f
+    if isJust core
+    then do
+        c <- getConflicts (svars spec) (fromJust core) 0 rank
+        ce <- liftE $ blockAssignment c
 
-    when (unsatisfiable res) $ do
-        noAssumps <- satSolve Nothing f
-
-        if (satisfiable noAssumps)
+        ls <- get
+        if player == Existential
         then do
-            core <- minimiseCore maxId (fromJust (conflicts res)) d
-            c <- getConflicts (svars spec) core 0 rank
-            ce <- liftE $ blockAssignment c
-
-            ls <- get
-            if player == Existential
-            then do
-                put $ ls { winningUn = Map.alter (\x -> Just (fromMaybe [] x ++ [c])) rank (winningUn ls) }
-                liftLog $ logLosingState (printMove spec (Just c))
-            else do
-                put $ ls { winningEx = winningEx ls ++ [c] }
-                liftLog $ logLosingState (printMove spec (Just c))
+            put $ ls { winningUn = Map.alter (\x -> Just (fromMaybe [] x ++ [c])) rank (winningUn ls) }
+            liftLog $ logLosingState (printMove spec (Just c))
         else do
-            -- Player loses for all states here
-            -- TODO Learn something
-            liftIO $ putStrLn $ "Lose all states"
-            return ()
+            put $ ls { winningEx = winningEx ls ++ [c] }
+            liftLog $ logLosingState (printMove spec (Just c))
+    else do
+        -- There is the potential to learn the empty clause here but I'm ignoring it for simplicity
+        -- It almost never comes up anyway
+        return ()
 
 printLearnedStates spec player = do
     LearnedStates{..} <- get
@@ -175,7 +165,7 @@ setMovesOpp player spec model gt = do
 getVarsAtRank vars model cpy rnk = do
     let vars' = map (\v -> v {rank = rnk, ecopy = cpy}) vars
     ve <- liftE $ mapM lookupVar vars'
-    when (any isNothing ve) $ throwError "Bad expression"
+    when (any isNothing ve) $ throwError ("Bad expression:\n" ++ interMap "\n" show (zip vars' ve))
     -- Lookup the dimacs equivalents
     let vd = zip (map exprIndex (catMaybes ve)) vars'
     -- Construct assignments
@@ -199,8 +189,6 @@ shortenStrategy _ _ m _ = return m
 shortenLeaf (fml, m) (e:es) = do
     ne      <- liftE $ negation e
     fml'    <- liftE $ conjunctQuick [fml, ne]
-    (_, d)  <- liftE $ toDimacs Nothing fml'
-    maxId   <- liftE $ getMaxId
     res     <- satSolve Nothing fml'
     if satisfiable res
     then do

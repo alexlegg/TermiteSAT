@@ -35,13 +35,12 @@ sign (Var s _)  = s
 satSolve :: Maybe [Assignment] -> Expression -> SolverT SatResult
 satSolve a e = do
     maxId       <- liftE $ getMaxId
-    clauses     <- toDimacsS e
+    clauses     <- toDimacsS2 e
     assumptions <- liftE $ maybeM [] (mapM assignmentToVar) a
     let as      = map (\a -> if sign a == Pos then var a else -(var a)) assumptions
 
     liftIO $ callSolver maxId as clauses
 
-callSolver :: Int -> [Int] -> [SV.Vector CInt] -> IO SatResult
 callSolver max assumptions clauses = do
     solver <- c_glucose_new
 
@@ -55,7 +54,7 @@ callSolver max assumptions clauses = do
     addAssumptions solver assumptions
 
     -- Add the clauses
-    allM (addClause2 solver) clauses
+    allM (addClause solver) clauses
 
     -- Get the result
     res <- c_solve solver
@@ -81,6 +80,13 @@ toDimacsS e = do
     es      <- (liftM catMaybes) $ liftE $ mapM lookupExpression ds
     let vs  = concatMap makeVector es
     return (SV.singleton (fromIntegral (exprIndex e)) : vs)
+
+toDimacsS2 e = do
+    ds      <- (liftM ISet.toList) $ liftE $ getDependencies (exprIndex e)
+    es      <- (liftM catMaybes) $ liftE $ mapM lookupExpression ds
+    let vs  = concatMap makeDimacs es
+    return ([exprIndex e] : vs)
+
 
 makeVector :: Expression -> [(SV.Vector CInt)]
 makeVector e = case exprType e of
@@ -120,11 +126,15 @@ makeDimacs e = case exprType e of
         (x:_)   = cs
         (a:b:_) = exprChildren (exprType e)
 
-minimiseCore :: Int -> [Int] -> [[Int]] -> SolverT [Int]
-minimiseCore max assumptions clauses = do
-    liftIO $ doMinimiseCore max assumptions clauses
+minimiseCore :: Maybe [Assignment] -> Expression -> SolverT (Maybe [Int])
+minimiseCore a e = do
+    maxId       <- liftE $ getMaxId
+    clauses     <- toDimacsS2 e
+    assumptions <- liftE $ maybeM [] (mapM assignmentToVar) a
+    let as      = map (\a -> if sign a == Pos then var a else -(var a)) assumptions
 
-doMinimiseCore :: Int -> [Int] -> [[Int]] -> IO [Int]
+    liftIO $ doMinimiseCore maxId as clauses
+
 doMinimiseCore max assumptions clauses = do
     solver <- c_glucose_new
 
@@ -134,13 +144,31 @@ doMinimiseCore max assumptions clauses = do
 
     allM (addClause solver) clauses
 
-    core_ptr <- c_minimise_core solver
-    core <- peekArray0 0 core_ptr
-    free core_ptr
+    res <- c_solve solver
 
-    c_glucose_delete solver
+    if res
+    then do
+        --SAT, there is no core to find
+        c_glucose_delete solver
+        return Nothing
+    else do
+        --UNSAT, try with no core
+        conflicts <- getConflicts solver
+        c_clearAssumptions solver
+        noCore <- c_solve solver
 
-    return $ map fromIntegral core
+        if noCore
+        then do
+            addAssumptions solver conflicts
+            core_ptr <- c_minimise_core solver
+
+            core <- peekArray0 0 core_ptr
+            free core_ptr
+            c_glucose_delete solver
+            return $ Just (map fromIntegral core)
+        else do
+            c_glucose_delete solver
+            return Nothing
 
 addAssumptions solver ass = do
     forM_ ass (c_addAssumption solver . fromIntegral)
@@ -175,6 +203,9 @@ foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h addVar"
 
 foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h addAssumption"
     c_addAssumption :: Ptr GlucoseSolver -> CInt -> IO ()
+
+foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h clearAssumptions"
+    c_clearAssumptions :: Ptr GlucoseSolver -> IO ()
 
 foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h addClause_addLit"
     c_addClause_addLit :: Ptr GlucoseSolver -> CInt -> IO ()
