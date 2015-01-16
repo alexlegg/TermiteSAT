@@ -74,7 +74,7 @@ findCandidate player spec s gt = do
     (es, f, gt')    <- makeFml spec player s gt
     (_, d)          <- liftE $ toDimacs Nothing f
     maxId           <- liftE $ getMaxId
-    res             <- satSolve maxId [] d
+    res             <- satSolve Nothing f
 
     if satisfiable res
     then do
@@ -97,10 +97,10 @@ learnStates spec player gt = do
     (a, d)          <- liftE $ toDimacs (Just s) f
     maxId           <- liftE $ getMaxId
 
-    res <- satSolve maxId a d
+    res <- satSolve (Just s) f
 
     when (unsatisfiable res) $ do
-        noAssumps <- satSolve maxId [] d
+        noAssumps <- satSolve Nothing f
 
         if (satisfiable noAssumps)
         then do
@@ -201,9 +201,10 @@ shortenLeaf (fml, m) (e:es) = do
     fml'    <- liftE $ conjunctQuick [fml, ne]
     (_, d)  <- liftE $ toDimacs Nothing fml'
     maxId   <- liftE $ getMaxId
-    res     <- satSolve maxId [] d
+    res     <- satSolve Nothing fml'
     if satisfiable res
     then do
         shortenLeaf (fml', model res) es
     else do
         return (fml, m)
+shortenLeaf (fml, m) [] = return (fml, m)

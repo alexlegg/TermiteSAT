@@ -8,6 +8,7 @@ module Expression.Expression (
     , Var(..)
     , Assignment(..)
     , MoveCacheType(..)
+    , Expr(..)
 
     , setAssignmentRankCopy
     , pushManager
@@ -17,9 +18,12 @@ module Expression.Expression (
     , cacheMove
     , getCachedMove
     , exprIndex
+    , exprType
+    , exprChildren
     , flipSign
     , emptyManager
     , getChildren
+    , getDependencies
     , lookupExpression
     , lookupVar
     , traverseExpression
@@ -47,6 +51,7 @@ module Expression.Expression (
     , makeAssignment
     , assignmentToExpression
     , blockAssignment
+    , assignmentToVar
     , setVarRank
     ) where
 
@@ -114,6 +119,9 @@ data Expression = Expression {
 exprIndex :: Expression -> Int
 exprIndex = eindex
 
+exprType :: Expression -> Expr
+exprType = expr
+
 children :: Expr -> [Var]
 children (ETrue)            = []
 children (EFalse)           = []
@@ -122,6 +130,9 @@ children (ENot v)           = [v]
 children (EEquals x y)      = [x, y]
 children (EConjunct vs)     = vs
 children (EDisjunct vs)     = vs
+
+exprChildren :: Expr -> [Var]
+exprChildren = children
 
 setChildren :: Expr -> [Var] -> Expr
 setChildren (ETrue) _           = ETrue

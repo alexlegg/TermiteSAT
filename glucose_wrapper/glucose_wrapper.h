@@ -9,6 +9,7 @@ void            addAssumption(glucose_solver *s, int lit);
 
 void            addClause_addLit(glucose_solver *s, int lit);
 bool            addClause(glucose_solver *s);
+bool            addClauseVector(glucose_solver *s, int size, int *clause);
 void            addVar(glucose_solver *s);
 
 bool            solve(glucose_solver *s);

@@ -34,7 +34,22 @@ extern "C" {
 
     bool addClause(glucose_solver *s)
     {
-        bool r = s->addClause(s->clause);
+        bool r = s->addClause_(s->clause);
+        s->clause.clear();
+        return r;
+    }
+
+    bool addClauseVector(glucose_solver *s, int size, int *clause)
+    {
+        for (int i = 0; i != size; ++i)
+        {
+            if (clause[i] > 0) {
+                s->clause.push(mkLit(abs(clause[i]), false));
+            } else {
+                s->clause.push(mkLit(abs(clause[i]), true));
+            }
+        }
+        bool r = s->addClause_(s->clause);
         s->clause.clear();
         return r;
     }

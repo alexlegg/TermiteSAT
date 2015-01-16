@@ -12,7 +12,11 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Loops
 import qualified Data.Vector.Storable as SV
+import qualified Data.IntSet as ISet
+import Data.Maybe
+import Expression.Expression
 import Synthesise.SolverT
+import Utils.Utils
 
 data GlucoseSolver
 
@@ -25,10 +29,19 @@ data SatResult = SatResult {
 unsatisfiable :: SatResult -> Bool
 unsatisfiable = not . satisfiable
 
-satSolve :: Int -> [Int] -> [[Int]] -> SolverT SatResult
-satSolve max assumptions clauses = liftIO $ callSolver max assumptions clauses
+var (Var _ v)   = v
+sign (Var s _)  = s
 
-callSolver :: Int -> [Int] -> [[Int]] -> IO SatResult
+satSolve :: Maybe [Assignment] -> Expression -> SolverT SatResult
+satSolve a e = do
+    maxId       <- liftE $ getMaxId
+    clauses     <- toDimacsS e
+    assumptions <- liftE $ maybeM [] (mapM assignmentToVar) a
+    let as      = map (\a -> if sign a == Pos then var a else -(var a)) assumptions
+
+    liftIO $ callSolver maxId as clauses
+
+callSolver :: Int -> [Int] -> [SV.Vector CInt] -> IO SatResult
 callSolver max assumptions clauses = do
     solver <- c_glucose_new
 
@@ -42,7 +55,7 @@ callSolver max assumptions clauses = do
     addAssumptions solver assumptions
 
     -- Add the clauses
-    allM (addClause solver) clauses
+    allM (addClause2 solver) clauses
 
     -- Get the result
     res <- c_solve solver
@@ -62,6 +75,50 @@ callSolver max assumptions clauses = do
         model = fmap (map fromIntegral) model,
         conflicts = fmap (map fromIntegral) conflicts
         }
+
+toDimacsS e = do
+    ds      <- (liftM ISet.toList) $ liftE $ getDependencies (exprIndex e)
+    es      <- (liftM catMaybes) $ liftE $ mapM lookupExpression ds
+    let vs  = concatMap makeVector es
+    return (SV.singleton (fromIntegral (exprIndex e)) : vs)
+
+makeVector :: Expression -> [(SV.Vector CInt)]
+makeVector e = case exprType e of
+    (ETrue)         -> [(SV.singleton i)]
+    (EFalse)        -> [(SV.singleton (-i))]
+    (ENot _)        -> [ SV.fromList [-i, -(lit x)]
+                       , SV.fromList [i, (lit x)]]
+    (ELit _)        -> []
+    (EEquals _ _)   -> [ SV.fromList [-i, -(lit a), (lit b)]
+                       , SV.fromList [-i, (lit a), -(lit b)]
+                       , SV.fromList [i, (lit a), (lit b)]
+                       , SV.fromList [i, -(lit a), -(lit b)]]
+    (EConjunct _)   -> SV.fromList (i : (map (negate . lit) cs)) : (map (\c -> SV.fromList [-i, (lit c)]) cs)
+    (EDisjunct _)   -> SV.fromList (-i : map lit cs) : (map (\c -> SV.fromList [i, -(lit c)]) cs)
+    where
+        i       = fromIntegral $ exprIndex e
+        cs      = exprChildren (exprType e)
+        (x:_)   = cs
+        (a:b:_) = exprChildren (exprType e)
+
+lit (Var Pos v) = fromIntegral v
+lit (Var Neg v) = fromIntegral (-v)
+
+makeDimacs :: Expression -> [[Int]]
+makeDimacs e = case exprType e of
+    (ETrue)         -> [[i]]
+    (EFalse)        -> [[-i]]
+    (ENot _)        -> [[-i, -(lit x)], [i, (lit x)]]
+    (ELit _)        -> []
+    (EEquals _ _)   -> [[-i, -(lit a), (lit b)], [-i, (lit a), -(lit b)],
+                        [i, (lit a), (lit b)], [i, -(lit a), -(lit b)]]
+    (EConjunct _)   -> (i : (map (negate . lit) cs)) : (map (\c -> [-i, (lit c)]) cs)
+    (EDisjunct _)   -> (-i : map lit cs) : (map (\c -> [i, -(lit c)]) cs)
+    where
+        i       = exprIndex e
+        cs      = exprChildren (exprType e)
+        (x:_)   = cs
+        (a:b:_) = exprChildren (exprType e)
 
 minimiseCore :: Int -> [Int] -> [[Int]] -> SolverT [Int]
 minimiseCore max assumptions clauses = do
@@ -92,6 +149,9 @@ addClause solver clause = do
     forM_ clause (c_addClause_addLit solver . fromIntegral)
     c_addClause solver
 
+addClause2 solver clause = do
+    SV.unsafeWith clause (c_addClauseVector solver (fromIntegral (SV.length clause)))
+
 getModel solver = do
     model <- c_model solver
     res <- peekArray0 0 model
@@ -121,6 +181,9 @@ foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h addClause_addLit"
 
 foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h addClause"
     c_addClause :: Ptr GlucoseSolver -> IO Bool
+
+foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h addClauseVector"
+    c_addClauseVector :: Ptr GlucoseSolver -> CInt -> Ptr CInt -> IO Bool
 
 foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h solve"
     c_solve :: Ptr GlucoseSolver -> IO Bool
