@@ -42,7 +42,6 @@ module Expression.Expression (
     , trueExpr
     , falseExpr
     , literal
-    , toDimacs
     , getMaxId
     , setCopy
     , setCopyAll
@@ -53,6 +52,7 @@ module Expression.Expression (
     , blockAssignment
     , assignmentToVar
     , setVarRank
+    , getCachedStepDimacs
     ) where
 
 import Control.Monad.State
@@ -68,6 +68,8 @@ import Data.Foldable (foldlM)
 import Data.Maybe
 import Utils.Utils
 import Debug.Trace
+import qualified Data.Vector.Storable as SV
+import Foreign.C.Types
 
 type ExpressionT m = StateT ExprManager (EitherT String m)
 
@@ -154,7 +156,7 @@ data ExprManager = ExprManager {
     , stepCache     :: Map.Map (Int, Int, Int, Int, Int) ExprId
     , moveCache     :: Map.Map (MoveCacheType, [Assignment]) ExprId
     , parentMgr     :: Maybe ExprManager
-    , dimacsCache   :: IMap.IntMap [[Int]]
+    , dimacsCache   :: IMap.IntMap [SV.Vector CInt]
 } deriving (Eq)
 
 data Section = StateVar | ContVar | UContVar | HatVar
@@ -416,52 +418,10 @@ falseExpr = addExpression EFalse
 literal :: MonadIO m => ExprVar -> ExpressionT m Expression
 literal = addExpression . ELit
 
-toDimacs :: MonadIO m => Maybe [Assignment] -> Expression -> ExpressionT m ([Int], [[Int]])
-toDimacs a e = do
-    ds      <- (liftM ISet.toList) $ getDependencies (eindex e)
-
-    mgr             <- get
-    let cached      = zip ds (map (\d -> mgrILookup dimacsCache d (Just mgr)) ds)
-    let (new, cs)   = partition (isNothing . snd) cached
-
-    es      <- (liftM catMaybes) $ mapM lookupExpression (map fst new)
-
-    avs     <- maybeM [] (mapM assignmentToVar) a
-    let as  = map (\a -> if sign a == Pos then var a else -(var a)) avs
-
-    let dm  = map makeDimacs es
-
-    let cacheThis = zip (map eindex es) dm
-
-    m <- get
-    put $ m { dimacsCache = foldl (\m (i, d) -> IMap.insert i d m) (dimacsCache m) cacheThis }
-
-    let dimacs = [eindex e] : concatMap (fromJust . snd) cs ++ concat dm
-    return $ (as, dimacs)
-
-duplicates :: Eq a => [a] -> [a]
-duplicates (x:xs) = if x `elem` xs then [x] else [] ++ duplicates xs
-
 getMaxId :: MonadIO m => ExpressionT m Int
 getMaxId = do
     ExprManager{..} <- get
     return maxIndex
-
-makeDimacs :: Expression -> [[Int]]
-makeDimacs e = case expr e of
-    (ETrue)         -> [[i]]
-    (EFalse)        -> [[-i]]
-    (ENot _)        -> [[-i, -(lit x)], [i, (lit x)]]
-    (ELit _)        -> []
-    (EEquals _ _)   -> [[-i, -(lit a), (lit b)], [-i, (lit a), -(lit b)],
-                        [i, (lit a), (lit b)], [i, -(lit a), -(lit b)]]
-    (EConjunct _)   -> (i : (map (negate . lit) cs)) : (map (\c -> [-i, (lit c)]) cs)
-    (EDisjunct _)   -> (-i : map lit cs) : (map (\c -> [i, -(lit c)]) cs)
-    where
-        i       = eindex e
-        cs      = children (expr e)
-        (x:_)   = cs
-        (a:b:_) = children (expr e)
 
 printExpression :: MonadIO m => Expression -> ExpressionT m String
 printExpression = printExpression' 0 ""
@@ -516,7 +476,6 @@ makeCopy _ e = do
     put m { maxIndex = maxIndex + 1 }
     return (eindex e, maxIndex)
 
-
 copyExpression :: MonadIO m => Map.Map ExprId ExprId -> (ExprVar -> ExprVar) -> ExprId -> ExpressionT m ()
 copyExpression cMap f i = do
     (Just e) <- lookupExpression i
@@ -550,3 +509,70 @@ assignmentToVar :: MonadIO m => Assignment -> ExpressionT m Var
 assignmentToVar (Assignment s v) = do
     e <- addExpression (ELit v)
     return $ Var s (eindex e)
+
+getStepExprs :: MonadIO m => ExpressionT m [Int]
+getStepExprs = do
+    mgr <- get
+    return $ getAllSteps (Just mgr)
+    where
+        getAllSteps (Just m)    = Map.elems (stepCache m) ++ getAllSteps (parentMgr m)
+        getAllSteps Nothing     = []
+
+---    , dimacsCache   :: IMap.IntMap [SV.Vector CInt]
+getCachedStepDimacs :: MonadIO m => Expression -> ExpressionT m [SV.Vector CInt]
+getCachedStepDimacs e = do
+    --WIP (doesn't work because steps get merged into other conjuncts)
+---    ds              <- getDependencies (exprIndex e)
+---    steps           <- (liftM ISet.fromList) getStepExprs
+---    let stepsInExpr = ISet.toList (ISet.intersection ds steps)
+---    mgr             <- get
+---    let cachedSteps = map (\x -> (x, mgrILookup dimacsCache x (Just mgr))) stepsInExpr
+---    stepDeps        <- (liftM ISet.unions) (mapM getDependencies stepsInExpr)
+---    leftovers       <- mapM lookupExpression (ISet.toList (ISet.difference ds stepDeps))
+---    let (cached, notcached) = partition (isJust . snd) cachedSteps
+---    newlycached     <- forM notcached $ \nc -> do
+---        (Just nce) <- lookupExpression (fst nc)
+---        let v = makeVector nce
+---        --Cache here
+---        m <- get
+---        put $ m { dimacsCache = IMap.insert (eindex nce) v (dimacsCache m) }
+---        return v
+
+---    return $ concatMap (fromJust . snd) cached 
+---        ++ concatMap (makeVector . fromJust) leftovers 
+---        ++ concat newlycached
+
+    ds          <- (liftM ISet.toList) $ getDependencies (exprIndex e)
+    mgr         <- get
+    let cached  = map (\x -> (x, mgrILookup dimacsCache x (Just mgr))) ds
+    let (cs, ncs) = partition (isJust . snd) cached
+    new <- forM ncs $ \i -> do
+        (Just e) <- lookupExpression (fst i)
+        let v = makeVector e
+        m <- get
+        put $ m { dimacsCache = IMap.insert (eindex e) v (dimacsCache m) }
+        return v
+
+
+    return $ concat new ++ concatMap (fromJust . snd) cs
+
+makeVector :: Expression -> [SV.Vector CInt]
+makeVector e = case exprType e of
+    (ETrue)         -> [(SV.singleton i)]
+    (EFalse)        -> [(SV.singleton (-i))]
+    (ENot _)        -> [ SV.fromList [-i, -(litc x)]
+                       , SV.fromList [i, (litc x)]]
+    (ELit _)        -> []
+    (EEquals _ _)   -> [ SV.fromList [-i, -(litc a), (litc b)]
+                       , SV.fromList [-i, (litc a), -(litc b)]
+                       , SV.fromList [i, (litc a), (litc b)]
+                       , SV.fromList [i, -(litc a), -(litc b)]]
+    (EConjunct _)   -> SV.fromList (i : (map (negate . litc) cs)) : (map (\c -> SV.fromList [-i, (litc c)]) cs)
+    (EDisjunct _)   -> SV.fromList (-i : map litc cs) : (map (\c -> SV.fromList [i, -(litc c)]) cs)
+    where
+        i       = fromIntegral $ exprIndex e
+        cs      = exprChildren (exprType e)
+        (x:_)   = cs
+        (a:b:_) = exprChildren (exprType e)
+        litc (Var Pos v) = fromIntegral v
+        litc (Var Neg v) = fromIntegral (-v)

@@ -37,7 +37,7 @@ for f in FAMILIES:
 ###         "ide"  : 5,
 ###         "uart"  : 13 }
 
-MAX_K_F = {"spi" : 25,
+MAX_K_F = {"spi" : 10,
          "queue" : 25,
          "ide"  : 25,
          "uart"  : 25
