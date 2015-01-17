@@ -567,12 +567,12 @@ printNode :: CompiledSpec -> Int -> Maybe [Int] -> SNode -> String
 printNode spec t cs n = tab t 
 ---    ++ (if maybe False null cs then "*" else "")
     ++ printNodeType n 
----    ++ show (nodeId n) ++ " "
----    ++ show (copy n) ++ " "
-    ++ "(" ++ show (exprId n) ++ ") "
+    ++ show (nodeId n) ++ " "
+    ++ show (copy n) ++ " "
+---    ++ "(" ++ show (exprId n) ++ ") "
 ---    ++ show (isChanged n) ++ " "
----    ++ printMove spec (snodeMove n) 
----    ++ maybe "" ((" | " ++) . printMove spec) (getStateIfU n) 
+    ++ printMove spec (snodeMove n) 
+    ++ maybe "" ((" | " ++) . printMove spec) (getStateIfU n) 
     ++ "\n" ++ concatMap (uncurry (printNode spec (t+1))) (nextC cs (children n))
     where
         nextC Nothing ns        = zip (repeat Nothing) ns

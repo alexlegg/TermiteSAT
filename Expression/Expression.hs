@@ -491,7 +491,7 @@ setCopyAll copy e = traverseExpression f e
         f v = v { ecopy = copy }
 
 setCopyStep :: MonadIO m => (Map.Map (Section, Int) Int) -> Expression -> ExpressionT m Expression
-setCopyStep cMap e = copyTraverse f e
+setCopyStep cMap e = traverseExpression2 f e
     where
         f v = v { ecopy = fromMaybe (ecopy v) (Map.lookup (varsect v, rank v) cMap) }
 

@@ -156,7 +156,7 @@ setMovesPlayer player spec model gt = do
 setMovesOpp player spec model gt = do
     gt' <- if opponent player == Universal
         then do
-            state <- getVarsAtRank (svars spec) model (gtCopyId gt) (gtRank gt - 1)
+            state <- getVarsAtRank (svars spec) model (gtCopyId (gtParent gt)) (gtRank gt - 1)
             return $ gtSetState gt state
         else return gt
     cs          <- mapM (setMovesPlayer player spec model) (gtChildren gt')

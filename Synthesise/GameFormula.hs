@@ -151,7 +151,8 @@ singleStep spec rank first player parentCopy copy1 copy2 next = do
         then return (fromJust step)
         else do
             step <- if copy1 == 0 && copy2 == 0 && parentCopy == 0
-                then do
+                then return (t !! i)
+                else do
                     let cMap = Map.fromList [
                                   ((playerToSection first, rank), copy1)
                                 , ((playerToSection (opponent first), rank), copy2)
@@ -159,7 +160,6 @@ singleStep spec rank first player parentCopy copy1 copy2 next = do
                                 , ((StateVar, rank), parentCopy)
                                 ]
                     liftE $ setCopyStep cMap (t !! i)
-                else return (t !! i)
             liftE $ cacheStep (rank, parentCopy, copy1, copy2, exprIndex (t !! i)) step
             return step
 
