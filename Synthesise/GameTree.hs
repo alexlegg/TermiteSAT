@@ -356,7 +356,9 @@ gtNodeId :: GameTree -> Int
 gtNodeId = nodeId . followGTCrumb
 
 gtParent :: GameTree -> GameTree
-gtParent gt = setCrumb gt (init (crumb gt))
+gtParent gt = case (crumb gt) of
+    []  -> gt
+    cs  -> setCrumb gt (init cs)
 
 gtPrevState :: GameTree -> Move
 gtPrevState gt = snodeState $ followCrumb (root gt) (prevStateNode gt (crumb gt))

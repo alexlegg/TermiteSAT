@@ -33,21 +33,25 @@ makeFml spec player s ogt = do
 
     if null (gtChildren root)
     then do
+        let transitions = sortTransitions $ getTransitions rank root (Nothing, Nothing, Nothing)
+        mapM (makeTransitions spec (gtFirstPlayer gt)) transitions
+
         (es, fml)   <- leafToBottom spec 0 (gtFirstPlayer gt) player rank
         fml'        <- liftE $ conjunctQuick (fml : s' ++ block)
-
         return ([map snd es], fml', root)
+
     else do
         let cs      = concatMap gtMovePairs (gtChildren root)
+        let transitions = sortTransitions $ concatMap (getTransitions rank root) cs
+        mapM (makeTransitions spec (gtFirstPlayer gt)) transitions
+
         steps       <- mapM (makeSteps rank spec player (gtFirstPlayer gt) root) cs
         moves       <- concatMapM (makeMoves rank spec player (gtFirstPlayer gt) root) cs
-
         step        <- liftE $ conjunctQuick (map snd steps)
 
         let es = map (step :) (concatMap (map (map snd) . fst) steps)
         let n2e = (gtNodeId root, step) : concatMap (concatMap catMaybeFst . fst) steps
         let gt' = gtSetExprIds player (map (mapSnd exprIndex) n2e) root
----        liftIO $ putStrLn (printTree spec gt')
 
         fml'        <- liftE $ conjunctQuick (step : s' ++ block ++ (catMaybes moves))
         return (es, fml', gt')
@@ -132,6 +136,46 @@ makeSteps rank spec player first gt (m1, m2, c) = do
     s <- singleStep spec rank first player parentCopy copy1 copy2 next
     return (es, s)
 
+getTransitions :: Int -> GameTree -> (Move, Move, Maybe GameTree) -> [(Int, Int, Int, Int)]
+getTransitions rank gt (_, _, c) = (rank, parentCopy, copy1, copy2) : next
+    where
+        parentCopy  = gtCopyId gt 
+        copy1       = maybe parentCopy (gtCopyId . gtParent) c
+        copy2       = maybe copy1 gtCopyId c
+        next        = if isJust c && rank >= 1
+            then case (concatMap gtMovePairs (gtChildren (fromJust c))) of
+                []  -> map (\x -> (x, copy2, copy2, copy2)) (reverse [1..(rank-1)])
+                cs  -> concatMap (getTransitions (rank-1) (fromJust c)) cs
+            else map (\x -> (x, copy2, copy2, copy2)) (reverse [1..(rank-1)])
+
+makeTransitions :: CompiledSpec -> Player -> (Int, Int, Int, Int) -> SolverT ()
+makeTransitions spec first (rank, parentCopy, copy1, copy2) = do
+    let i                   = rank - 1
+    let CompiledSpec{..}    = spec
+
+    if rank > 0
+    then do
+        step <- liftE $ getCached (rank, parentCopy, copy1, copy2, exprIndex (t !! i))
+
+        when (not (isJust step)) $ do
+            liftIO $ putStrLn "cache miss"
+            step <- if copy1 == 0 && copy2 == 0 && parentCopy == 0
+                then return (t !! i)
+                else do
+                    let cMap = Map.fromList [
+                                  ((playerToSection first, rank), copy1)
+                                , ((playerToSection (opponent first), rank), copy2)
+                                , ((StateVar, rank-1), copy2)
+                                , ((StateVar, rank), parentCopy)
+                                ]
+                    liftE $ setCopyStep cMap (t !! i)
+            liftE $ cacheStep (rank, parentCopy, copy1, copy2, exprIndex (t !! i)) step
+    else return ()
+
+sortTransitions :: [(Int, Int, Int, Int)] -> [(Int, Int, Int, Int)]
+sortTransitions = sortBy f
+    where f (_, x1, y1, z1) (_, x2, y2, z2) = compare (maximum [x1, y1, z1]) (maximum [x2, y2, z2])
+
 singleStep spec rank first player parentCopy copy1 copy2 next = do
     let i                   = rank - 1
     let CompiledSpec{..}    = spec
@@ -147,24 +191,8 @@ singleStep spec rank first player parentCopy copy1 copy2 next = do
         else liftE $ conjunct [next, goal]
 
     step <- liftE $ getCached (rank, parentCopy, copy1, copy2, exprIndex (t !! i))
-
-    step <- if isJust step
-        then return (fromJust step)
-        else do
-            step <- if copy1 == 0 && copy2 == 0 && parentCopy == 0
-                then return (t !! i)
-                else do
-                    let cMap = Map.fromList [
-                                  ((playerToSection first, rank), copy1)
-                                , ((playerToSection (opponent first), rank), copy2)
-                                , ((StateVar, rank-1), copy2)
-                                , ((StateVar, rank), parentCopy)
-                                ]
-                    liftE $ setCopyStep cMap (t !! i)
-            liftE $ cacheStep (rank, parentCopy, copy1, copy2, exprIndex (t !! i)) step
-            return step
-
-    liftE $ conjunct [step, goal]
+    when (isNothing step) $ throwError $ "Transition was not created in advance: " ++ show (rank, parentCopy, copy1, copy2)
+    liftE $ conjunct [fromJust step, goal]
 
 makeBlockingExpressions :: Player -> Int -> Int -> SolverT [Expression]
 makeBlockingExpressions player rank copy = do
