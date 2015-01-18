@@ -39,10 +39,12 @@ satSolve a e = do
     assumptions <- liftE $ maybeM [] (mapM assignmentToVar) a
     let as      = map (\a -> if sign a == Pos then var a else -(var a)) assumptions
 
+---    liftIO $ putStrLn (show maxId)
     liftIO $ callSolver maxId as clauses
 
 callSolver max assumptions clauses = do
     solver <- c_glucose_new
+
 
     -- Add one var so we can ignore 0
     c_glucose_addVar solver

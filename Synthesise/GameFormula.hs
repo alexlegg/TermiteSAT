@@ -21,7 +21,8 @@ import Utils.Logger
 import Utils.Utils
 
 makeFml :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ([[Expression]], Expression, GameTree)
-makeFml spec player s gt = do
+makeFml spec player s ogt = do
+    let gt      = normaliseCopies ogt
     let root    = gtRoot gt
     let rank    = gtRank root
     initMove    <- liftE $ moveToExpression (gtMove root)

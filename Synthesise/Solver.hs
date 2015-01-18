@@ -39,12 +39,12 @@ solveAbstract player spec s gt = do
 
 ---    liftIO $ putStrLn (show (gtMaxCopy gt))
 
----    liftE $ pushManager
+    liftE $ pushManager
     cand <- findCandidate player spec s gt
     liftLog $ logCandidate cand
 
     res <- refinementLoop player spec s cand gt gt
----    liftE $ popManager
+    liftE $ popManager
 
     liftLog $ logSolveComplete res
     liftLog logDumpLog

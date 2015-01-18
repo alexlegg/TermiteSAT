@@ -45,11 +45,13 @@ module Synthesise.GameTree (
     , projectMoves
     , appendChild
     , appendNextMove
+    , normaliseCopies
     ) where
 
 import Data.Maybe
 import Data.List
 import Data.Tuple (swap)
+import qualified Data.Map as Map
 import Utils.Utils
 import Expression.Expression
 import Expression.Compile
@@ -204,11 +206,11 @@ copy (SNode n@E{})     = eCopy n
 copy (SNode n@SU{})    = suCopy n
 copy (SNode n@SE{})    = seCopy n
 
-setCopy :: Int -> SNode -> SNode 
-setCopy c (SNode n@U{})     = SNode (n { uCopy = c })
-setCopy c (SNode n@E{})     = SNode (n { eCopy = c })
-setCopy c (SNode n@SU{})    = SNode (n { suCopy = c })
-setCopy c (SNode n@SE{})    = SNode (n { seCopy = c })
+setNodeCopy :: Int -> SNode -> SNode 
+setNodeCopy c (SNode n@U{})     = SNode (n { uCopy = c })
+setNodeCopy c (SNode n@E{})     = SNode (n { eCopy = c })
+setNodeCopy c (SNode n@SU{})    = SNode (n { suCopy = c })
+setNodeCopy c (SNode n@SE{})    = SNode (n { seCopy = c })
 
 nodeId :: SNode -> Int
 nodeId (SNode n@U{})    = uNodeId n
@@ -244,6 +246,17 @@ data GameTree where
         , crumb         :: [Int]
         , uroot         :: Node RootNode Existential
     } -> GameTree
+
+instance Eq GameTree where
+    x@(ETree{}) == y@(ETree{})  = baseRank x == baseRank y && root x == root y
+    x@(UTree{}) == y@(UTree{})  = baseRank x == baseRank y && root x == root y
+
+instance Eq SNode where
+    x == y  = nodeId x == nodeId y 
+                && copy x == copy y 
+                && snodeMove x == snodeMove y 
+                && snodeState x == snodeState y
+                && children x == children y
 
 setCrumb :: GameTree -> [Int] -> GameTree
 setCrumb t c = t { crumb = c }
@@ -567,8 +580,8 @@ printNode :: CompiledSpec -> Int -> Maybe [Int] -> SNode -> String
 printNode spec t cs n = tab t 
 ---    ++ (if maybe False null cs then "*" else "")
     ++ printNodeType n 
-    ++ show (nodeId n) ++ " "
     ++ show (copy n) ++ " "
+    ++ show (nodeId n) ++ " "
 ---    ++ "(" ++ show (exprId n) ++ ") "
 ---    ++ show (isChanged n) ++ " "
     ++ printMove spec (snodeMove n) 
@@ -618,3 +631,14 @@ valsToEnums VarInfo {enum = Nothing} (v:[])     = show v
 valsToEnums VarInfo {enum = Nothing} vs         = show vs
 valsToEnums VarInfo {enum = Just eMap} (v:[])   = fromMaybe (show v) (lookup v (map swap eMap))
 valsToEnums VarInfo {enum = Just eMap} vs       = "[" ++ interMap ", " (\v -> fromMaybe (show v) (lookup v (map swap eMap))) vs ++ "]"
+
+normaliseCopies :: GameTree -> GameTree
+normaliseCopies gt = setRoot gt (fst (normaliseNodes 0 (root gt)))
+
+normaliseNodes c n = if null (children n') then (n', c) else (setChildren n' (fst ns), snd ns)
+    where
+        n'      = setNodeCopy c n
+        (fc:cs) = children n'
+        first   = mapFst (\x -> [x]) $ normaliseNodes c fc
+        ns      = foldl (\(xs, c') x -> mapFst (\x' -> xs ++ [x']) (normaliseNodes (c' + 1) x)) first cs
+
