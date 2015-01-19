@@ -37,7 +37,7 @@ makeFml spec player s ogt = do
         mapM (makeTransitions spec (gtFirstPlayer gt)) transitions
 
         (es, fml)   <- leafToBottom spec 0 (gtFirstPlayer gt) player rank
-        fml'        <- liftE $ conjunctQuick (fml : s' ++ block)
+        fml'        <- liftE $ conjunctTemp (fml : s' ++ block)
         return ([map snd es], fml', root)
 
     else do
@@ -47,13 +47,13 @@ makeFml spec player s ogt = do
 
         steps       <- mapM (makeSteps rank spec player (gtFirstPlayer gt) root) cs
         moves       <- concatMapM (makeMoves rank spec player (gtFirstPlayer gt) root) cs
-        step        <- liftE $ conjunctQuick (map snd steps)
+        step        <- liftE $ conjunctTemp (map snd steps)
 
         let es = map (step :) (concatMap (map (map snd) . fst) steps)
         let n2e = (gtNodeId root, step) : concatMap (concatMap catMaybeFst . fst) steps
         let gt' = gtSetExprIds player (map (mapSnd exprIndex) n2e) root
 
-        fml'        <- liftE $ conjunctQuick (step : s' ++ block ++ (catMaybes moves))
+        fml'        <- liftE $ conjunctTemp (step : s' ++ block ++ (catMaybes moves))
         return (es, fml', gt')
 
 makeMoves :: Int -> CompiledSpec -> Player -> Player -> GameTree -> (Move, Move, Maybe GameTree) -> SolverT [Maybe Expression]
@@ -77,7 +77,7 @@ makeMoves rank spec player first gt (m1, m2, c) = do
 
     m1Copy <- case m1' of
         (Just m) -> do
-            mc <- liftE $ getCached (rank, parentCopy, copy1, copy2, exprIndex m)
+            mc <- liftE $ getCached rank parentCopy copy1 copy2 (exprIndex m)
             case mc of
                 (Just mc)   -> return (Just mc)
                 Nothing     -> do
@@ -94,7 +94,7 @@ makeMoves rank spec player first gt (m1, m2, c) = do
 
     m2Copy <- case m2' of
         (Just m) -> do
-            mc <- liftE $ getCached (rank, parentCopy, copy1, copy2, exprIndex m)
+            mc <- liftE $ getCached rank parentCopy copy1 copy2 (exprIndex m)
             case mc of
                 (Just mc)   -> return (Just mc)
                 Nothing     -> do
@@ -155,7 +155,7 @@ makeTransitions spec first (rank, parentCopy, copy1, copy2) = do
 
     if rank > 0
     then do
-        step <- liftE $ getCached (rank, parentCopy, copy1, copy2, exprIndex (t !! i))
+        step <- liftE $ getCached rank parentCopy copy1 copy2 (exprIndex (t !! i))
 
         when (not (isJust step)) $ do
             liftIO $ putStrLn "cache miss"
@@ -168,8 +168,8 @@ makeTransitions spec first (rank, parentCopy, copy1, copy2) = do
                                 , ((StateVar, rank-1), copy2)
                                 , ((StateVar, rank), parentCopy)
                                 ]
-                    liftE $ setCopyStep cMap (t !! i)
-            liftE $ cacheStep (rank, parentCopy, copy1, copy2, exprIndex (t !! i)) step
+                    liftE $ setCopy cMap (t !! i)
+            liftE $ cacheStep rank parentCopy copy1 copy2 (exprIndex (t !! i)) step
     else return ()
 
 sortTransitions :: [(Int, Int, Int, Int)] -> [(Int, Int, Int, Int)]
@@ -181,7 +181,7 @@ singleStep spec rank first player parentCopy copy1 copy2 next = do
     let CompiledSpec{..}    = spec
 
     goal <- liftE $ goalFor player (g !! i)
-    goalc <- liftE $ getCached (rank, parentCopy, copy1, copy2, exprIndex goal)
+    goalc <- liftE $ getCached rank parentCopy copy1 copy2 (exprIndex goal)
     goal <- case goalc of
         (Just g)    -> return g
         Nothing     -> liftE $ setCopy (Map.singleton (StateVar, (rank-1)) copy2) goal
@@ -190,7 +190,7 @@ singleStep spec rank first player parentCopy copy1 copy2 next = do
         then liftE $ disjunct [next, goal]
         else liftE $ conjunct [next, goal]
 
-    step <- liftE $ getCached (rank, parentCopy, copy1, copy2, exprIndex (t !! i))
+    step <- liftE $ getCached rank parentCopy copy1 copy2 (exprIndex (t !! i))
     when (isNothing step) $ throwError $ "Transition was not created in advance: " ++ show (rank, parentCopy, copy1, copy2)
     liftE $ conjunct [fromJust step, goal]
 

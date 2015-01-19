@@ -39,12 +39,10 @@ solveAbstract player spec s gt = do
 
 ---    liftIO $ putStrLn (show (gtMaxCopy gt))
 
-    liftE $ pushManager
     cand <- findCandidate player spec s gt
     liftLog $ logCandidate cand
 
     res <- refinementLoop player spec s cand gt gt
-    liftE $ popManager
 
     liftLog $ logSolveComplete res
     liftLog logDumpLog
@@ -188,7 +186,7 @@ shortenStrategy _ _ m _ = return m
 
 shortenLeaf (fml, m) (e:es) = do
     ne      <- liftE $ negation e
-    fml'    <- liftE $ conjunctQuick [fml, ne]
+    fml'    <- liftE $ conjunctTemp [fml, ne]
     res     <- satSolve Nothing fml'
     if satisfiable res
     then do

@@ -11,8 +11,6 @@ module Expression.Expression (
     , Expr(..)
 
     , setAssignmentRankCopy
-    , pushManager
-    , popManager
     , cacheStep
     , getCached
     , cacheMove
@@ -26,14 +24,11 @@ module Expression.Expression (
     , getDependencies
     , lookupExpression
     , lookupVar
-    , traverseExpression
-    , foldlExpression
-    , foldrExpression
     , unrollExpression
     , setRank
     , setHatVar
     , conjunct
-    , conjunctQuick
+    , conjunctTemp
     , disjunct
     , equate
     , implicate
@@ -44,8 +39,6 @@ module Expression.Expression (
     , literal
     , getMaxId
     , setCopy
-    , setCopyAll
-    , setCopyStep
     , printExpression
     , makeAssignment
     , assignmentToExpression
@@ -149,13 +142,20 @@ setChildren (EDisjunct _) vs    = EDisjunct vs
 data MoveCacheType = RegularMove | HatMove | BlockedState deriving (Show, Eq, Ord)
 
 data ExprManager = ExprManager {
+      copyManagers  :: IMap.IntMap CopyManager
+    , tempMaxIndex  :: Maybe ExprId
+    , tempExprs     :: IMap.IntMap Expr
+    , tempDepMap    :: IMap.IntMap ISet.IntSet
+} deriving (Eq)
+
+data CopyManager = CopyManager {
       maxIndex      :: ExprId
+---    , nextIndex     :: ExprId
     , exprMap       :: IMap.IntMap Expr
     , depMap        :: IMap.IntMap ISet.IntSet
     , indexMap      :: Map.Map Expr ExprId
     , stepCache     :: Map.Map (Int, Int, Int, Int, Int) ExprId
     , moveCache     :: Map.Map (MoveCacheType, [Assignment]) ExprId
-    , parentMgr     :: Maybe ExprManager
     , dimacsCache   :: IMap.IntMap [SV.Vector CInt]
 } deriving (Eq)
 
@@ -168,153 +168,168 @@ setAssignmentRankCopy :: Assignment -> Int -> Int -> Assignment
 setAssignmentRankCopy (Assignment s v) r c = Assignment s (v { rank = r, ecopy = c })
 
 emptyManager = ExprManager { 
-                  maxIndex      = 3
-                , exprMap       = IMap.empty
-                , depMap        = IMap.empty
-                , indexMap      = Map.empty
-                , stepCache     = Map.empty
-                , moveCache     = Map.empty
-                , parentMgr     = Nothing
-                , dimacsCache   = IMap.empty
-                }
+      copyManagers  = IMap.empty
+    , tempMaxIndex  = Nothing
+    , tempExprs     = IMap.empty
+    , tempDepMap    = IMap.empty
+}
 
-pushManager :: MonadIO m => ExpressionT m ()
-pushManager = do
-    m@ExprManager{..} <- get
-    put $ emptyManager {
-          maxIndex      = maxIndex
-        , parentMgr     = Just m
-        }
+emptyCopyManager mi = CopyManager {
+      maxIndex      = mi
+---    , nextIndex     = mi
+    , exprMap       = IMap.empty
+    , depMap        = IMap.empty
+    , indexMap      = Map.empty
+    , stepCache     = Map.empty
+    , moveCache     = Map.empty
+    , dimacsCache   = IMap.empty
+}
 
-popManager :: MonadIO m => ExpressionT m ()
-popManager = do
+getCopyManager :: MonadIO m => Int -> ExpressionT m CopyManager
+getCopyManager c = do
     ExprManager{..} <- get
-    put (fromJust parentMgr)
+    return $ fromMaybe (emptyCopyManager 7) (IMap.lookup c copyManagers)
 
-mgrLookup :: Ord a => (ExprManager -> Map.Map a b) -> a -> (Maybe ExprManager) -> (Maybe b)
-mgrLookup lMap k (Just mgr) = maybe (mgrLookup lMap k (parentMgr mgr)) Just (Map.lookup k (lMap mgr))
-mgrLookup lMap k Nothing    = Nothing
+setCopyManager :: MonadIO m => Int -> CopyManager -> ExpressionT m ()
+setCopyManager c cm = do
+    m@(ExprManager{..}) <- get
+    put $ m { copyManagers = IMap.insert c cm copyManagers }
 
-mgrLookup2 :: Ord a => (ExprManager -> Map.Map a b) -> a -> (Maybe ExprManager) -> (Maybe b)
-mgrLookup2 lMap k (Just mgr) = maybe (mgrLookup2 lMap k (parentMgr mgr)) Just (Map.lookup k (lMap mgr))
-mgrLookup2 lMap k Nothing    = Nothing
+cacheStep :: MonadIO m => Int -> Int -> Int -> Int -> Int -> Expression -> ExpressionT m ()
+cacheStep r pc c1 c2 t e = do
+    let copy = maximum [pc, c1, c2]
+    cm <- getCopyManager copy
+    setCopyManager copy (cm { stepCache = Map.insert (r, pc, c1, c2, t) (eindex e) (stepCache cm) })
 
-mgrLookup3 :: Ord a => (ExprManager -> Map.Map a b) -> a -> (Maybe ExprManager) -> (Maybe b)
-mgrLookup3 lMap k (Just mgr) = maybe (mgrLookup3 lMap k (parentMgr mgr)) Just (Map.lookup k (lMap mgr))
-mgrLookup3 lMap k Nothing    = Nothing
-
-mgrILookup :: (ExprManager -> IMap.IntMap a) -> Int -> (Maybe ExprManager) -> (Maybe a)
-mgrILookup lMap k (Just mgr)    = maybe (mgrILookup lMap k (parentMgr mgr)) Just (IMap.lookup k (lMap mgr))
-mgrILookup lMap k Nothing       = Nothing
-
-cacheStep :: MonadIO m => (Int, Int, Int, Int, Int) -> Expression -> ExpressionT m ()
-cacheStep ni e = do
-    m <- get
-    put $ m { stepCache = Map.insert ni (eindex e) (stepCache m) }
-
-getCached :: MonadIO m => (Int, Int, Int, Int, Int) -> ExpressionT m (Maybe Expression)
-getCached i = do
-    m <- get
-    let ei = mgrLookup stepCache i (Just m)
----    trace (if isNothing ei then "cache miss" else "cache hit") $ maybeM Nothing lookupExpression ei
+getCached :: MonadIO m => Int -> Int -> Int -> Int -> Int -> ExpressionT m (Maybe Expression)
+getCached r pc c1 c2 t = do
+    let copy = maximum [pc, c1, c2]
+    cm <- getCopyManager copy
+    let ei = Map.lookup (r, pc, c1, c2, t) (stepCache cm)
     maybeM Nothing lookupExpression ei
 
 cacheMove :: MonadIO m => (MoveCacheType, [Assignment]) -> Expression -> ExpressionT m ()
 cacheMove mi e = do
-    m <- get
-    put m { moveCache = Map.insert mi (eindex e) (moveCache m) }
+    cm@CopyManager{..} <- getCopyManager 0
+    setCopyManager 0 (cm { moveCache = Map.insert mi (eindex e) moveCache })
 
 getCachedMove :: MonadIO m => (MoveCacheType, [Assignment]) -> ExpressionT m (Maybe Expression)
 getCachedMove mi = do
-    m <- get
-    let ei = mgrLookup moveCache mi (Just m)
+    cm@CopyManager{..} <- getCopyManager 0
+    let ei = Map.lookup mi moveCache
     maybeM Nothing lookupExpression ei
 
-insertExpression :: MonadIO m => Expr -> ExpressionT m Expression
-insertExpression e = do
-    m@ExprManager{..} <- get
+insertExpression :: MonadIO m => Int -> Expr -> ExpressionT m Expression
+insertExpression c e = do
+    cm@CopyManager{..} <- getCopyManager c
     let i = maxIndex
     deps <- childDependencies e
-    put m {
+
+    setCopyManager c $ cm {
         maxIndex    = maxIndex+1,
+---        nextIndex   = nextIndex+1,
         exprMap     = IMap.insert i e exprMap,
         depMap      = IMap.insert i (ISet.insert i deps) depMap,
-        indexMap    = Map.insert e i indexMap}
+        indexMap    = Map.insert e i indexMap
+    }
+
     return $ Expression { eindex = i, expr = e }
 
-insertExpressionWithId :: MonadIO m => ExprId -> Expr -> ExpressionT m Expression
-insertExpressionWithId i e = do
-    m@ExprManager{..} <- get
+insertExpressionWithId :: MonadIO m => Int -> ExprId -> Expr -> ExpressionT m Expression
+insertExpressionWithId c i e = do
+    cm@CopyManager{..} <- getCopyManager c
     deps <- childDependencies e
-    put m {
+
+    setCopyManager c $ cm {
         exprMap     = IMap.insert i e exprMap,
         depMap      = IMap.insert i (ISet.insert i deps) depMap,
-        indexMap    = Map.insert e i indexMap}
+        indexMap    = Map.insert e i indexMap
+    }
     return $ Expression { eindex = i, expr = e }
 
-addExpression :: MonadIO m => Expr -> ExpressionT m Expression
-addExpression ETrue     = return $ Expression { eindex = 1, expr = ETrue }
-addExpression EFalse    = return $ Expression { eindex = 2, expr = EFalse }
-addExpression e         = do
-    m <- get
-    case mgrLookup2 indexMap e (Just m) of
+addExpression :: MonadIO m => Int -> Expr -> ExpressionT m Expression
+addExpression _ ETrue   = return $ Expression { eindex = 1, expr = ETrue }
+addExpression _ EFalse  = return $ Expression { eindex = 2, expr = EFalse }
+addExpression c e       = do
+    cm@CopyManager{..} <- getCopyManager c
+    case Map.lookup e indexMap of
         Nothing -> do
-            insertExpression e
+            insertExpression c e
         Just i -> do
             return $ Expression { eindex = i, expr = e }
 
+addTempExpression :: MonadIO m => Int -> Expr -> ExpressionT m Expression
+addTempExpression mc e = do
+    m@ExprManager{..} <- get
+    cm <- getCopyManager mc
+    let i = fromMaybe (maxIndex cm) tempMaxIndex
+    deps <- childDependencies e
+
+    put m {
+        tempMaxIndex    = Just (i+1),
+        tempExprs       = IMap.insert i e tempExprs,
+        tempDepMap      = IMap.insert i (ISet.insert i deps) tempDepMap
+    }
+    return $ Expression { eindex = i, expr = e }
+
 childDependencies e = do
-    m <- get
-    let cs = children e
-    let deps = map (\x -> mgrILookup depMap (var x) (Just m)) cs
-    return $ ISet.unions (ISet.fromList (map var (children e)) : catMaybes deps)
+    deps <- mapM (getDependencies . var) (children e)
+    return $ ISet.unions deps
 
 lookupExpression :: MonadIO m => Int -> ExpressionT m (Maybe Expression)
 lookupExpression i = do
-    mgr <- get
-    case (mgrILookup exprMap i (Just mgr)) of
+    ExprManager{..} <- get
+    let maxCopies = IMap.size copyManagers
+    mapMUntilJust (\c -> lookupExpressionC c i) [0..maxCopies]
+
+lookupExpressionC :: MonadIO m => Int -> ExprId -> ExpressionT m (Maybe Expression)
+lookupExpressionC c i = do
+    CopyManager{..} <- getCopyManager c
+    case (IMap.lookup i exprMap) of
         Nothing     -> return Nothing
         (Just exp)  -> return $ Just (Expression { eindex = i, expr = exp })
 
 lookupVar :: MonadIO m => ExprVar -> ExpressionT m (Maybe Expression)
 lookupVar v = do
-    mgr <- get
-    case mgrLookup indexMap (ELit v) (Just mgr) of
-        Nothing -> return Nothing
-        Just i  -> return $ Just (Expression { eindex = i, expr = (ELit v) })
+    ExprManager{..} <- get
+    let maxCopies = IMap.size copyManagers
+    mapMUntilJust (\c -> lookupVarC c v) [0..maxCopies]
+
+lookupVarC :: MonadIO m => Int -> ExprVar -> ExpressionT m (Maybe Expression)
+lookupVarC c v = do
+    CopyManager{..} <- getCopyManager c
+    case (Map.lookup (ELit v) indexMap) of
+        Nothing     -> return Nothing
+        (Just i)    -> return $ Just (Expression { eindex = i, expr = ELit v })
 
 getChildren :: MonadIO m => Expression -> ExpressionT m [Expression]
 getChildren e = do
     es <- mapM (lookupExpression . var) (children (expr e))
     return (catMaybes es)
 
+getDependenciesC :: MonadIO m => Int -> Int -> ExpressionT m (Maybe ISet.IntSet)
+getDependenciesC c i = do
+    CopyManager{..} <- getCopyManager c
+    return $ IMap.lookup i depMap
+
 getDependencies :: MonadIO m => Int -> ExpressionT m ISet.IntSet
 getDependencies i = do
-    mgr <- get
-    return $ fromMaybe ISet.empty (mgrILookup depMap i (Just mgr))
+    ExprManager{..} <- get
+    let maxCopies = IMap.size copyManagers
+    deps <- mapMUntilJust (\c -> getDependenciesC c i) [0..maxCopies]
+    return $ fromMaybe ISet.empty deps
 
-foldlExpression :: MonadIO m => (a -> Expression -> a) -> a -> Expression -> ExpressionT m a
-foldlExpression f x e = do
-    cs <- getChildren e
-    foldlM (foldlExpression f) (f x e) cs
+---traverseExpression :: MonadIO m => (ExprVar -> ExprVar) -> Expression -> ExpressionT m Expression
+---traverseExpression f e = do
+---    let signs = map sign (children (expr e))
+---    cs <- getChildren e
+---    cs' <- mapM (traverseExpression f) cs
+---    let cs'' = map (uncurry Var) (zip signs (map eindex cs'))
+---    addExpression 0 (applyToVars f (expr e) cs'')
+---    where
+---        applyToVars f (ELit v) _ = ELit (f v)
+---        applyToVars f x ncs      = setChildren x ncs
 
-foldrExpression :: MonadIO m => (Expression -> a -> a) -> a -> Expression -> ExpressionT m a
-foldrExpression f x e = do
-    cs <- getChildren e
-    foldlM (foldrExpression f) (f e x) cs
-
-traverseExpression :: MonadIO m => (ExprVar -> ExprVar) -> Expression -> ExpressionT m Expression
-traverseExpression f e = do
-    let signs = map sign (children (expr e))
-    cs <- getChildren e
-    cs' <- mapM (traverseExpression f) cs
-    let cs'' = map (uncurry Var) (zip signs (map eindex cs'))
-    addExpression (applyToVars f (expr e) cs'')
-    where
-        applyToVars f (ELit v) _ = ELit (f v)
-        applyToVars f x ncs      = setChildren x ncs
-
--- ############################ This seems to be slower??
 traverseExpression2 :: MonadIO m => (ExprVar -> ExprVar) -> Expression -> ExpressionT m Expression
 traverseExpression2 f e = do
     ds  <- getDependencies (eindex e)
@@ -331,7 +346,7 @@ applyTraverse f pool done = do
 
 tryToApply :: MonadIO m => (ExprVar -> ExprVar) -> ([Expression], Map.Map Int Int) -> Expression -> ExpressionT m ([Expression], Map.Map Int Int)
 tryToApply f (pool, doneMap) e@(expr -> ELit v)  = do
-    e' <- addExpression (ELit (f v))
+    e' <- addExpression 0 (ELit (f v))
     return (pool, Map.insert (eindex e) (eindex e') doneMap)
 tryToApply f (pool, doneMap) e = do
     let cs = children (expr e)
@@ -339,10 +354,9 @@ tryToApply f (pool, doneMap) e = do
     if (all isJust ds)
     then do
         let ds' = zipWith (\(Just v) (Var s _) -> Var s v) ds cs
-        e' <- addExpression (setChildren (expr e) ds')
+        e' <- addExpression 0 (setChildren (expr e) ds')
         return (pool, Map.insert (eindex e) (eindex e') doneMap)
     else return (e : pool, doneMap)
--- ##########################################################
 
 setRank :: MonadIO m => Int -> Expression -> ExpressionT m Expression
 setRank r = traverseExpression2 (setVarRank r)
@@ -357,7 +371,7 @@ setVarHat v = if varsect v == UContVar || varsect v == ContVar
                 else v
 
 unrollExpression :: MonadIO m => Expression -> ExpressionT m Expression
-unrollExpression = traverseExpression shiftVar
+unrollExpression = traverseExpression2 shiftVar
 
 shiftVar v = v {rank = rank v + 1}
 
@@ -371,20 +385,20 @@ liftDisjuncts Expression { eindex = i }             = [Var Pos i]
 
 -- |The 'conjunct' function takes a list of Expressions and produces one conjunction Expression
 conjunct :: MonadIO m => [Expression] -> ExpressionT m Expression
-conjunct []     = addExpression EFalse
+conjunct []     = addExpression 0 EFalse
 conjunct (e:[]) = return e
-conjunct es     = addExpression (EConjunct (concatMap liftConjuncts es))
+conjunct es     = addExpression 0 (EConjunct (concatMap liftConjuncts es))
 
-conjunctQuick :: MonadIO m => [Expression] -> ExpressionT m Expression
-conjunctQuick []        = addExpression EFalse
-conjunctQuick (e:[])    = return e
-conjunctQuick es        = insertExpression (EConjunct (concatMap liftConjuncts es))
+conjunctTemp :: MonadIO m => Int -> [Expression] -> ExpressionT m Expression
+conjunctTemp mc []      = addTempExpression mc EFalse
+conjunctTemp mc (e:[])  = return e
+conjunctTemp mc es      = addTempExpression mc (EConjunct (concatMap liftConjuncts es))
 
 -- |The 'disjunct' function takes a list of Expressions and produces one disjunction Expression
 disjunct :: MonadIO m => [Expression] -> ExpressionT m Expression
-disjunct []     = addExpression ETrue
+disjunct []     = addExpression 0 ETrue
 disjunct (e:[]) = return e
-disjunct es     = addExpression (EDisjunct (concatMap liftDisjuncts es))
+disjunct es     = addExpression 0 (EDisjunct (concatMap liftDisjuncts es))
 
 makeSignsFromValue :: Int -> Int -> [Sign]
 makeSignsFromValue v sz = map f [0..(sz-1)]
@@ -395,33 +409,33 @@ equalsConstant :: MonadIO m => [ExprVar] -> Int -> ExpressionT m Expression
 equalsConstant es const = do
     let signs = makeSignsFromValue const (length es)
     lits <- mapM literal es
-    addExpression (EConjunct (zipWith Var signs (map eindex lits)))
+    addExpression 0 (EConjunct (zipWith Var signs (map eindex lits)))
 
 equate :: MonadIO m => Expression -> Expression -> ExpressionT m Expression
 equate a b = do
-    addExpression (EEquals (Var Pos (eindex a)) (Var Pos (eindex b)))
+    addExpression 0 (EEquals (Var Pos (eindex a)) (Var Pos (eindex b)))
 
 implicate :: MonadIO m => Expression -> Expression -> ExpressionT m Expression
 implicate a b = do
-    addExpression (EDisjunct [Var Neg (eindex a), Var Pos (eindex b)])
+    addExpression 0 (EDisjunct [Var Neg (eindex a), Var Pos (eindex b)])
 
 negation :: MonadIO m => Expression -> ExpressionT m Expression
 negation x = do
-    addExpression (ENot (Var Pos (eindex x)))
+    addExpression 0 (ENot (Var Pos (eindex x)))
 
 trueExpr :: MonadIO m => ExpressionT m Expression
-trueExpr = addExpression ETrue
+trueExpr = addExpression 0 ETrue
 
 falseExpr :: MonadIO m => ExpressionT m Expression
-falseExpr = addExpression EFalse
+falseExpr = addExpression 0 EFalse
 
 literal :: MonadIO m => ExprVar -> ExpressionT m Expression
-literal = addExpression . ELit
+literal = addExpression 0 . ELit
 
 getMaxId :: MonadIO m => ExpressionT m Int
 getMaxId = do
-    ExprManager{..} <- get
-    return maxIndex
+    cm <- getCopyManager 0
+    return (maxIndex cm)
 
 printExpression :: MonadIO m => Expression -> ExpressionT m String
 printExpression = printExpression' 0 ""
@@ -445,51 +459,6 @@ setCopy cMap e = traverseExpression2 f e
     where
         f v = v { ecopy = fromMaybe (ecopy v) (Map.lookup (varsect v, rank v) cMap) }
 
-setCopyAll :: MonadIO m => Int -> Expression -> ExpressionT m Expression
-setCopyAll copy e = traverseExpression f e
-    where
-        f v = v { ecopy = copy }
-
-setCopyStep :: MonadIO m => (Map.Map (Section, Int) Int) -> Expression -> ExpressionT m Expression
-setCopyStep cMap e = traverseExpression2 f e
-    where
-        f v = v { ecopy = fromMaybe (ecopy v) (Map.lookup (varsect v, rank v) cMap) }
-
-copyTraverse :: MonadIO m => (ExprVar -> ExprVar) -> Expression -> ExpressionT m Expression
-copyTraverse f e = do
-    ds          <- (liftM ISet.toList) $ getDependencies (eindex e)
-    eds         <- mapM (liftM fromJust . lookupExpression) ds
-    cs          <- mapM (makeCopy f) eds
-    let cMap    = Map.fromList cs
-    mapM_ (copyExpression cMap f) ds
-
-    let ei'     = Map.lookup (eindex e) cMap
-    (Just e')   <- lookupExpression (fromJust ei')
-    return e'
-
-makeCopy :: MonadIO m => (ExprVar -> ExprVar) -> Expression -> ExpressionT m (ExprId, ExprId)
-makeCopy f e@(expr -> ELit v) = do
-    e' <- addExpression (ELit (f v))
-    return (eindex e, eindex e')
-makeCopy _ e = do
-    m@ExprManager{..} <- get
-    put m { maxIndex = maxIndex + 1 }
-    return (eindex e, maxIndex)
-
-copyExpression :: MonadIO m => Map.Map ExprId ExprId -> (ExprVar -> ExprVar) -> ExprId -> ExpressionT m ()
-copyExpression cMap f i = do
-    (Just e) <- lookupExpression i
-    case (expr e) of
-        (ELit v)    -> do
-            return ()
-        ex          -> do
-            let expr'       = setChildren ex (map (replaceVar cMap) (children ex)) 
-            let (Just i')   = Map.lookup i cMap
-            insertExpressionWithId i' expr'
-            return ()
-
-replaceVar cMap (Var s i) = Var s (fromJust (Map.lookup i cMap))
-
 -- |Contructs an assignment from a model-var pair
 makeAssignment :: (Int, ExprVar) -> Assignment
 makeAssignment (m, v) = Assignment (if m > 0 then Pos else Neg) v
@@ -498,27 +467,29 @@ makeAssignment (m, v) = Assignment (if m > 0 then Pos else Neg) v
 assignmentToExpression :: MonadIO m => [Assignment] -> ExpressionT m Expression
 assignmentToExpression as = do
     vs <- mapM assignmentToVar as
-    addExpression (EConjunct vs)
+    addExpression 0 (EConjunct vs)
 
 blockAssignment :: MonadIO m => [Assignment] -> ExpressionT m Expression
 blockAssignment as = do
     vs <- mapM (assignmentToVar . flipAssignment) as
-    addExpression (EDisjunct vs)
+    addExpression 0 (EDisjunct vs)
 
 assignmentToVar :: MonadIO m => Assignment -> ExpressionT m Var
 assignmentToVar (Assignment s v) = do
-    e <- addExpression (ELit v)
+    e <- addExpression 0 (ELit v)
     return $ Var s (eindex e)
 
-getStepExprs :: MonadIO m => ExpressionT m [Int]
-getStepExprs = do
-    mgr <- get
-    return $ getAllSteps (Just mgr)
-    where
-        getAllSteps (Just m)    = Map.elems (stepCache m) ++ getAllSteps (parentMgr m)
-        getAllSteps Nothing     = []
+lookupDimacs :: MonadIO m => Int -> ExpressionT m (Maybe [SV.Vector CInt])
+lookupDimacs i = do
+    ExprManager{..} <- get
+    let maxCopies = IMap.size copyManagers
+    mapMUntilJust (\c -> lookupDimacsC c i) [0..maxCopies]
 
----    , dimacsCache   :: IMap.IntMap [SV.Vector CInt]
+lookupDimacsC :: MonadIO m => Int -> ExprId -> ExpressionT m (Maybe [SV.Vector CInt])
+lookupDimacsC c i = do
+    CopyManager{..} <- getCopyManager c
+    return $ IMap.lookup i dimacsCache
+
 getCachedStepDimacs :: MonadIO m => Expression -> ExpressionT m [SV.Vector CInt]
 getCachedStepDimacs e = do
     --WIP (doesn't work because steps get merged into other conjuncts)
@@ -544,15 +515,14 @@ getCachedStepDimacs e = do
 
     ds          <- (liftM ISet.toList) $ getDependencies (exprIndex e)
     mgr         <- get
-    let cached  = map (\x -> (x, mgrILookup dimacsCache x (Just mgr))) ds
-    let (cs, ncs) = partition (isJust . snd) cached
+    cached      <- mapM lookupDimacs ds
+    let (cs, ncs) = partition (isJust . snd) (zip ds cached)
     new <- forM ncs $ \i -> do
         (Just e) <- lookupExpression (fst i)
         let v = makeVector e
-        m <- get
-        put $ m { dimacsCache = IMap.insert (eindex e) v (dimacsCache m) }
+        cm <- getCopyManager 0
+        setCopyManager 0 (cm { dimacsCache = IMap.insert (eindex e) v (dimacsCache cm) })
         return v
-
 
     return $ concat new ++ concatMap (fromJust . snd) cs
 
