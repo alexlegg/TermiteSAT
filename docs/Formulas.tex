@@ -1,0 +1,32 @@
+\documentclass[a4paper,10pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{algorithmic}
+\usepackage{algorithm}
+\usepackage{amsmath}
+\usepackage{xspace}
+
+\begin{document}
+
+\section{Universal/Environment Player}
+$$
+F_k = B(k, copies(gt)) \land M(gt) \land E(gt)
+$$
+
+$$
+B(R, C) = \forall w \in winningEx . \bigwedge\limits_{c = 0}^C \bigwedge\limits_{k = 0}^R \lnot(w_k^c)
+$$
+
+$ gtMovePairs(gt) :: [(m1, m2, c)] $
+
+Returns a list of move pairs (one controllable, one uncontrollable) with the child node of the game tree
+
+$$
+M(gt) = \forall (m1, m2, c) \in gtMovePairs(gt) . m1 \land m2 \land M(c)
+$$
+
+$$
+E(gt) = if (isLeaf gt) then 
+$$
+
+
+\end{document}
