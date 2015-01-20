@@ -70,11 +70,11 @@ refinementLoop player spec s (Just cand) origGT absGT = do
 findCandidate :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Maybe GameTree)
 findCandidate player spec s gt = do
     (es, f, gt')    <- makeFml spec player s gt
-    res             <- satSolve Nothing f
+    res             <- satSolve gt Nothing f
 
     if satisfiable res
     then do
-        (Just m)    <- shortenStrategy player f (model res) es
+        (Just m)    <- return (model res) --shortenStrategy player gt f (model res) es
         gt'         <- setMoves player spec m (gtRoot gt')
         return (Just gt')
     else do
@@ -90,12 +90,11 @@ learnStates spec player gt = do
 
     fakes           <- liftE $ trueExpr
     (es, f, _)      <- makeFml spec player fakes gt'
-    core            <- minimiseCore (Just s) f
+    core            <- minimiseCore gt (Just s) f
 
     if isJust core
     then do
         c <- getConflicts (svars spec) (fromJust core) 0 rank
-        ce <- liftE $ blockAssignment c
 
         ls <- get
         if player == Existential
@@ -178,19 +177,20 @@ getConflicts vars conflicts cpy rnk = do
     let as  = map ((uncurry liftMFst) . mapFst (\i -> lookup i cs)) vd
     return  $ map makeAssignment (catMaybes as)
 
-shortenStrategy Existential fml model es = do
-    let reversedEs = map reverse es
-    (_, m') <- foldlM shortenLeaf (fml, model) reversedEs
+shortenStrategy Existential gt fml model es = do
+    let reversedEs  = map reverse es
+    (_, m')         <- foldlM gt (fml, model) reversedEs
     return m'
-shortenStrategy _ _ m _ = return m
+shortenStrategy _ _ _ m _ = return m
 
-shortenLeaf (fml, m) (e:es) = do
-    ne      <- liftE $ negation e
-    fml'    <- liftE $ conjunctTemp [fml, ne]
-    res     <- satSolve Nothing fml'
+shortenLeaf gt (fml, m) (e:es) = do
+    let maxCopy = gtMaxCopy gt
+    ne          <- liftE $ negationTemp maxCopy e
+    fml'        <- liftE $ conjunctTemp maxCopy [fml, ne]
+    res         <- satSolve gt Nothing fml'
     if satisfiable res
     then do
-        shortenLeaf (fml', model res) es
+        shortenLeaf gt (fml', model res) es
     else do
         return (fml, m)
-shortenLeaf (fml, m) [] = return (fml, m)
+shortenLeaf _ (fml, m) [] = return (fml, m)

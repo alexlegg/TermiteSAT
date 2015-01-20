@@ -16,6 +16,7 @@ import qualified Data.IntSet as ISet
 import Data.Maybe
 import Expression.Expression
 import Synthesise.SolverT
+import Synthesise.GameTree
 import Utils.Utils
 
 data GlucoseSolver
@@ -32,14 +33,13 @@ unsatisfiable = not . satisfiable
 var (Var _ v)   = v
 sign (Var s _)  = s
 
-satSolve :: Maybe [Assignment] -> Expression -> SolverT SatResult
-satSolve a e = do
+satSolve :: GameTree -> Maybe [Assignment] -> Expression -> SolverT SatResult
+satSolve gt a e = do
     maxId       <- liftE $ getMaxId
-    clauses     <- toDimacsS e
+    clauses     <- toDimacs gt e
     assumptions <- liftE $ maybeM [] (mapM assignmentToVar) a
     let as      = map (\a -> if sign a == Pos then var a else -(var a)) assumptions
 
----    liftIO $ putStrLn (show maxId)
     liftIO $ callSolver maxId as clauses
 
 callSolver max assumptions clauses = do
@@ -77,62 +77,14 @@ callSolver max assumptions clauses = do
         conflicts = fmap (map fromIntegral) conflicts
         }
 
-toDimacsS e = do
----    ds      <- (liftM ISet.toList) $ liftE $ getDependencies (exprIndex e)
----    es      <- (liftM catMaybes) $ liftE $ mapM lookupExpression ds
----    let vs  = concatMap makeVector es
-    dimacs <- liftE $ getCachedStepDimacs e
+toDimacs gt e = do
+    dimacs <- liftE $ getCachedStepDimacs (gtMaxCopy gt) e
     return (SV.singleton (fromIntegral (exprIndex e)) : dimacs)
 
----toDimacsS2 e = do
----    ds      <- (liftM ISet.toList) $ liftE $ getDependencies (exprIndex e)
----    es      <- (liftM catMaybes) $ liftE $ mapM lookupExpression ds
----    let vs  = concatMap makeDimacs es
----    return ([exprIndex e] : vs)
-
-
-makeVector :: Expression -> [(SV.Vector CInt)]
-makeVector e = case exprType e of
-    (ETrue)         -> [(SV.singleton i)]
-    (EFalse)        -> [(SV.singleton (-i))]
-    (ENot _)        -> [ SV.fromList [-i, -(lit x)]
-                       , SV.fromList [i, (lit x)]]
-    (ELit _)        -> []
-    (EEquals _ _)   -> [ SV.fromList [-i, -(lit a), (lit b)]
-                       , SV.fromList [-i, (lit a), -(lit b)]
-                       , SV.fromList [i, (lit a), (lit b)]
-                       , SV.fromList [i, -(lit a), -(lit b)]]
-    (EConjunct _)   -> SV.fromList (i : (map (negate . lit) cs)) : (map (\c -> SV.fromList [-i, (lit c)]) cs)
-    (EDisjunct _)   -> SV.fromList (-i : map lit cs) : (map (\c -> SV.fromList [i, -(lit c)]) cs)
-    where
-        i       = fromIntegral $ exprIndex e
-        cs      = exprChildren (exprType e)
-        (x:_)   = cs
-        (a:b:_) = exprChildren (exprType e)
-
-lit (Var Pos v) = fromIntegral v
-lit (Var Neg v) = fromIntegral (-v)
-
----makeDimacs :: Expression -> [[Int]]
----makeDimacs e = case exprType e of
----    (ETrue)         -> [[i]]
----    (EFalse)        -> [[-i]]
----    (ENot _)        -> [[-i, -(lit x)], [i, (lit x)]]
----    (ELit _)        -> []
----    (EEquals _ _)   -> [[-i, -(lit a), (lit b)], [-i, (lit a), -(lit b)],
----                        [i, (lit a), (lit b)], [i, -(lit a), -(lit b)]]
----    (EConjunct _)   -> (i : (map (negate . lit) cs)) : (map (\c -> [-i, (lit c)]) cs)
----    (EDisjunct _)   -> (-i : map lit cs) : (map (\c -> [i, -(lit c)]) cs)
----    where
----        i       = exprIndex e
----        cs      = exprChildren (exprType e)
----        (x:_)   = cs
----        (a:b:_) = exprChildren (exprType e)
-
-minimiseCore :: Maybe [Assignment] -> Expression -> SolverT (Maybe [Int])
-minimiseCore a e = do
+minimiseCore :: GameTree -> Maybe [Assignment] -> Expression -> SolverT (Maybe [Int])
+minimiseCore gt a e = do
     maxId       <- liftE $ getMaxId
-    clauses     <- toDimacsS e
+    clauses     <- toDimacs gt e
     assumptions <- liftE $ maybeM [] (mapM assignmentToVar) a
     let as      = map (\a -> if sign a == Pos then var a else -(var a)) assumptions
 

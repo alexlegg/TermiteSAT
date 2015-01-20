@@ -582,8 +582,8 @@ printNode :: CompiledSpec -> Int -> Maybe [Int] -> SNode -> String
 printNode spec t cs n = tab t 
 ---    ++ (if maybe False null cs then "*" else "")
     ++ printNodeType n 
-    ++ show (copy n) ++ " "
-    ++ show (nodeId n) ++ " "
+---    ++ show (copy n) ++ " "
+---    ++ show (nodeId n) ++ " "
 ---    ++ "(" ++ show (exprId n) ++ ") "
 ---    ++ show (isChanged n) ++ " "
     ++ printMove spec (snodeMove n) 
