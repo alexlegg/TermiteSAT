@@ -4,29 +4,82 @@
 \usepackage{algorithm}
 \usepackage{amsmath}
 \usepackage{xspace}
+\usepackage{program}
 
 \begin{document}
 
+\section{Game Tree operations}
+
+\begin{algorithm}
+\begin{program}
+    |movePairs|(gt) \rcomment{Returns a list of move pairs}
+
+    |children|(gt) \rcomment{Returns successor game trees}
+
+    |copy|(gt) \rcomment{Returns the copy id for this node of the tree}
+
+    |copyHat|(gt) \rcomment{Returns the copy id for hat moves in this node of the tree}
+
+    |rank|(gt) \rcomment{Returns the rank for this node of the tree}
+
+    |copies|(gt) \rcomment{Returns all copy ids in the tree}
+
+\end{program}
+\end{algorithm}
+
 \section{Universal/Environment Player}
 $$
-F_k = B(k, copies(gt)) \land M(gt) \land E(gt)
+F_E(s, gt) = s \land B_E(rank(gt), copies(gt)) \land M_E(gt) \land E(gt)
 $$
 
 $$
-B(R, C) = \forall w \in winningEx . \bigwedge\limits_{c = 0}^C \bigwedge\limits_{k = 0}^R \lnot(w_k^c)
+B_E(R, C) = \bigwedge\limits_{w \in winningEx} \bigwedge\limits_{c = 0}^C \bigwedge\limits_{k = 0}^R \lnot(w_k^c)
 $$
 
-$ gtMovePairs(gt) :: [(m1, m2, c)] $
-
-Returns a list of move pairs (one controllable, one uncontrollable) with the child node of the game tree
 
 $$
-M(gt) = \forall (m1, m2, c) \in gtMovePairs(gt) . m1 \land m2 \land M(c)
+M_E(gt) = \bigwedge\limits_{(m1, m2, c) \in movePairs(gt)} (m1_{rank(gt)}^{copy(gt)} \land (m2_{rank(gt)}^{copyHat(gt)} \land (Vu_{rank(gt)}^{copyHat(gt)} \Rightarrow m2_{rank(gt)}^{copy(gt)})) \land M_E(c))
+$$
+
+\[
+E(gt) = 
+\begin{cases}
+    \bigwedge\limits_{r = 1}^{rank(gt)} T(x_r^{copy(gt)}, x_{r-1}^{copy(gt)}) \land G(x_{r-1}^{copy(gt)}) & \text{gt is leaf} \\
+    \\
+    T(x_{rank(gt)}^{copy(gt)}, x_{rank(gt)-1}^{copy(gt)}) \land G_{rank(gt)-1}^{copy(gt)} \land \lbrace\bigwedge\limits_{c \in children(gt)} E(c)\rbrace & \text{otherwise}
+\end{cases}
+\]
+
+\section{Existential/Driver Player}
+
+$$
+F_D(s, gt) = s \land B_D(rank(gt), copies(gt)) \land M_D(gt) \land D(gt)
 $$
 
 $$
-E(gt) = if (isLeaf gt) then 
+B_D(R, C) = \bigwedge\limits_{k = 0}^R \bigwedge\limits_{w \in winningUn(k)} \bigwedge\limits_{c = 0}^C \bigwedge\limits_{r = 0}^k \lnot(w_r^c)
 $$
+
+
+$$
+M_D(gt) = \bigwedge\limits_{(m1, m1, c) \in movePairs(gt)} (m1_{rank(gt)}^{copyHat(gt)} \land (Ve_{rank(gt)}^{copyHat(gt)} \Rightarrow m1_{rank(gt)}^{copy(gt)})) \land (m2_{rank(gt)}^{copy(gt)} \land M_D(c))
+$$
+
+\[
+D_{tree}(gt) = 
+\begin{cases}
+    D_{rank}(rank(gt), copy(gt)) & \text{gt is leaf} \\
+    \\
+    T(x_{rank(gt)}^{copy(gt)}, x_{rank(gt)-1}^{copy(gt)}) \land (G_{rank(gt)-1}^{copy(gt)} \lor \bigwedge\limits_{c \in children(gt)} D(c)) & \text{otherwise}
+\end{cases}
+\]
+
+\[
+    D_{rank}(r, c) = T(x_r^{c}, x_{r-1}^{c}) \land (G(x_{r-1}^{c}) \lor D(r-1, c))
+\]
+\[
+    D_{rank}(0, c) = False
+\]
 
 
 \end{document}
