@@ -36,7 +36,8 @@ synthesise' k spec = do
     t' <- mapM compile trans
     t <- conjunct t'
     g' <- compile goal
-    g <- setRank 0 g'
+    cg <- setRank 0 g'
+    ug <- negation cg
     u <- compile ucont
 
     let svars = concatMap compileVar stateVars
@@ -57,7 +58,8 @@ synthesise' k spec = do
     vu  <- conjunct (vu' : catMaybes uev)
 
     ts  <- iterateNM (k-1) unrollExpression t
-    gs  <- iterateNM (k-1) unrollExpression g
+    cgs <- iterateNM (k-1) unrollExpression cg
+    ugs <- iterateNM (k-1) unrollExpression ug
     us  <- iterateNM (k-1) unrollExpression u
     vcs <- iterateNM (k-1) unrollExpression vc
     vus <- iterateNM (k-1) unrollExpression vu
@@ -66,7 +68,8 @@ synthesise' k spec = do
 
     let cspec = CompiledSpec {
           t     = ts
-        , g     = gs
+        , cg    = cgs
+        , ug    = ugs
         , u     = us
         , vc    = vcs
         , vu    = vus

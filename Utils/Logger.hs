@@ -79,7 +79,7 @@ logDumpLog :: LoggerT IO ()
 logDumpLog = do
     Log{..} <- get
     when (debugMode == DumpLogs && isJust trace && isJust spec) $ liftIO $ do
-        withFile "debug_dump.html" WriteMode $ \h -> do
+        withFile "debug.html" WriteMode $ \h -> do
             renderHtmlToByteStringIO (BS.hPut h) (outputLog (fromJust spec) (fromJust trace))
 
 outputLog spec trace = H.docTypeHtml $ do

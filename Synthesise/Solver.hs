@@ -70,7 +70,7 @@ refinementLoop player spec s (Just cand) origGT absGT = do
 findCandidate :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Maybe GameTree)
 findCandidate player spec s gt = do
     (es, f, gt')    <- makeFml spec player s gt
-    res             <- satSolve gt Nothing f
+    res             <- satSolve gt' Nothing f
 
     if satisfiable res
     then do
@@ -187,6 +187,7 @@ shortenLeaf gt (fml, m) (e:es) = do
     let maxCopy = gtMaxCopy gt
     ne          <- liftE $ negationTemp maxCopy e
     fml'        <- liftE $ conjunctTemp maxCopy [fml, ne]
+    liftIO $ putStrLn "shortenLeaf"
     res         <- satSolve gt Nothing fml'
     if satisfiable res
     then do

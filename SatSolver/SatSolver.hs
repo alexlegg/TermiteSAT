@@ -36,15 +36,14 @@ sign (Var s _)  = s
 satSolve :: GameTree -> Maybe [Assignment] -> Expression -> SolverT SatResult
 satSolve gt a e = do
     maxId       <- liftE $ getMaxId
+    let mc      = gtMaxCopy gt
     clauses     <- toDimacs gt e
-    assumptions <- liftE $ maybeM [] (mapM assignmentToVar) a
+    assumptions <- liftE $ maybeM [] (mapM (assignmentToVar mc)) a
     let as      = map (\a -> if sign a == Pos then var a else -(var a)) assumptions
-
     liftIO $ callSolver maxId as clauses
 
 callSolver max assumptions clauses = do
     solver <- c_glucose_new
-
 
     -- Add one var so we can ignore 0
     c_glucose_addVar solver
@@ -85,7 +84,7 @@ minimiseCore :: GameTree -> Maybe [Assignment] -> Expression -> SolverT (Maybe [
 minimiseCore gt a e = do
     maxId       <- liftE $ getMaxId
     clauses     <- toDimacs gt e
-    assumptions <- liftE $ maybeM [] (mapM assignmentToVar) a
+    assumptions <- liftE $ maybeM [] (mapM (assignmentToVar (gtMaxCopy gt))) a
     let as      = map (\a -> if sign a == Pos then var a else -(var a)) assumptions
 
     liftIO $ doMinimiseCore maxId as clauses

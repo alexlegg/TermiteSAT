@@ -15,15 +15,16 @@ import Expression.AST
 import Expression.Expression
 
 data CompiledSpec = CompiledSpec {
-      t       :: [Expression]
-    , g       :: [Expression]
-    , u       :: [Expression]
-    , vc      :: [Expression]
-    , vu      :: [Expression]
-    , cont    :: [ExprVar]
-    , ucont   :: [ExprVar]
-    , svars   :: [ExprVar]
-    , vinfo   :: [VarInfo]
+      t         :: [Expression]
+    , cg        :: [Expression]
+    , ug        :: [Expression]
+    , u         :: [Expression]
+    , vc        :: [Expression]
+    , vu        :: [Expression]
+    , cont      :: [ExprVar]
+    , ucont     :: [ExprVar]
+    , svars     :: [ExprVar]
+    , vinfo     :: [VarInfo]
     }
 
 throwError :: Monad m => String -> ExpressionT m a
