@@ -40,7 +40,8 @@ satSolve gt a e = do
     clauses     <- toDimacs gt e
     assumptions <- liftE $ maybeM [] (mapM (assignmentToVar mc)) a
     let as      = map (\a -> if sign a == Pos then var a else -(var a)) assumptions
-    liftIO $ callSolver maxId as clauses
+    res <- liftIO $ callSolver maxId as clauses
+    return res
 
 callSolver max assumptions clauses = do
     solver <- c_glucose_new
@@ -86,6 +87,11 @@ minimiseCore gt a e = do
     clauses     <- toDimacs gt e
     assumptions <- liftE $ maybeM [] (mapM (assignmentToVar (gtMaxCopy gt))) a
     let as      = map (\a -> if sign a == Pos then var a else -(var a)) assumptions
+
+    forM_ clauses $ \cl -> do
+        forM_ (SV.toList cl) $ \l -> do
+            when ((abs (fromIntegral l)) > maxId) $ do
+                throwError "lit larger than maxid"
 
     liftIO $ doMinimiseCore maxId as clauses
 

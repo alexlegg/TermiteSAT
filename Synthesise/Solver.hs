@@ -69,7 +69,9 @@ refinementLoop player spec s (Just cand) origGT absGT = do
 
 findCandidate :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Maybe GameTree)
 findCandidate player spec s gt = do
+    liftIO $ putStrLn "makeFml cand 1"
     (es, f, gt')    <- makeFml spec player s gt
+    liftIO $ putStrLn "makeFml cand 2"
     res             <- satSolve gt' Nothing f
 
     if satisfiable res
@@ -83,13 +85,15 @@ findCandidate player spec s gt = do
         return Nothing
 
 learnStates :: CompiledSpec -> Player -> GameTree -> SolverT ()
-learnStates spec player gt = do
-    let gt'         = gtRebase gt
-    let (Just s)    = gtPrevState gt
+learnStates spec player ogt = do
+    let gt'         = gtRebase ogt
+    let (Just s)    = gtPrevState ogt
     let rank        = gtBaseRank gt'
 
     fakes           <- liftE $ trueExpr
-    (es, f, _)      <- makeFml spec player fakes gt'
+    liftIO $ putStrLn "makeFml states 1"
+    (es, f, gt)     <- makeFml spec player fakes gt'
+    liftIO $ putStrLn "makeFml states 2"
     core            <- minimiseCore gt (Just s) f
 
     if isJust core
@@ -187,7 +191,6 @@ shortenLeaf gt (fml, m) (e:es) = do
     let maxCopy = gtMaxCopy gt
     ne          <- liftE $ negationTemp maxCopy e
     fml'        <- liftE $ conjunctTemp maxCopy [fml, ne]
-    liftIO $ putStrLn "shortenLeaf"
     res         <- satSolve gt Nothing fml'
     if satisfiable res
     then do

@@ -30,8 +30,6 @@ makeFml spec player s ogt = do
     let s'      = s : catMaybes [initMove]
     let maxCopy = gtMaxCopy gt
 
-    liftIO $ putStrLn "\n\n"
-
 ---    block <- makeBlockingExpressions player rank maxCopy
     let block = []
 
@@ -52,13 +50,6 @@ makeFml spec player s ogt = do
         steps       <- mapM (makeSteps rank spec player (gtFirstPlayer gt) root) cs
         moves       <- concatMapM (makeMoves rank spec player (gtFirstPlayer gt) root) cs
         step        <- liftE $ conjunctTemp maxCopy (map snd steps)
-
----        when (maxCopy == 1) $ do
----            forM_ (catMaybes moves) $ \m -> do
----                me <- liftE $ printExpression m
----                liftIO $ putStrLn me
----                mDeps <- liftE $ getDependencies maxCopy (exprIndex m)
----                liftIO $ putStrLn (show mDeps)
 
         sDeps <- liftE $ getDependencies (gtMaxCopy gt) (exprIndex step)
 
@@ -148,7 +139,6 @@ makeSteps rank spec player first gt (m1, m2, c) = do
             (es, step) <- leafToBottom spec (gtCopyId gt) maxCopy player (rank-1)
             return ([es], step)
 
-    liftIO $ putStrLn (show (rank, parentCopy, copy1, copy2))
     s <- singleStep spec rank maxCopy player parentCopy copy1 copy2 next
     return (es, s)
 

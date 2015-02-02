@@ -582,7 +582,7 @@ printNode :: CompiledSpec -> Int -> Maybe [Int] -> SNode -> String
 printNode spec t cs n = tab t 
 ---    ++ (if maybe False null cs then "*" else "")
     ++ printNodeType n 
----    ++ show (copy n) ++ " "
+    ++ show (copy n) ++ " "
 ---    ++ show (nodeId n) ++ " "
 ---    ++ "(" ++ show (exprId n) ++ ") "
 ---    ++ show (isChanged n) ++ " "
@@ -635,7 +635,9 @@ valsToEnums VarInfo {enum = Just eMap} (v:[])   = fromMaybe (show v) (lookup v (
 valsToEnums VarInfo {enum = Just eMap} vs       = "[" ++ interMap ", " (\v -> fromMaybe (show v) (lookup v (map swap eMap))) vs ++ "]"
 
 normaliseCopies :: GameTree -> GameTree
-normaliseCopies gt = setRoot gt (fst (normaliseNodes 0 (root gt)))
+normaliseCopies gt = (setRoot gt root') { maxCopy = c' }
+    where
+        (root', c') = normaliseNodes 0 (root gt)
 
 normaliseNodes c n = if null (children n') then (n', c) else (setChildren n' (fst ns), snd ns)
     where
