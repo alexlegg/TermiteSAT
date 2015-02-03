@@ -69,9 +69,7 @@ refinementLoop player spec s (Just cand) origGT absGT = do
 
 findCandidate :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Maybe GameTree)
 findCandidate player spec s gt = do
-    liftIO $ putStrLn "makeFml cand 1"
     (es, f, gt')    <- makeFml spec player s gt
-    liftIO $ putStrLn "makeFml cand 2"
     res             <- satSolve gt' Nothing f
 
     if satisfiable res
@@ -91,9 +89,7 @@ learnStates spec player ogt = do
     let rank        = gtBaseRank gt'
 
     fakes           <- liftE $ trueExpr
-    liftIO $ putStrLn "makeFml states 1"
     (es, f, gt)     <- makeFml spec player fakes gt'
-    liftIO $ putStrLn "makeFml states 2"
     core            <- minimiseCore gt (Just s) f
 
     if isJust core

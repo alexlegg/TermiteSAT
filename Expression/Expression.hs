@@ -11,6 +11,7 @@ module Expression.Expression (
     , Expr(..)
 
     , clearTempExpressions
+    , initCopyMaps
     , setAssignmentRankCopy
     , cacheStep
     , getCached
@@ -152,7 +153,7 @@ data ExprManager = ExprManager {
 
 data CopyManager = CopyManager {
       maxIndex      :: ExprId
----    , nextIndex     :: ExprId
+    , nextIndex     :: ExprId
     , exprMap       :: IMap.IntMap Expr
     , depMap        :: IMap.IntMap ISet.IntSet
     , indexMap      :: Map.Map Expr ExprId
@@ -177,8 +178,8 @@ emptyManager = ExprManager {
 }
 
 emptyCopyManager mi = CopyManager {
-      maxIndex      = mi
----    , nextIndex     = mi
+      maxIndex      = mi + 500
+    , nextIndex     = mi + 1
     , exprMap       = IMap.empty
     , depMap        = IMap.empty
     , indexMap      = Map.empty
@@ -192,15 +193,33 @@ clearTempExpressions = do
     m <- get
     put m { tempMaxIndex = Nothing, tempExprs = IMap.empty, tempDepMap = IMap.empty }
 
+initCopyMaps :: MonadIO m => Int -> ExpressionT m ()
+initCopyMaps mc = do
+    return ()
+
 getCopyManager :: MonadIO m => Int -> ExpressionT m CopyManager
 getCopyManager c = do
     ExprManager{..} <- get
-    let maxCopies = IMap.size copyManagers
-    if maxCopies == 0
-    then return $ fromMaybe (emptyCopyManager 3) (IMap.lookup c copyManagers)
-    else do
-        let (Just mcm) = IMap.lookup (maxCopies-1) copyManagers
-        return $ fromMaybe (emptyCopyManager (2000 + maxIndex mcm)) (IMap.lookup c copyManagers)
+    case (IMap.lookup c copyManagers) of
+        Just cm -> return cm
+        Nothing -> do
+            fillCopyManagers c
+            ExprManager{..} <- get
+            let (Just cm) = IMap.lookup c copyManagers
+            return cm
+            
+fillCopyManagers c = do
+    prevIndex <- if c == 0
+        then return 3
+        else fillCopyManagers (c-1)
+
+    mgr@ExprManager{..} <- get
+    case (IMap.lookup c copyManagers) of
+        Just cm -> return (maxIndex cm)
+        Nothing -> do
+            let newManager = emptyCopyManager prevIndex
+            put $ mgr { copyManagers = IMap.insert c newManager copyManagers }
+            return (maxIndex newManager)
 
 setCopyManager :: MonadIO m => Int -> CopyManager -> ExpressionT m ()
 setCopyManager c cm = do
@@ -220,31 +239,16 @@ getCached r pc c1 c2 t = do
     let ei = Map.lookup (r, pc, c1, c2, t) (stepCache cm)
     maybeM Nothing (lookupExpression copy) ei
 
-cacheMove :: MonadIO m => (MoveCacheType, [Assignment]) -> Expression -> ExpressionT m ()
-cacheMove mi e = do
-    cm@CopyManager{..} <- getCopyManager 0
-    setCopyManager 0 (cm { moveCache = Map.insert mi (eindex e) moveCache })
+cacheMove :: MonadIO m => Int -> (MoveCacheType, [Assignment]) -> Expression -> ExpressionT m ()
+cacheMove mc mi e = do
+    cm@CopyManager{..} <- getCopyManager mc
+    setCopyManager mc (cm { moveCache = Map.insert mi (eindex e) moveCache })
 
 getCachedMove :: MonadIO m => Int -> (MoveCacheType, [Assignment]) -> ExpressionT m (Maybe Expression)
 getCachedMove copy mi = do
     cm@CopyManager{..} <- getCopyManager copy
     let ei = Map.lookup mi moveCache
-    --maybeM Nothing (lookupExpression copy) ei
-    return Nothing
-
-checkMaps :: MonadIO m => ExpressionT m ()
-checkMaps = do
-    ExprManager{..} <- get
-    let f x = if IMap.null x then 0 else fst (IMap.findMin x)
-    let ranges = map (\m -> (f (exprMap m), maxIndex m)) (IMap.elems copyManagers)
-
----    if IMap.null tempExprs
----    then return ()
----    else do
----        liftIO $ putStrLn (show (fst (IMap.findMin tempExprs)))
----        liftIO $ putStrLn (show tempMaxIndex)
----    liftIO $ putStrLn (show ranges)
-    return ()
+    maybeM Nothing (lookupExpression copy) ei
 
 insertExpression :: MonadIO m => Int -> Expr -> ExpressionT m Expression
 insertExpression _ (ELit v) = insertExpression' 0 (ELit v)
@@ -252,14 +256,21 @@ insertExpression c e        = insertExpression' c e
 
 insertExpression' c e = do
     cm@CopyManager{..} <- getCopyManager c
-    let i = maxIndex
+    let i = nextIndex
+
+    when (i >= maxIndex) $ do
+        --Throw away all copy managers > c
+        liftIO $ putStrLn ("Flushing managers: " ++ show c)
+        mgr <- get
+        let copyManagers' = IMap.filterWithKey (\k _ -> k <= c) (copyManagers mgr)
+        put $ mgr { copyManagers = copyManagers' }
+        setCopyManager c $ cm { maxIndex = maxIndex + 200 }
+        clearTempExpressions
+
+    cm@CopyManager{..} <- getCopyManager c
     deps <- childDependencies c e
-
-    checkMaps
-
     setCopyManager c $ cm {
-        maxIndex    = maxIndex+1,
----        nextIndex   = nextIndex+1,
+        nextIndex   = nextIndex+1,
         exprMap     = IMap.insert i e exprMap,
         depMap      = IMap.insert i (ISet.insert i deps) depMap,
         indexMap    = Map.insert e i indexMap
@@ -284,15 +295,7 @@ addExpression _ ETrue   = return $ Expression { eindex = 1, expr = ETrue }
 addExpression _ EFalse  = return $ Expression { eindex = 2, expr = EFalse }
 addExpression c e       = do
     mgr <- get
-    let maxCopies = IMap.size (copyManagers mgr)
     ei <- lookupExprIndex c e
-    ei' <- lookupExprIndex maxCopies e
-
----    when (isNothing ei && isJust ei') $ do
----        liftIO $ putStrLn (show e)
----        liftIO $ putStrLn (show c)
----        liftIO $ putStrLn (show maxCopies)
----        throwError "expr exists in higher copy map"
 
     case ei of
         Nothing -> do
@@ -304,17 +307,8 @@ addTempExpression :: MonadIO m => Int -> Expr -> ExpressionT m Expression
 addTempExpression mc e = do
     m@ExprManager{..} <- get
     cm <- getCopyManager mc
-    let i = fromMaybe (1000 + maxIndex cm) tempMaxIndex
+    let i = fromMaybe (maxIndex cm + 1) tempMaxIndex
     deps <- childDependencies mc e
-
-    iLookup <- lookupExpression mc i
-    checkMaps
-    when (isJust iLookup) $ do
----        liftIO $ putStrLn (show mc)
----        liftIO $ putStrLn (show (1000 + maxIndex cm))
----        liftIO $ putStrLn (show tempMaxIndex)
----        liftIO $ putStrLn (show e)
-        throwError $ "Adding temp expression with bad ID " ++ show i ++ ", " ++ show iLookup ++ " " ++ show mc
 
     put m {
         tempMaxIndex    = Just (i+1),
@@ -366,7 +360,7 @@ lookupVar :: MonadIO m => ExprVar -> ExpressionT m (Maybe Expression)
 lookupVar v = do
     ExprManager{..} <- get
     let maxCopies = IMap.size copyManagers
-    vs <- mapM (\c -> lookupVarC c v) [0..maxCopies]
+    vs <- mapM (\c -> lookupVarC c v) [0..(maxCopies-1)]
     let vsj = catMaybes vs
     case vsj of
         []      -> return $ Nothing
@@ -408,11 +402,8 @@ traverseExpression2 :: MonadIO m => Int -> (ExprVar -> ExprVar) -> Expression ->
 traverseExpression2 mc f e = do
     ds  <- getDependencies mc (eindex e)
     when (ISet.null ds) $ throwError "Empty dependencies"
----    liftIO $ putStrLn (show ds)
----    liftIO $ putStrLn (show mc)
     es  <- (liftM catMaybes) $ mapM (lookupExpression mc) (ISet.toList ds)
     done <- applyTraverse mc f es Map.empty
----    liftIO $ putStrLn (show e)
     let (Just e') = Map.lookup (eindex e) done
     liftM fromJust $ lookupExpression mc e'
 
@@ -532,7 +523,7 @@ getChildren :: MonadIO m => Expression -> ExpressionT m [Expression]
 getChildren e = do
     ExprManager{..} <- get
     let mc = IMap.size copyManagers
-    es <- mapM (lookupExpression mc . var) (children (expr e))
+    es <- mapM (lookupExpression (mc-1) . var) (children (expr e))
     return (catMaybes es)
 
 printExpression :: MonadIO m => Expression -> ExpressionT m String

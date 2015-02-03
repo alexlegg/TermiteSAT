@@ -27,6 +27,8 @@ module Synthesise.GameTree (
     , gtChildren
     , gtSetChildren
     , gtMovePairs
+    , gtSteps
+    , gtStepChildren
     , gtUnsetNodes
     , gtPrevState
     , gtPrevStateGT
@@ -441,6 +443,12 @@ gtMovePairs gt = case (zip (children n) [0..]) of
     cs  -> map (\(x, y) -> (snodeMove n, snodeMove x, Just (setCrumb gt (crumb gt ++ [y])))) cs
     where
         n = followGTCrumb gt
+
+gtSteps :: GameTree -> [(Move, Move, Maybe GameTree)]
+gtSteps gt = concatMap gtMovePairs (gtChildren gt)
+
+gtStepChildren :: GameTree -> [GameTree]
+gtStepChildren gt = concatMap gtChildren (gtChildren gt)
 
 stateFromPair :: SNode -> SNode -> Move
 stateFromPair (SNode (E{})) (SNode n@(U{})) = uState n
