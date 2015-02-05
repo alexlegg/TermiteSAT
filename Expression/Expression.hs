@@ -28,13 +28,17 @@ module Expression.Expression (
     , setRank
     , setHatVar
     , conjunct
+    , conjunctC
     , conjunctTemp
     , disjunct
+    , disjunctC
     , disjunctTemp
     , equate
     , implicate
+    , implicateC
     , implicateTemp
     , negation
+    , negationC
     , negationTemp
     , equalsConstant
     , trueExpr
@@ -42,6 +46,7 @@ module Expression.Expression (
     , literal
     , getMaxId
     , setCopy
+    , setAssignmentCopy
     , printExpression
     , makeAssignment
     , assignmentToExpression
@@ -149,6 +154,7 @@ data ExprManager = ExprManager {
     , tempMaxIndex  :: Maybe ExprId
     , tempExprs     :: IMap.IntMap Expr
     , tempDepMap    :: IMap.IntMap ISet.IntSet
+    , variables     :: Set.Set ExprVar
 } deriving (Eq)
 
 data CopyManager = CopyManager {
@@ -175,10 +181,11 @@ emptyManager = ExprManager {
     , tempMaxIndex  = Nothing
     , tempExprs     = IMap.empty
     , tempDepMap    = IMap.empty
+    , variables     = Set.empty
 }
 
 emptyCopyManager mi = CopyManager {
-      maxIndex      = mi + 500
+      maxIndex      = mi + 1000
     , nextIndex     = mi + 1
     , exprMap       = IMap.empty
     , depMap        = IMap.empty
@@ -193,9 +200,18 @@ clearTempExpressions = do
     m <- get
     put m { tempMaxIndex = Nothing, tempExprs = IMap.empty, tempDepMap = IMap.empty }
 
+-- |Call this function with the max copy you will use before constructing expressions
 initCopyMaps :: MonadIO m => Int -> ExpressionT m ()
 initCopyMaps mc = do
-    return ()
+    mapM_ initCopyMap [1..mc]
+
+-- Copy all variables into a copy map first
+initCopyMap c = do
+    ExprManager{..} <- get
+    let vars = Set.toList variables
+    mapM_ (addExpression c . f) vars
+    where
+        f v = ELit (v { ecopy = c })
 
 getCopyManager :: MonadIO m => Int -> ExpressionT m CopyManager
 getCopyManager c = do
@@ -251,7 +267,12 @@ getCachedMove copy mi = do
     maybeM Nothing (lookupExpression copy) ei
 
 insertExpression :: MonadIO m => Int -> Expr -> ExpressionT m Expression
-insertExpression _ (ELit v) = insertExpression' 0 (ELit v)
+insertExpression _ (ELit v) = do
+    when (ecopy v == 0) $ do
+        m <- get
+        put m { variables = Set.insert v (variables m) }
+
+    insertExpression' 0 (ELit v)
 insertExpression c e        = insertExpression' c e
 
 insertExpression' c e = do
@@ -454,9 +475,12 @@ liftDisjuncts Expression { eindex = i }             = [Var Pos i]
 
 -- |The 'conjunct' function takes a list of Expressions and produces one conjunction Expression
 conjunct :: MonadIO m => [Expression] -> ExpressionT m Expression
-conjunct []     = addExpression 0 EFalse
-conjunct (e:[]) = return e
-conjunct es     = addExpression 0 (EConjunct (concatMap liftConjuncts es))
+conjunct = conjunctC 0
+
+conjunctC :: MonadIO m => Int -> [Expression] -> ExpressionT m Expression
+conjunctC c []      = addExpression c EFalse
+conjunctC c (e:[])  = return e
+conjunctC c es      = addExpression c (EConjunct (concatMap liftConjuncts es))
 
 conjunctTemp :: MonadIO m => Int -> [Expression] -> ExpressionT m Expression
 conjunctTemp mc []      = addTempExpression mc EFalse
@@ -465,9 +489,12 @@ conjunctTemp mc es      = addTempExpression mc (EConjunct (concatMap liftConjunc
 
 -- |The 'disjunct' function takes a list of Expressions and produces one disjunction Expression
 disjunct :: MonadIO m => [Expression] -> ExpressionT m Expression
-disjunct []     = addExpression 0 ETrue
-disjunct (e:[]) = return e
-disjunct es     = addExpression 0 (EDisjunct (concatMap liftDisjuncts es))
+disjunct = disjunctC 0
+
+disjunctC :: MonadIO m => Int -> [Expression] -> ExpressionT m Expression
+disjunctC c []      = addExpression c ETrue
+disjunctC c (e:[])  = return e
+disjunctC c es      = addExpression c (EDisjunct (concatMap liftDisjuncts es))
 
 disjunctTemp :: MonadIO m => Int -> [Expression] -> ExpressionT m Expression
 disjunctTemp mc []      = addTempExpression mc ETrue
@@ -490,16 +517,19 @@ equate a b = do
     addExpression 0 (EEquals (Var Pos (eindex a)) (Var Pos (eindex b)))
 
 implicate :: MonadIO m => Expression -> Expression -> ExpressionT m Expression
-implicate a b = do
-    addExpression 0 (EDisjunct [Var Neg (eindex a), Var Pos (eindex b)])
+implicate = implicateC 0
+
+implicateC :: MonadIO m => Int -> Expression -> Expression -> ExpressionT m Expression
+implicateC c a b = addExpression 0 (EDisjunct [Var Neg (eindex a), Var Pos (eindex b)])
 
 implicateTemp :: MonadIO m => Int -> Expression -> Expression -> ExpressionT m Expression
-implicateTemp mc a b = do
-    addTempExpression mc (EDisjunct [Var Neg (eindex a), Var Pos (eindex b)])
+implicateTemp mc a b = addTempExpression mc (EDisjunct [Var Neg (eindex a), Var Pos (eindex b)])
 
 negation :: MonadIO m => Expression -> ExpressionT m Expression
-negation x = do
-    addExpression 0 (ENot (Var Pos (eindex x)))
+negation = negationC 0
+
+negationC :: MonadIO m => Int -> Expression -> ExpressionT m Expression
+negationC c x = addExpression c (ENot (Var Pos (eindex x)))
 
 negationTemp :: MonadIO m => Int -> Expression -> ExpressionT m Expression
 negationTemp mc x = do
@@ -548,6 +578,9 @@ setCopy cMap e = traverseExpression2 mc f e
     where
         f v = v { ecopy = fromMaybe (ecopy v) (Map.lookup (varsect v, rank v) cMap) }
         mc  = maximum (Map.elems cMap)
+
+setAssignmentCopy :: Int -> Assignment -> Assignment
+setAssignmentCopy c (Assignment s v) = Assignment s (v { ecopy = c })
 
 -- |Contructs an assignment from a model-var pair
 makeAssignment :: (Int, ExprVar) -> Assignment
