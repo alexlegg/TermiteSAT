@@ -46,7 +46,6 @@ module Expression.Expression (
     , literal
     , getMaxId
     , setCopy
-    , setAssignmentCopy
     , printExpression
     , makeAssignment
     , assignmentToExpression
@@ -578,9 +577,6 @@ setCopy cMap e = traverseExpression2 mc f e
     where
         f v = v { ecopy = fromMaybe (ecopy v) (Map.lookup (varsect v, rank v) cMap) }
         mc  = maximum (Map.elems cMap)
-
-setAssignmentCopy :: Int -> Assignment -> Assignment
-setAssignmentCopy c (Assignment s v) = Assignment s (v { ecopy = c })
 
 -- |Contructs an assignment from a model-var pair
 makeAssignment :: (Int, ExprVar) -> Assignment

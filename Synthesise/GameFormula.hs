@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards, ExistentialQuantification, TypeSynonymInstances #-}
 module Synthesise.GameFormula (
       makeFml
 ---    , getStepExpressions
@@ -34,21 +34,17 @@ makeFml spec player s ogt = do
     initMove    <- liftE $ moveToExpression (gtMaxCopy gt) (gtMove root)
     let s'      = s : catMaybes [initMove]
 
-    -- Make a list of transitions and moves to construct
+    -- Make a list of transitions, moves and blocking expressions to construct
     let cs      = gtSteps root
-    let trans   = sortTransitions $ if null cs
+    let trans   = map Construct $ if null cs
                     then getTransitions rank root (Nothing, Nothing, Nothing)
                     else concatMap (getTransitions rank root) cs
-    let moves'  = sortMoves $ concatMap (getMoves rank root) cs
+    let moves   = map Construct $ concatMap (getMoves rank root) cs
+    block'      <- getBlockedStates player rank maxCopy
+    let block   = map Construct block'
 
-    -- Construct transitions
-    mapM (makeTransitions spec (gtFirstPlayer gt)) trans 
-
-    -- Construct moves
-    moves       <- mapM (makeMove spec player (gtFirstPlayer gt)) moves'
-
-    -- Construct blocking expressions
-    block       <- makeBlockingExpressions player rank maxCopy
+    -- Construct everything in order
+    exprs       <- mapM (construct spec player (gtFirstPlayer gt)) (sortConstructibles (trans ++ moves ++ block))
 
     -- Join transitions into steps and finally fml
     (es, fml)   <- case gtStepChildren root of
@@ -60,7 +56,7 @@ makeFml spec player s ogt = do
             step        <- liftE $ conjunctTemp maxCopy (map snd steps)
             return (map ((Just (gtNodeId root), step) :) (concatMap fst steps), step)
 
-    fml'        <- liftE $ conjunctTemp maxCopy (fml : s' ++ block ++ moves)
+    fml'        <- liftE $ conjunctTemp maxCopy (fml : s' ++ catMaybes exprs)
 
     -- Gametree and expression bookkeeping
     let node2expr   = concatMap catMaybeFst es
@@ -68,60 +64,129 @@ makeFml spec player s ogt = do
 
     return (map (map snd) es, fml', gt')
 
-getMoves :: Int -> GameTree -> (Move, Move, Maybe GameTree) -> [(Int, Int, Int, [Assignment])]
+class Constructible a where
+    sortIndex   :: a -> Int
+    construct   :: CompiledSpec -> Player -> Player -> a -> SolverT (Maybe Expression)
+
+sortConstructibles :: Constructible a => [a] -> [a]
+sortConstructibles = sortBy (\x y -> compare (sortIndex x) (sortIndex y))
+
+data CMove = CMove {
+      cmRank         :: Int
+    , cmParentCopy   :: Int
+    , cmCopy         :: Int
+    , cmPlayer       :: Player
+    , cmAssignment   :: [Assignment]
+    } deriving (Show, Eq)
+
+instance Constructible CMove where
+    sortIndex CMove{..}     = max cmParentCopy cmCopy
+    construct s p f         = makeMove s p
+
+data CTransition = CTransition {
+      ctRank        :: Int
+    , ctParentCopy  :: Int
+    , ctCopy1       :: Int
+    , ctCopy2       :: Int
+    } deriving (Show, Eq)
+
+instance Constructible CTransition where
+    sortIndex CTransition{..}   = maximum [ctParentCopy, ctCopy1, ctCopy2]
+    construct s p f             = makeTransition s f
+
+data CBlocked = CBlocked {
+      cbRank        :: Int
+    , cbCopy        :: Int
+    , cbAssignment  :: [Assignment]
+    } deriving (Show, Eq)
+
+instance Constructible CBlocked where
+    sortIndex CBlocked{..}  = cbCopy
+    construct _ _ _         = blockExpression
+
+data Construct = forall a . (Constructible a, Show a) => Construct a
+
+instance Show Construct where
+    show (Construct x) = show x
+
+instance Constructible Construct where
+    sortIndex (Construct x)         = sortIndex x
+    construct s p f (Construct x)   = construct s p f x
+
+getMoves :: Int -> GameTree -> (Move, Move, Maybe GameTree) -> [CMove]
 getMoves rank gt (m1, m2, c) = m1' ++ m2' ++ next
     where
-        m1'         = maybe [] (\m -> [(rank, parentCopy, copy1, m)]) m1
-        m2'         = maybe [] (\m -> [(rank, parentCopy, copy2, m)]) m2
+        m1'         = maybe [] (\m -> [CMove rank parentCopy copy1 first m]) m1
+        m2'         = maybe [] (\m -> [CMove rank parentCopy copy2 (opponent first) m]) m2
         parentCopy  = gtCopyId gt 
         copy1       = maybe parentCopy (gtCopyId . gtParent) c
         copy2       = maybe copy1 gtCopyId c
+        first       = gtFirstPlayer gt
         next        = if isJust c && rank >= 1
             then concatMap (getMoves (rank-1) (fromJust c)) (gtSteps (fromJust c))
             else []
 
-sortMoves :: [(a, Int, Int, b)] -> [(a, Int, Int, b)]
-sortMoves = sortBy f
-    where f (_, x1, y1, _) (_, x2, y2, _) = compare (max x1 y1) (max x2 y2)
 
-getTransitions :: Int -> GameTree -> (Move, Move, Maybe GameTree) -> [(Int, Int, Int, Int)]
-getTransitions rank gt (_, _, c) = (rank, parentCopy, copy1, copy2) : next
+getTransitions :: Int -> GameTree -> (Move, Move, Maybe GameTree) -> [CTransition]
+getTransitions rank gt (_, _, c) = (CTransition rank parentCopy copy1 copy2) : next
     where
         parentCopy  = gtCopyId gt 
         copy1       = maybe parentCopy (gtCopyId . gtParent) c
         copy2       = maybe copy1 gtCopyId c
         next        = if isJust c && rank >= 1
             then case gtSteps (fromJust c) of
-                []  -> map (\x -> (x, copy2, copy2, copy2)) (reverse [1..(rank-1)])
+                []  -> map (\x -> CTransition x copy2 copy2 copy2) (reverse [1..(rank-1)])
                 cs  -> concatMap (getTransitions (rank-1) (fromJust c)) cs
-            else map (\x -> (x, copy2, copy2, copy2)) (reverse [1..(rank-1)])
+            else map (\x -> CTransition x copy2 copy2 copy2) (reverse [1..(rank-1)])
 
 sortTransitions :: [(Int, Int, Int, Int)] -> [(Int, Int, Int, Int)]
 sortTransitions = sortBy f
     where f (_, x1, y1, z1) (_, x2, y2, z2) = compare (maximum [x1, y1, z1]) (maximum [x2, y2, z2])
 
-makeTransitions :: CompiledSpec -> Player -> (Int, Int, Int, Int) -> SolverT ()
-makeTransitions spec first (rank, parentCopy, copy1, copy2) = do
-    let i                   = rank - 1
+getBlockedStates :: Player -> Int -> Int -> SolverT [CBlocked]
+getBlockedStates Existential rank copy = do
+    LearnedStates{..} <- get
+    return $ concatMap (\r -> concatMap (blockAtRank winningUn r) [0..copy]) [0..rank]
+    where
+        blockAtRank block r c = map (CBlocked r c) (fromMaybe [] (Map.lookup r block))
+getBlockedStates Universal rank copy = do
+    LearnedStates{..} <- get
+    return $ [CBlocked r c a | r <- [0..rank], c <- [0..copy], a <- winningEx]
+
+blockExpression CBlocked{..} = do
+    let as = map (\a -> setAssignmentRankCopy a cbRank cbCopy) cbAssignment
+    cached <- liftE $ getCachedMove cbCopy (BlockedState, as)
+    case cached of
+        (Just b)    -> return (Just b)
+        Nothing     -> do
+            b <- liftE $ blockAssignment cbCopy as
+            liftE $ cacheMove cbCopy (BlockedState, as) b
+            return (Just b)
+
+makeTransition :: CompiledSpec -> Player -> CTransition -> SolverT (Maybe Expression)
+makeTransition spec first CTransition{..} = do
+    let i                   = ctRank - 1
     let CompiledSpec{..}    = spec
 
-    if rank > 0
+    if ctRank > 0
     then do
-        step <- liftE $ getCached rank parentCopy copy1 copy2 (exprIndex (t !! i))
+        step <- liftE $ getCached ctRank ctParentCopy ctCopy1 ctCopy2 (exprIndex (t !! i))
 
         when (not (isJust step)) $ do
-            step <- if copy1 == 0 && copy2 == 0 && parentCopy == 0
+            step <- if ctCopy1 == 0 && ctCopy2 == 0 && ctParentCopy == 0
                 then return (t !! i)
                 else do
                     let cMap = Map.fromList [
-                                  ((playerToSection first, rank), copy1)
-                                , ((playerToSection (opponent first), rank), copy2)
-                                , ((StateVar, rank-1), copy2)
-                                , ((StateVar, rank), parentCopy)
+                                  ((playerToSection first, ctRank), ctCopy1)
+                                , ((playerToSection (opponent first), ctRank), ctCopy2)
+                                , ((StateVar, ctRank-1), ctCopy2)
+                                , ((StateVar, ctRank), ctParentCopy)
                                 ]
                     liftE $ setCopy cMap (t !! i)
-            liftE $ cacheStep rank parentCopy copy1 copy2 (exprIndex (t !! i)) step
-    else return ()
+            liftE $ cacheStep ctRank ctParentCopy ctCopy1 ctCopy2 (exprIndex (t !! i)) step
+
+        return Nothing
+    else return Nothing
 
 makeSteps :: Int -> CompiledSpec -> Player -> GameTree -> GameTree -> SolverT ([[(Maybe Int, Expression)]], Expression)
 makeSteps rank spec player gt c = do
@@ -142,26 +207,26 @@ makeSteps rank spec player gt c = do
     s <- singleStep spec rank maxCopy player parentCopy copy1 copy2 next
     return (es, s)
 
-makeMove :: CompiledSpec -> Player -> Player -> (Int, Int, Int, [Assignment]) -> SolverT (Expression)
-makeMove spec player first (rank, parentCopy, copy, assignment) = do
+makeMove :: CompiledSpec -> Player -> CMove -> SolverT (Maybe Expression)
+makeMove spec player CMove{..} = do
     let CompiledSpec{..}    = spec
-    let vh                  = if player == Existential then vu else vc
-    let i                   = rank - 1
-    let isHatMove           = player /= first
-    let mType               = if isHatMove then HatMove else RegularMove
-    let assCopy             = map (setAssignmentCopy copy) assignment
+    let vh                  = if cmPlayer == Universal then vu else vc
+    let i                   = cmRank - 1
+    let isHatMove           = player == cmPlayer
+    let assCopy             = map (\a -> setAssignmentRankCopy a cmRank cmCopy) cmAssignment
 
-    move <- liftE $ assignmentToExpression copy assCopy
+    move <- liftE $ assignmentToExpression cmCopy assCopy
 
     if isHatMove
     then do
-        valid       <- liftE $ setCopy (Map.singleton (StateVar, rank) parentCopy) (vh !! i)
-        move_hat    <- liftE $ setHatVar copy move
-        valid_hat   <- liftE $ setHatVar copy valid
-        imp         <- liftE $ implicateC copy valid_hat move
-        liftE $ conjunctC copy [move_hat, imp]
-    else return move
-
+        valid       <- liftE $ setCopy (Map.singleton (StateVar, cmRank) cmParentCopy) (vh !! i)
+        move_hat    <- liftE $ setHatVar cmCopy move
+        valid_hat   <- liftE $ setHatVar cmCopy valid
+        imp         <- liftE $ implicateC cmCopy valid_hat move
+        hatMove     <- liftE $ conjunctC cmCopy [move_hat, imp]
+        return (Just hatMove)
+    else do
+        return (Just move)
 
 singleStep spec rank maxCopy player parentCopy copy1 copy2 next = do
     let i                   = rank - 1
@@ -185,55 +250,23 @@ singleStep spec rank maxCopy player parentCopy copy1 copy2 next = do
 
     liftE $ conjunctTemp maxCopy [fromJust step, goal]
 
-makeBlockingExpressions :: Player -> Int -> Int -> SolverT [Expression]
-makeBlockingExpressions player rank copy = do
-    LearnedStates{..} <- get
-    if player == Existential
-        then do
-            concatMapM (makeBlockEx winningUn) (concatMap (\r -> map (\c -> (r, c)) [0..copy]) [0..rank])
-        else do
-            concatMapM (\(r, c) -> blockExpression winningEx r c) [(r, c) | r <- [0..rank], c <- [0..copy]]
+---makeBlockingExpressions :: Player -> Int -> Int -> SolverT [Expression]
+---makeBlockingExpressions player rank copy = do
+---    LearnedStates{..} <- get
+---    if player == Existential
+---        then do
+---            concatMapM (makeBlockEx winningUn) [(r, c) | r <- [0..rank], c <- [0..copy]]
+---        else do
+---            concatMapM (\(r, c) -> blockExpression winningEx r c) [(r, c) | r <- [0..rank], c <- [0..copy]]
 
-blockExpression as rank copy = do
-    liftE $ forM (map (map (\a -> setAssignmentRankCopy a rank copy)) as) $ \a -> do
-        cached <- getCachedMove copy (BlockedState, a)
-        case cached of
-            (Just b)    -> return b
-            Nothing     -> do
-                b <- blockAssignment copy a
-                cacheMove copy (BlockedState, a) b
-                return b
-
-makeBlockEx blocking (rank, copy) = do
-    let as = fromMaybe [] (Map.lookup rank blocking)
-    blockExpression as rank copy
-
-makeMoveExpression mc Nothing _ _       = return Nothing
-makeMoveExpression mc (Just a) hat vars = do
-    let mType = if hat then HatMove else RegularMove
-    cached <- getCachedMove mc (mType, a)
-    case cached of
-        (Just m)    -> return (Just m)
-        Nothing     -> do
-            move <- if hat
-                then assignmentToExpression 0 a
-                else makeHatMove vars a
-            let mType = if hat then HatMove else RegularMove
-            cacheMove mc (mType, a) move
-            return $ Just move
+---makeBlockEx blocking (rank, copy) = do
+---    let as = fromMaybe [] (Map.lookup rank blocking)
+---    blockExpression as rank copy
 
 moveToExpression mc Nothing    = return Nothing
 moveToExpression mc (Just a)   = do
     e <- assignmentToExpression mc a
     return (Just e)
-
--- Ensures that a player can't force the other player into an invalid move
-makeHatMove valid m = do
-    move <- assignmentToExpression 0 m
-    move_hat <- setHatVar 0 move
-    valid_hat <- setHatVar 0 valid
-    imp <- implicate valid_hat move
-    conjunct [move_hat, imp]
 
 goalFor Existential spec i  = (cg spec) !! i
 goalFor Universal spec i    = (ug spec) !! i
