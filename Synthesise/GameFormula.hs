@@ -30,10 +30,6 @@ makeFml spec player s ogt = do
     liftE $ clearTempExpressions
     liftE $ initCopyMaps maxCopy
 
-    -- Construct init expression
-    initMove    <- liftE $ moveToExpression (gtMaxCopy gt) (gtMove root)
-    let s'      = s : catMaybes [initMove]
-
     -- Make a list of transitions, moves and blocking expressions to construct
     let cs      = gtSteps root
     let trans   = map Construct $ if null cs
@@ -49,6 +45,10 @@ makeFml spec player s ogt = do
 
     -- Construct everything in order
     exprs       <- mapM (construct spec player (gtFirstPlayer gt)) (sortConstructibles (trans ++ moves {- ++ block -}))
+
+    -- Construct init expression
+    initMove    <- liftE $ moveToExpression (gtMaxCopy gt) (gtMove root)
+    let s'      = s : catMaybes [initMove]
 
     -- Join transitions into steps and finally fml
     (es, fml)   <- case gtStepChildren root of
@@ -84,7 +84,7 @@ data CMove = CMove {
     } deriving (Show, Eq)
 
 instance Constructible CMove where
-    sortIndex CMove{..}     = 0
+    sortIndex CMove{..}     = cmCopy
     construct s p f         = makeMove s p
 
 data CTransition = CTransition {
@@ -219,8 +219,8 @@ makeMove spec player CMove{..} = do
     let isHatMove           = player == cmPlayer
 
     move <- if isHatMove
-        then liftE $ assignmentToExpression 0 cmAssignment
-        else liftE $ makeHatMove (vh !! i) cmAssignment
+        then liftE $ assignmentToExpression cmCopy cmAssignment
+        else liftE $ makeHatMove cmCopy (vh !! i) cmAssignment
 
     let cMap = Map.fromList [
               ((playerToSection cmPlayer, cmRank), cmCopy)
@@ -231,12 +231,12 @@ makeMove spec player CMove{..} = do
     mc <- liftE $ setCopy cMap move
     return (Just mc)
 
-makeHatMove valid m = do
-    move        <- assignmentToExpression 0 m
-    move_hat    <- setHatVar 0 move
-    valid_hat   <- setHatVar 0 valid
-    imp         <- implicate valid_hat move
-    conjunct [move_hat, imp]
+makeHatMove c valid m = do
+    move        <- assignmentToExpression c m
+    move_hat    <- setHatVar c move
+    valid_hat   <- setHatVar c valid
+    imp         <- implicateC c valid_hat move
+    conjunctC c [move_hat, imp]
 
 singleStep spec rank maxCopy player parentCopy copy1 copy2 next = do
     let i                   = rank - 1
