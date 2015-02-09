@@ -184,7 +184,7 @@ emptyManager = ExprManager {
 }
 
 emptyCopyManager mi = CopyManager {
-      maxIndex      = mi + 1000
+      maxIndex      = mi + 4000
     , nextIndex     = mi + 1
     , exprMap       = IMap.empty
     , depMap        = IMap.empty

@@ -43,8 +43,12 @@ makeFml spec player s ogt = do
     block'      <- getBlockedStates player rank maxCopy
     let block   = map Construct block'
 
+---    liftIO $ putStrLn "----------------------------------"
+---    liftIO $ mapM (putStrLn . show) (sortConstructibles (trans ++ moves {- ++ block -}))
+---    liftIO $ putStrLn "----------------------------------"
+
     -- Construct everything in order
-    exprs       <- mapM (construct spec player (gtFirstPlayer gt)) (sortConstructibles (trans ++ moves ++ block))
+    exprs       <- mapM (construct spec player (gtFirstPlayer gt)) (sortConstructibles (trans ++ moves {- ++ block -}))
 
     -- Join transitions into steps and finally fml
     (es, fml)   <- case gtStepChildren root of
@@ -80,7 +84,7 @@ data CMove = CMove {
     } deriving (Show, Eq)
 
 instance Constructible CMove where
-    sortIndex CMove{..}     = max cmParentCopy cmCopy
+    sortIndex CMove{..}     = 0
     construct s p f         = makeMove s p
 
 data CTransition = CTransition {
@@ -213,20 +217,26 @@ makeMove spec player CMove{..} = do
     let vh                  = if cmPlayer == Universal then vu else vc
     let i                   = cmRank - 1
     let isHatMove           = player == cmPlayer
-    let assCopy             = map (\a -> setAssignmentRankCopy a cmRank cmCopy) cmAssignment
 
-    move <- liftE $ assignmentToExpression cmCopy assCopy
+    move <- if isHatMove
+        then liftE $ assignmentToExpression 0 cmAssignment
+        else liftE $ makeHatMove (vh !! i) cmAssignment
 
-    if isHatMove
-    then do
-        valid       <- liftE $ setCopy (Map.singleton (StateVar, cmRank) cmParentCopy) (vh !! i)
-        move_hat    <- liftE $ setHatVar cmCopy move
-        valid_hat   <- liftE $ setHatVar cmCopy valid
-        imp         <- liftE $ implicateC cmCopy valid_hat move
-        hatMove     <- liftE $ conjunctC cmCopy [move_hat, imp]
-        return (Just hatMove)
-    else do
-        return (Just move)
+    let cMap = Map.fromList [
+              ((playerToSection cmPlayer, cmRank), cmCopy)
+            , ((HatVar, cmRank), cmCopy)
+            , ((StateVar, cmRank), cmParentCopy)
+            ]
+
+    mc <- liftE $ setCopy cMap move
+    return (Just mc)
+
+makeHatMove valid m = do
+    move        <- assignmentToExpression 0 m
+    move_hat    <- setHatVar 0 move
+    valid_hat   <- setHatVar 0 valid
+    imp         <- implicate valid_hat move
+    conjunct [move_hat, imp]
 
 singleStep spec rank maxCopy player parentCopy copy1 copy2 next = do
     let i                   = rank - 1
