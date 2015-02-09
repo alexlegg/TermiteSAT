@@ -83,6 +83,8 @@ synthesise' k spec = do
 
     init <- compile init
     init <- setRank k init
+
+    initManager
     
     evalStateT (checkRank cspec k init) emptyLearnedStates
 

@@ -11,6 +11,7 @@ module Expression.Expression (
     , Expr(..)
 
     , clearTempExpressions
+    , initManager
     , initCopyMaps
     , setAssignmentRankCopy
     , cacheStep
@@ -154,6 +155,7 @@ data ExprManager = ExprManager {
     , tempExprs     :: IMap.IntMap Expr
     , tempDepMap    :: IMap.IntMap ISet.IntSet
     , variables     :: Set.Set ExprVar
+    , mgrMaxIndices :: Int
 } deriving (Eq)
 
 data CopyManager = CopyManager {
@@ -181,10 +183,11 @@ emptyManager = ExprManager {
     , tempExprs     = IMap.empty
     , tempDepMap    = IMap.empty
     , variables     = Set.empty
+    , mgrMaxIndices = 200
 }
 
-emptyCopyManager mi = CopyManager {
-      maxIndex      = mi + 3000
+emptyCopyManager mi incr = CopyManager {
+      maxIndex      = mi + incr
     , nextIndex     = mi + 1
     , exprMap       = IMap.empty
     , depMap        = IMap.empty
@@ -198,6 +201,14 @@ clearTempExpressions :: MonadIO m => ExpressionT m ()
 clearTempExpressions = do
     m <- get
     put m { tempMaxIndex = Nothing, tempExprs = IMap.empty, tempDepMap = IMap.empty }
+
+-- |Call this function once the base formula is loaded
+initManager :: MonadIO m => ExpressionT m ()
+initManager = do
+    m@ExprManager{..} <- get
+    let (Just c0) = IMap.lookup 0 copyManagers
+    put $ m { mgrMaxIndices = 3 * nextIndex c0 }
+    setCopyManager 0 (c0 { maxIndex = maxIndex c0 * 3 })
 
 -- |Call this function with the max copy you will use before constructing expressions
 initCopyMaps :: MonadIO m => Int -> ExpressionT m ()
@@ -232,7 +243,7 @@ fillCopyManagers c = do
     case (IMap.lookup c copyManagers) of
         Just cm -> return (maxIndex cm)
         Nothing -> do
-            let newManager = emptyCopyManager prevIndex
+            let newManager = emptyCopyManager prevIndex mgrMaxIndices
             put $ mgr { copyManagers = IMap.insert c newManager copyManagers }
             return (maxIndex newManager)
 
@@ -280,11 +291,12 @@ insertExpression' c e = do
 
     when (i >= maxIndex) $ do
         --Throw away all copy managers > c
-        liftIO $ putStrLn ("Flushing managers: " ++ show c)
         mgr <- get
+        let maxCopies = IMap.size (copyManagers mgr)
+        when (c+1 < maxCopies) $ liftIO $ putStrLn ("Flushing managers: " ++ show (c+1) ++ " - " ++ show maxCopies)
         let copyManagers' = IMap.filterWithKey (\k _ -> k <= c) (copyManagers mgr)
         put $ mgr { copyManagers = copyManagers' }
-        setCopyManager c $ cm { maxIndex = maxIndex + 200 }
+        setCopyManager c $ cm { maxIndex = maxIndex + (mgrMaxIndices mgr)}
         clearTempExpressions
 
     cm@CopyManager{..} <- getCopyManager c

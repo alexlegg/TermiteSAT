@@ -39,12 +39,8 @@ makeFml spec player s ogt = do
     block'      <- getBlockedStates player rank maxCopy
     let block   = map Construct block'
 
----    liftIO $ putStrLn "----------------------------------"
----    liftIO $ mapM (putStrLn . show) (sortConstructibles (trans ++ moves {- ++ block -}))
----    liftIO $ putStrLn "----------------------------------"
-
     -- Construct everything in order
-    exprs       <- mapM (construct spec player (gtFirstPlayer gt)) (sortConstructibles (trans ++ moves {- ++ block -}))
+    exprs       <- mapM (construct spec player (gtFirstPlayer gt)) (sortConstructibles (trans ++ moves ++ block))
 
     -- Construct init expression
     initMove    <- liftE $ moveToExpression (gtMaxCopy gt) (gtMove root)
@@ -164,7 +160,7 @@ blockExpression CBlocked{..} = do
         (Just b)    -> return (Just b)
         Nothing     -> do
             b <- liftE $ blockAssignment cbCopy as
-            liftE $ cacheMove cbCopy (BlockedState, as) b
+---            liftE $ cacheMove cbCopy (BlockedState, as) b
             return (Just b)
 
 makeTransition :: CompiledSpec -> Player -> CTransition -> SolverT (Maybe Expression)

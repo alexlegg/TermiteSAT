@@ -74,7 +74,7 @@ findCandidate player spec s gt = do
 
     if satisfiable res
     then do
-        (Just m)    <- return (model res) --shortenStrategy player gt f (model res) es
+        (Just m)    <- shortenStrategy player gt' f (model res) es
         gt'         <- setMoves player spec m (gtRoot gt')
         return (Just gt')
     else do
@@ -177,9 +177,10 @@ getConflicts vars conflicts cpy rnk = do
     let as  = map ((uncurry liftMFst) . mapFst (\i -> lookup i cs)) vd
     return  $ map makeAssignment (catMaybes as)
 
+shortenStrategy :: Player -> GameTree -> Expression -> Maybe [Int] -> [[Expression]] -> SolverT (Maybe [Int])
 shortenStrategy Existential gt fml model es = do
     let reversedEs  = map reverse es
-    (_, m')         <- foldlM gt (fml, model) reversedEs
+    (_, m')         <- foldlM (shortenLeaf gt) (fml, model) reversedEs
     return m'
 shortenStrategy _ _ _ m _ = return m
 
