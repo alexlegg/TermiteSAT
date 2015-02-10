@@ -1,3 +1,4 @@
+{-# LANGUAGE ViewPatterns #-}
 module Utils.Utils (
       zipMaybe1
     , zipMaybe2
@@ -5,6 +6,7 @@ module Utils.Utils (
     , mapFst
     , mapSnd
     , concatMapM
+    , mapUntilJust
     , mapMUntilJust
     , liftMSnd
     , liftMFst
@@ -55,6 +57,11 @@ mapSnd f (x,y) = (x,f y)
 
 concatMapM :: Monad m => (a -> m [b]) -> [a] -> m [b]
 concatMapM f xs = (liftM concat) (mapM f xs)
+
+mapUntilJust :: (a -> Maybe b) -> [a] -> Maybe b
+mapUntilJust _ []                   = Nothing
+mapUntilJust f ((f -> Just b):as)   = Just b
+mapUntilJust f (_:as)               = mapUntilJust f as
 
 mapMUntilJust :: (Monad m) => (a -> m (Maybe b)) -> [a] -> m (Maybe b)
 mapMUntilJust _ []      = return Nothing

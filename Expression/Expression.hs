@@ -339,7 +339,7 @@ addTempExpression :: MonadIO m => Int -> Expr -> ExpressionT m Expression
 addTempExpression mc e = do
     m@ExprManager{..} <- get
     cm <- getCopyManager mc
-    let i = fromMaybe (maxIndex cm + 1) tempMaxIndex
+    let i = fromMaybe (nextIndex cm + 1) tempMaxIndex
     deps <- childDependencies mc e
 
     put m {
@@ -406,15 +406,14 @@ lookupVarC c v = do
         Nothing     -> return Nothing
         (Just i)    -> return $ Just (Expression { eindex = i, expr = ELit v })
 
-getDependenciesC :: MonadIO m => Int -> Int -> ExpressionT m (Maybe ISet.IntSet)
-getDependenciesC c i = do
-    CopyManager{..} <- getCopyManager c
-    return $ IMap.lookup i depMap
+getDependenciesC :: CopyManager -> Int -> Maybe ISet.IntSet
+getDependenciesC cm i = IMap.lookup i (depMap cm)
 
 getDependencies :: MonadIO m => Int -> Int -> ExpressionT m ISet.IntSet
 getDependencies mc i = do
     ExprManager{..} <- get
-    deps <- mapMUntilJust (\c -> getDependenciesC c i) [0..mc]
+    cms <- mapM getCopyManager [0..mc]
+    let deps = mapUntilJust (\c -> getDependenciesC c i) cms
     if isNothing deps
         then return $ fromMaybe ISet.empty (IMap.lookup i tempDepMap)
         else return $ fromMaybe ISet.empty deps
@@ -610,42 +609,30 @@ assignmentToVar c (Assignment s v) = do
     e <- addExpression c (ELit v)
     return $ Var s (eindex e)
 
-lookupDimacs :: MonadIO m => Int -> Int -> ExpressionT m (Maybe [SV.Vector CInt])
-lookupDimacs mc i = do
-    if mc == 0
-    then mapMUntilJust (\c -> lookupDimacsC c i) [0..mc]
-    else return Nothing
+cacheDimacs :: MonadIO m => Int -> Int -> [SV.Vector CInt] -> ExpressionT m ()
+cacheDimacs c i v = do
+    cm <- getCopyManager c
+    setCopyManager c (cm { dimacsCache = IMap.insert i v (dimacsCache cm) })
 
-lookupDimacsC :: MonadIO m => Int -> ExprId -> ExpressionT m (Maybe [SV.Vector CInt])
-lookupDimacsC c i = do
-    CopyManager{..} <- getCopyManager c
-    return $ IMap.lookup i dimacsCache
+lookupDimacs :: MonadIO m => [CopyManager] -> Int -> ExpressionT m (Maybe [SV.Vector CInt])
+lookupDimacs cms i = do
+    mapMUntilJust (\cm -> lookupDimacsC cm i) cms
+
+lookupDimacsC :: MonadIO m => CopyManager -> ExprId -> ExpressionT m (Maybe [SV.Vector CInt])
+lookupDimacsC cm i = do
+    return $ IMap.lookup i (dimacsCache cm)
 
 getCachedStepDimacs :: MonadIO m => Int -> Expression -> ExpressionT m [SV.Vector CInt]
 getCachedStepDimacs mc e = do
     ds          <- (liftM ISet.toList) $ getDependencies mc (exprIndex e)
     mgr         <- get
-    cached      <- mapM (lookupDimacs mc) ds
+    cms         <- mapM getCopyManager [0..mc]
+    cached      <- mapM (lookupDimacs cms) ds
     let (cs, ncs) = partition (isJust . snd) (zip ds cached)
-    new <- forM ncs $ \i -> do
----        (Just (e, c)) <- lookupExpressionAndCopy mc (fst i)
-        blah <- lookupExpressionAndCopy mc (fst i)
-
-        when (blah == Nothing) $ do
-            liftIO $ putStrLn (show (fst i))
-            blah <- lookupExpressionAndCopy 1 (fst i)
-            liftIO $ putStrLn (show blah)
-            throwError $ "Expression not found"
-        let (Just (e, c)) = blah
+    new <- forM ncs $ \(i, _) -> do
+        (Just (e, c)) <- lookupExpressionAndCopy mc i
         let v = makeVector e
----        when (c == 0) $ do
----            cm <- getCopyManager 0
----            setCopyManager 0 (cm { dimacsCache = IMap.insert (eindex e) v (dimacsCache cm) })
----            return ()
----        when (c == 1) $ do
----            cm <- getCopyManager 0
----            setCopyManager 0 (cm { dimacsCache = IMap.insert (eindex e) v (dimacsCache cm) })
----            return ()
+        when (c >= 0) $ cacheDimacs c i v
         return v
 
     return $ concat new ++ concatMap (fromJust . snd) cs

@@ -56,7 +56,7 @@ callSolver max assumptions clauses = do
     addAssumptions solver assumptions
 
     -- Add the clauses
-    allM (addClause2 solver) clauses
+    allM (addClause solver) clauses
 
     -- Get the result
     res <- c_solve solver
@@ -102,7 +102,7 @@ doMinimiseCore max assumptions clauses = do
 
     addAssumptions solver assumptions
 
-    allM (addClause2 solver) clauses
+    allM (addClause solver) clauses
 
     res <- c_solve solver
 
@@ -134,10 +134,6 @@ addAssumptions solver ass = do
     forM_ ass (c_addAssumption solver . fromIntegral)
 
 addClause solver clause = do
-    forM_ clause (c_addClause_addLit solver . fromIntegral)
-    c_addClause solver
-
-addClause2 solver clause = do
     SV.unsafeWith clause (c_addClauseVector solver (fromIntegral (SV.length clause)))
 
 getModel solver = do
@@ -169,9 +165,6 @@ foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h clearAssumptions"
 
 foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h addClause_addLit"
     c_addClause_addLit :: Ptr GlucoseSolver -> CInt -> IO ()
-
-foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h addClause"
-    c_addClause :: Ptr GlucoseSolver -> IO Bool
 
 foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h addClauseVector"
     c_addClauseVector :: Ptr GlucoseSolver -> CInt -> Ptr CInt -> IO Bool
