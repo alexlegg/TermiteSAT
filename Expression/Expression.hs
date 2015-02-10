@@ -23,7 +23,6 @@ module Expression.Expression (
     , exprChildren
     , flipSign
     , emptyManager
-    , getDependencies
     , lookupVar
     , unrollExpression
     , setRank
@@ -406,14 +405,15 @@ lookupVarC c v = do
         Nothing     -> return Nothing
         (Just i)    -> return $ Just (Expression { eindex = i, expr = ELit v })
 
-getDependenciesC :: CopyManager -> Int -> Maybe ISet.IntSet
-getDependenciesC cm i = IMap.lookup i (depMap cm)
+getDependenciesC :: MonadIO m => Int -> Int -> ExpressionT m (Maybe ISet.IntSet)
+getDependenciesC c i = do
+    CopyManager{..} <- getCopyManager c
+    return $ IMap.lookup i depMap
 
 getDependencies :: MonadIO m => Int -> Int -> ExpressionT m ISet.IntSet
 getDependencies mc i = do
     ExprManager{..} <- get
-    cms <- mapM getCopyManager [0..mc]
-    let deps = mapUntilJust (\c -> getDependenciesC c i) cms
+    deps <- mapMUntilJust (\c -> getDependenciesC c i) [0..mc]
     if isNothing deps
         then return $ fromMaybe ISet.empty (IMap.lookup i tempDepMap)
         else return $ fromMaybe ISet.empty deps
@@ -614,20 +614,17 @@ cacheDimacs c i v = do
     cm <- getCopyManager c
     setCopyManager c (cm { dimacsCache = IMap.insert i v (dimacsCache cm) })
 
-lookupDimacs :: MonadIO m => [CopyManager] -> Int -> ExpressionT m (Maybe [SV.Vector CInt])
-lookupDimacs cms i = do
-    mapMUntilJust (\cm -> lookupDimacsC cm i) cms
+lookupDimacs :: [CopyManager] -> Int -> Maybe [SV.Vector CInt]
+lookupDimacs cms i = mapUntilJust (\cm -> lookupDimacsC cm i) cms
 
-lookupDimacsC :: MonadIO m => CopyManager -> ExprId -> ExpressionT m (Maybe [SV.Vector CInt])
-lookupDimacsC cm i = do
-    return $ IMap.lookup i (dimacsCache cm)
+lookupDimacsC :: CopyManager -> ExprId -> Maybe [SV.Vector CInt]
+lookupDimacsC cm i = IMap.lookup i (dimacsCache cm)
 
 getCachedStepDimacs :: MonadIO m => Int -> Expression -> ExpressionT m [SV.Vector CInt]
 getCachedStepDimacs mc e = do
     ds          <- (liftM ISet.toList) $ getDependencies mc (exprIndex e)
-    mgr         <- get
     cms         <- mapM getCopyManager [0..mc]
-    cached      <- mapM (lookupDimacs cms) ds
+    let cached  = map (lookupDimacs cms) ds
     let (cs, ncs) = partition (isJust . snd) (zip ds cached)
     new <- forM ncs $ \(i, _) -> do
         (Just (e, c)) <- lookupExpressionAndCopy mc i

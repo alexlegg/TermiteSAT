@@ -148,7 +148,8 @@ getBlockedStates Existential rank copy = do
     LearnedStates{..} <- get
     return $ concatMap (\r -> concatMap (blockAtRank winningUn r) [0..copy]) [0..rank]
     where
-        blockAtRank block r c = map (CBlocked r c) (fromMaybe [] (Map.lookup r block))
+        blockAtRank block r c = concatMap (blockAllRanks r c) (fromMaybe [] (Map.lookup r block))
+        blockAllRanks r c as  = map (\x -> CBlocked x c as) [0..r]
 getBlockedStates Universal rank copy = do
     LearnedStates{..} <- get
     return $ [CBlocked r c a | r <- [0..rank], c <- [0..copy], a <- winningEx]
