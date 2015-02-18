@@ -1,10 +1,11 @@
-{-# LANGUAGE RecordWildCards, ExistentialQuantification, TypeSynonymInstances #-}
+{-# LANGUAGE RecordWildCards, ExistentialQuantification #-}
 module Synthesise.GameFormula (
       makeFml
 ---    , getStepExpressions
     ) where
 
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import Data.Maybe
 import Data.List
 import System.IO
@@ -148,11 +149,12 @@ getBlockedStates Existential rank copy = do
     LearnedStates{..} <- get
     return $ concatMap (\r -> concatMap (blockAtRank winningUn r) [0..copy]) [0..rank]
     where
-        blockAtRank block r c = concatMap (blockAllRanks r c) (fromMaybe [] (Map.lookup r block))
-        blockAllRanks r c as  = map (\x -> CBlocked x c as) [0..r]
+        blockAtRank block r c = concatMap (blockAllRanks r c) (maybe [] Set.toList (Map.lookup r block))
+        blockAllRanks r c as  = map (\x -> CBlocked x c as) [r..r]
 getBlockedStates Universal rank copy = do
     LearnedStates{..} <- get
     return $ [CBlocked r c a | r <- [0..rank], c <- [0..copy], a <- winningEx]
+    return []
 
 blockExpression CBlocked{..} = do
     let as = map (\a -> setAssignmentRankCopy a cbRank cbCopy) cbAssignment
@@ -161,6 +163,8 @@ blockExpression CBlocked{..} = do
         (Just b)    -> return (Just b)
         Nothing     -> do
             b <- liftE $ blockAssignment cbCopy as
+---            be <- liftE $ printExpression b
+---            liftIO $ putStrLn be
 ---            liftE $ cacheMove cbCopy (BlockedState, as) b
             return (Just b)
 
@@ -213,11 +217,11 @@ makeMove spec player CMove{..} = do
     let CompiledSpec{..}    = spec
     let vh                  = if cmPlayer == Universal then vu else vc
     let i                   = cmRank - 1
-    let isHatMove           = player == cmPlayer
+    let isHatMove           = player /= cmPlayer
 
     move <- if isHatMove
-        then liftE $ assignmentToExpression cmCopy cmAssignment
-        else liftE $ makeHatMove cmCopy (vh !! i) cmAssignment
+        then liftE $ makeHatMove cmCopy (vh !! i) cmAssignment
+        else liftE $ assignmentToExpression cmCopy cmAssignment
 
     let cMap = Map.fromList [
               ((playerToSection cmPlayer, cmRank), cmCopy)

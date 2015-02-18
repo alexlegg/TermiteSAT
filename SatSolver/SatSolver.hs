@@ -93,41 +93,43 @@ minimiseCore gt a e = do
             when ((abs (fromIntegral l)) > maxId) $ do
                 throwError "lit larger than maxid"
 
-    liftIO $ doMinimiseCore maxId as clauses
+    doMinimiseCore maxId as clauses
 
+doMinimiseCore :: Int -> [Int] -> [SV.Vector CInt] -> SolverT (Maybe [Int])
 doMinimiseCore max assumptions clauses = do
-    solver <- c_glucose_new
+    solver <- liftIO $ c_glucose_new
 
-    replicateM_ (max+1) (c_glucose_addVar solver)
+    liftIO $ replicateM_ (max+1) (c_glucose_addVar solver)
 
-    addAssumptions solver assumptions
+    liftIO $ addAssumptions solver assumptions
 
-    allM (addClause solver) clauses
+    liftIO $ allM (addClause solver) clauses
 
-    res <- c_solve solver
+    res <- liftIO $ c_solve solver
 
     if res
     then do
         --SAT, there is no core to find
-        c_glucose_delete solver
+        liftIO $ c_glucose_delete solver
         return Nothing
     else do
         --UNSAT, try with no core
-        conflicts <- getConflicts solver
-        c_clearAssumptions solver
-        noCore <- c_solve solver
+        conflicts <- liftIO $ getConflicts solver
+        liftIO $ c_clearAssumptions solver
+        noCore <- liftIO $ c_solve solver
 
         if noCore
         then do
-            addAssumptions solver conflicts
-            core_ptr <- c_minimise_core solver
+            liftIO $ addAssumptions solver conflicts
+            core_ptr <- liftIO $ c_minimise_core solver
 
-            core <- peekArray0 0 core_ptr
-            free core_ptr
-            c_glucose_delete solver
+            core <- liftIO $ peekArray0 0 core_ptr
+            liftIO $ free core_ptr
+            liftIO $ c_glucose_delete solver
             return $ Just (map fromIntegral core)
         else do
-            c_glucose_delete solver
+            liftIO $ c_glucose_delete solver
+            liftIO $ putStrLn "minimise_core -> UNSAT w/ no core"
             return Nothing
 
 addAssumptions solver ass = do

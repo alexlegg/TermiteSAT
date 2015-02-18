@@ -10,6 +10,7 @@ module Synthesise.SolverT (
 import Control.Monad.State
 import Control.Monad.Trans.Either
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import Expression.Expression
 import Utils.Logger
 
@@ -18,7 +19,7 @@ type SolverT = SolverST (ExpressionT (LoggerT IO))
 
 data LearnedStates = LearnedStates {
       winningEx :: [[Assignment]]
-    , winningUn :: Map.Map Int [[Assignment]]
+    , winningUn :: Map.Map Int (Set.Set [Assignment])
 }
 
 emptyLearnedStates = LearnedStates {

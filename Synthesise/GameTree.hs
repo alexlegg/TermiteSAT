@@ -584,19 +584,20 @@ matchIndices f (x:xs) ys    = if isJust m
         match i a (b:bs)    = if f a b then Just i else match (i+1) a bs
 
 printTree :: CompiledSpec -> GameTree -> String
-printTree spec gt = "---\n" ++ printNode spec 0 (Just (crumb gt)) (root gt) ++ "---"
+printTree spec gt = "---\n" ++ printNode spec (2*(gtBaseRank gt)) 0 (Just (crumb gt)) (root gt) ++ "---"
 
-printNode :: CompiledSpec -> Int -> Maybe [Int] -> SNode -> String
-printNode spec t cs n = tab t 
+printNode :: CompiledSpec -> Int -> Int -> Maybe [Int] -> SNode -> String
+printNode spec r t cs n = tab t 
 ---    ++ (if maybe False null cs then "*" else "")
+    ++ show (r `div` 2) ++ " "
     ++ printNodeType n 
-    ++ show (copy n) ++ " "
+---    ++ show (copy n) ++ " "
 ---    ++ show (nodeId n) ++ " "
 ---    ++ "(" ++ show (exprId n) ++ ") "
 ---    ++ show (isChanged n) ++ " "
     ++ printMove spec (snodeMove n) 
     ++ maybe "" ((" | " ++) . printMove spec) (getStateIfU n) 
-    ++ "\n" ++ concatMap (uncurry (printNode spec (t+1))) (nextC cs (children n))
+    ++ "\n" ++ concatMap (uncurry (printNode spec (r-1) (t+1))) (nextC cs (children n))
     where
         nextC Nothing ns        = zip (repeat Nothing) ns
         nextC (Just []) ns      = zip (repeat Nothing) ns

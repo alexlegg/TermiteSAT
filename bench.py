@@ -32,16 +32,16 @@ KVAL = {}
 for f in FAMILIES:
     KVAL[f] = {}
 
-###MAX_K_F = {"spi" : 19,
-###         "queue" : 13,
-###         "ide"  : 5,
-###         "uart"  : 13 }
+MAX_K_F = {"spi" : 19,
+         "queue" : 13,
+         "ide"  : 5,
+         "uart"  : 13 }
 
-MAX_K_F = {"spi" : 4,
-         "queue" : 4,
-         "ide"  : 4,
-         "uart"  : 4 
-         }
+###MAX_K_F = {"spi" : 4,
+###         "queue" : 4,
+###         "ide"  : 4,
+###         "uart"  : 4 
+###         }
 
 for k in range(1, MAX_K+1):
     KVAL["spi"][k] = (k*2) + 4

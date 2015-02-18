@@ -14,6 +14,7 @@ import Control.Monad.State
 import Control.Monad.Trans.Either
 import Control.Monad.Loops
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 
 import Expression.Compile
 import Expression.Expression
@@ -35,9 +36,10 @@ solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Ma
 solveAbstract player spec s gt = do
 ---    liftIO $ putStrLn ("Solve abstract for " ++ show player)
     pLearn <- printLearnedStates spec player
+    liftIO $ putStrLn "!!!!"
+    liftIO $ mapM putStrLn pLearn
+    liftIO $ putStrLn "!!!!"
     liftLog $ logSolve gt player []
-
----    liftIO $ putStrLn (show (gtMaxCopy gt))
 
     cand <- findCandidate player spec s gt
     liftLog $ logCandidate cand
@@ -85,35 +87,31 @@ findCandidate player spec s gt = do
 learnStates :: CompiledSpec -> Player -> GameTree -> SolverT ()
 learnStates spec player ogt = do
     let gt'         = gtRebase ogt
-    let (Just s)    = gtPrevState ogt
+    let (Just as)   = gtPrevState ogt
     let rank        = gtBaseRank gt'
+    let s           = map (\x -> setAssignmentRankCopy x rank 0) as
 
     fakes           <- liftE $ trueExpr
     (es, f, gt)     <- makeFml spec player fakes gt'
     core            <- minimiseCore gt (Just s) f
 
-    if isJust core
-    then do
+    when (isJust core) $ do
         c <- getConflicts (svars spec) (fromJust core) 0 rank
 
         ls <- get
         if player == Existential
         then do
-            put $ ls { winningUn = Map.alter (\x -> Just (fromMaybe [] x ++ [c])) rank (winningUn ls) }
+            put $ ls { winningUn = Map.alter (\x -> Just (Set.insert c (fromMaybe Set.empty x))) rank (winningUn ls) }
             liftLog $ logLosingState (printMove spec (Just c))
         else do
             put $ ls { winningEx = winningEx ls ++ [c] }
             liftLog $ logLosingState (printMove spec (Just c))
-    else do
-        -- There is the potential to learn the empty clause here but I'm ignoring it for simplicity
-        -- It almost never comes up anyway
-        return ()
 
 printLearnedStates spec player = do
     LearnedStates{..} <- get
     if player == Existential
     then do
-        return $ map (\(k, e) -> printMove spec (Just e)) (ungroupZip (Map.toList winningUn))
+        return $ map (\(k, e) -> printMove spec (Just e)) (ungroupZip (map (mapSnd Set.toList) (Map.toList winningUn)))
     else do
         return $ map (printMove spec . Just) winningEx
 
@@ -142,11 +140,14 @@ setMoves player spec model gt = do
 setMovesPlayer player spec model gt = do
     let vars    = if player == Existential then cont spec else ucont spec
     move        <- getVarsAtRank vars model (gtCopyId gt) (gtRank gt)
-    gt'         <- if player == Universal
-        then do
+
+    gt'         <- case player of
+        Universal   -> do
             state <- getVarsAtRank (svars spec) model (gtCopyId gt) (gtRank gt - 1)
             return $ gtSetMove (gtSetState gt state) move
-        else return $ gtSetMove gt move
+        Existential -> 
+            return $ gtSetMove gt move
+
     cs          <- mapM (setMovesOpp player spec model) (gtChildren gt')
     return      $ gtSetChildren gt' cs
 
@@ -156,8 +157,16 @@ setMovesOpp player spec model gt = do
             state <- getVarsAtRank (svars spec) model (gtCopyId (gtParent gt)) (gtRank gt - 1)
             return $ gtSetState gt state
         else return gt
+    let vars    = if opponent player == Existential then cont spec else ucont spec
+    move        <- getVarsAtRank vars model (gtCopyId gt) (gtRank gt)
+    let gtm     = gtMove gt
     cs          <- mapM (setMovesPlayer player spec model) (gtChildren gt')
     return      $ gtSetChildren gt' cs
+
+eqMoves xs ys = all id $ map (uncurry eqAssignments) $ zip xs ys
+    where
+    eqAssignments (Assignment s1 v1) (Assignment s2 v2) = s1 == s2 && eqVars v1 v2
+    eqVars v1 v2 = v1 {ecopy = 0} == v2 {ecopy = 0}
 
 getVarsAtRank vars model cpy rnk = do
     let vars' = map (\v -> v {rank = rnk, ecopy = cpy}) vars
