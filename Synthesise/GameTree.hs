@@ -46,6 +46,7 @@ module Synthesise.GameTree (
     , gtSetExprIds
     , projectMoves
     , appendChild
+    , gtAppendMove
     , appendNextMove
     , normaliseCopies
     ) where
@@ -540,6 +541,18 @@ append2Nodes mc mn m' s' n = (mc', mn+2, node)
 
 appendCopy mc c [] = (mc, c)
 appendCopy mc _ ns = (mc+1, mc+1)
+
+append2NodesAt mc mn [] m s n       = append2Nodes mc mn m s n
+append2NodesAt mc mn (c:cs) m s n   = (mc', mn', setChildren n (update n' c ns))
+    where
+        ns              = children n
+        (mc', mn', n')  = append2NodesAt mc mn cs m s (ns !! c)
+
+gtAppendMove :: GameTree -> Move -> GameTree
+gtAppendMove gt m = gt' { maxCopy = c, maxId = n, crumb = crumb gt ++ [0, 0] }
+    where
+        (c, n, r)   = append2NodesAt (maxCopy gt) (maxId gt) (crumb gt) m Nothing (root gt)
+        gt'         = setRoot gt r
 
 -- |Appends the first move in the list that is not already in the tree
 appendNextMove :: GameTree -> GameTree -> GameTree

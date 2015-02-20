@@ -1,12 +1,14 @@
 {-# LANGUAGE RecordWildCards #-}
 module Synthesise.Solver (
       checkRank
+    , checkStrategy
     , LearnedStates(..)
     , emptyLearnedStates
     ) where
 
 import Data.Maybe
 import Data.List
+import Data.Tree
 import Data.Tuple.Update
 import Data.Foldable (foldlM)
 import System.IO
@@ -32,13 +34,22 @@ checkRank spec rnk s = do
     r <- solveAbstract Universal spec s (gtNew Existential rnk)
     return (isNothing r)
 
+checkStrategy :: CompiledSpec -> Int -> Expression -> Tree [[Assignment]] -> SolverT Bool
+checkStrategy spec rnk s strat = do
+    liftIO $ putStrLn (drawTree (fmap show strat))
+    let gt = buildStratGameTree (gtNew Existential rnk) strat
+    liftIO $ putStrLn (printTree spec gt)
+    return False
+
+buildStratGameTree gt strat = foldl (\t c -> gtParent $ gtParent $ buildStratGameTree t c) gt' cs
+    where
+        gt' = gtAppendMove gt (Just (concat (rootLabel strat)))
+        cs  = subForest strat
+
 solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Maybe GameTree)
 solveAbstract player spec s gt = do
 ---    liftIO $ putStrLn ("Solve abstract for " ++ show player)
     pLearn <- printLearnedStates spec player
-    liftIO $ putStrLn "!!!!"
-    liftIO $ mapM putStrLn pLearn
-    liftIO $ putStrLn "!!!!"
     liftLog $ logSolve gt player []
 
     cand <- findCandidate player spec s gt

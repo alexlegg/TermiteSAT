@@ -24,6 +24,7 @@ module Expression.Expression (
     , flipSign
     , emptyManager
     , lookupVar
+    , lookupVarName
     , unrollExpression
     , setRank
     , setHatVar
@@ -48,6 +49,7 @@ module Expression.Expression (
     , setCopy
     , printExpression
     , makeAssignment
+    , makeAssignmentValue
     , assignmentToExpression
     , blockAssignment
     , assignmentToVar
@@ -592,6 +594,20 @@ setCopy cMap e = traverseExpression2 mc f e
 -- |Contructs an assignment from a model-var pair
 makeAssignment :: (Int, ExprVar) -> Assignment
 makeAssignment (m, v) = Assignment (if m > 0 then Pos else Neg) v
+
+lookupVarName :: MonadIO m => String -> ExpressionT m [ExprVar]
+lookupVarName name = do
+    cm <- getCopyManager 0
+    return $ catMaybes $ map snd $ IMap.toList $ IMap.map filterName (exprMap cm)
+    where
+        filterName (ELit (v@(ExprVar {varname   = n
+                                    , rank      = 1}))) = if n == name then Just v else Nothing
+        filterName _                                    = Nothing
+
+makeAssignmentValue :: [ExprVar] -> Int -> [Assignment]
+makeAssignmentValue vs val = zipWith Assignment signs vs
+    where
+        signs = makeSignsFromValue val (length vs)
 
 -- |Constructs an expression from assignments
 assignmentToExpression :: MonadIO m => Int -> [Assignment] -> ExpressionT m Expression

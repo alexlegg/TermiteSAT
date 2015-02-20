@@ -4,7 +4,9 @@ module Utils.Utils (
     , zipMaybe2
     , catMaybeFst
     , mapFst
+    , mapFstM
     , mapSnd
+    , mapSndM
     , concatMapM
     , mapUntilJust
     , mapMUntilJust
@@ -52,8 +54,18 @@ catMaybeFst ((Nothing, _):xs)   = catMaybeFst xs
 mapFst :: (a -> b) -> (a, c) -> (b, c)
 mapFst f (x,y) = (f x,y)
 
+mapFstM :: Monad m => (a -> m b) -> (a, c) -> m (b, c)
+mapFstM f (x,y) = do
+    x' <- f x
+    return (x', y)
+
 mapSnd :: (a -> b) -> (c, a) -> (c, b)
 mapSnd f (x,y) = (x,f y)
+
+mapSndM :: Monad m => (a -> m b) -> (c, a) -> m (c, b)
+mapSndM f (x,y) = do
+    y' <- f y
+    return (x, y')
 
 concatMapM :: Monad m => (a -> m [b]) -> [a] -> m [b]
 concatMapM f xs = (liftM concat) (mapM f xs)

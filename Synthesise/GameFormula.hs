@@ -20,6 +20,7 @@ import Synthesise.GameTree
 import Synthesise.SolverT
 import Utils.Logger
 import Utils.Utils
+import qualified Data.Vector.Storable as SV
 
 makeFml :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ([[Expression]], Expression, GameTree)
 makeFml spec player s ogt = do

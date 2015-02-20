@@ -1,11 +1,18 @@
 {-# LANGUAGE RecordWildCards #-}
 module Synthesise.Synthesise (
-      synthesise
+        synthesise
+      , playStrategy
     ) where
 
 import Control.Monad.State
 import Control.Monad.Trans.Either
+import Control.Monad.Loops
+import Data.Functor
 import Data.Maybe
+import Data.Tree
+import qualified Data.Traversable as T
+import Data.List.Split
+import System.IO
 
 import Utils.Logger
 import Utils.Utils
@@ -17,6 +24,31 @@ import Expression.AST
 
 synthesise :: Int -> ParsedSpec -> EitherT String (LoggerT IO) Bool
 synthesise k spec = evalStateT (synthesise' k spec) emptyManager
+
+synthesise' k spec = do
+    (init, cspec) <- loadFmls k spec
+    evalStateT (checkRank cspec k init) emptyLearnedStates
+
+playStrategy :: Int -> ParsedSpec -> FilePath -> EitherT String (LoggerT IO) Bool
+playStrategy k spec sFile = evalStateT (playStrategy' k spec sFile) emptyManager
+
+playStrategy' k spec sFile = do
+    strat           <- readStrategyFile k sFile
+    (init, cspec)   <- loadFmls k spec
+    vars            <- mapM (mapFstM (mapM (mapFstM lookupVarName))) strat
+    let varTree     = unfoldTree makeStrategy vars
+    let assTree     = fmap (\(vs, r) -> map (\(var, val) -> makeAssignmentValue (map (setVarRank (r+1)) var) val) vs) varTree
+
+    evalStateT (checkStrategy cspec k init assTree) emptyLearnedStates
+
+makeStrategy :: [(a, Int)] -> ((a, Int), [[(a, Int)]])
+makeStrategy ((x, r):xrs) = ((x, r), children xrs)
+    where
+        children []                 = []
+        children ((x', r'):xrs')    = if r' == r-1
+                                    then let (cs, ncs) = span (\(a, b) -> b < r-1) xrs' in
+                                        ((x', r') : cs) : children ncs
+                                    else []
 
 enumValidity vi@(VarInfo {enum = Nothing}) = return Nothing
 enumValidity vi@(VarInfo {enum = Just es}) = do
@@ -30,7 +62,7 @@ enumValidity vi@(VarInfo {enum = Just es}) = do
         c' <- setRank 1 c
         return (Just c')
 
-synthesise' k spec = do
+loadFmls k spec = do
     let ParsedSpec{..} = spec
 
     t' <- mapM compile trans
@@ -85,8 +117,7 @@ synthesise' k spec = do
     init <- setRank k init
 
     initManager
-    
-    evalStateT (checkRank cspec k init) emptyLearnedStates
+    return (init, cspec)
 
 iterateNM :: Monad m => Int -> (a -> m a) -> a -> m [a]
 iterateNM 0 f x = return [x]
@@ -95,3 +126,12 @@ iterateNM n f x = do
     xs <- iterateNM (n - 1) f fx
     return (x : xs)
 
+readStrategyFile k fn = do
+    liftIO $ withFile fn ReadMode $ \h -> do
+        whileM (fmap not $ hIsEOF h) $ do
+            line <- hGetLine h
+            let depth   = length (takeWhile (== ' ') line) `div` 4
+            let nvPairs = map readValue $ splitOn ", " (dropWhile (== ' ') line)
+            return (nvPairs, k-(depth+1))
+
+readValue s = let [l, r] = splitOn " = " s in (l, read r :: Int)
