@@ -549,10 +549,11 @@ append2NodesAt mc mn (c:cs) m s n   = (mc', mn', setChildren n (update n' c ns))
         (mc', mn', n')  = append2NodesAt mc mn cs m s (ns !! c)
 
 gtAppendMove :: GameTree -> Move -> GameTree
-gtAppendMove gt m = gt' { maxCopy = c, maxId = n, crumb = crumb gt ++ [0, 0] }
+gtAppendMove gt m = gt' { maxCopy = c, maxId = n, crumb = crumb gt ++ [newCrumb-1, 0] }
     where
         (c, n, r)   = append2NodesAt (maxCopy gt) (maxId gt) (crumb gt) m Nothing (root gt)
         gt'         = setRoot gt r
+        newCrumb    = length (children (followGTCrumb gt'))
 
 -- |Appends the first move in the list that is not already in the tree
 appendNextMove :: GameTree -> GameTree -> GameTree
@@ -602,9 +603,9 @@ printTree spec gt = "---\n" ++ printNode spec (2*(gtBaseRank gt)) 0 (Just (crumb
 printNode :: CompiledSpec -> Int -> Int -> Maybe [Int] -> SNode -> String
 printNode spec r t cs n = tab t 
 ---    ++ (if maybe False null cs then "*" else "")
-    ++ show (r `div` 2) ++ " "
+---    ++ show (r `div` 2) ++ " "
     ++ printNodeType n 
----    ++ show (copy n) ++ " "
+    ++ show (copy n) ++ " "
 ---    ++ show (nodeId n) ++ " "
 ---    ++ "(" ++ show (exprId n) ++ ") "
 ---    ++ show (isChanged n) ++ " "

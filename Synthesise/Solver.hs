@@ -17,6 +17,7 @@ import Control.Monad.Trans.Either
 import Control.Monad.Loops
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import Debug.Trace
 
 import Expression.Compile
 import Expression.Expression
@@ -36,15 +37,15 @@ checkRank spec rnk s = do
 
 checkStrategy :: CompiledSpec -> Int -> Expression -> Tree [[Assignment]] -> SolverT Bool
 checkStrategy spec rnk s strat = do
-    liftIO $ putStrLn (drawTree (fmap show strat))
     let gt = buildStratGameTree (gtNew Existential rnk) strat
+    liftIO $ putStrLn "Playing Strategy from file:"
     liftIO $ putStrLn (printTree spec gt)
-    return False
+    r <- solveAbstract Universal spec s gt
+    return (isNothing r)
 
-buildStratGameTree gt strat = foldl (\t c -> gtParent $ gtParent $ buildStratGameTree t c) gt' cs
+buildStratGameTree gt strat = gtParent $ gtParent $ foldl buildStratGameTree gt' (subForest strat)
     where
         gt' = gtAppendMove gt (Just (concat (rootLabel strat)))
-        cs  = subForest strat
 
 solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Maybe GameTree)
 solveAbstract player spec s gt = do

@@ -532,7 +532,7 @@ implicate :: MonadIO m => Expression -> Expression -> ExpressionT m Expression
 implicate = implicateC 0
 
 implicateC :: MonadIO m => Int -> Expression -> Expression -> ExpressionT m Expression
-implicateC c a b = addExpression 0 (EDisjunct [Var Neg (eindex a), Var Pos (eindex b)])
+implicateC c a b = addExpression c (EDisjunct [Var Neg (eindex a), Var Pos (eindex b)])
 
 implicateTemp :: MonadIO m => Int -> Expression -> Expression -> ExpressionT m Expression
 implicateTemp mc a b = addTempExpression mc (EDisjunct [Var Neg (eindex a), Var Pos (eindex b)])
