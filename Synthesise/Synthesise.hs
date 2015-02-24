@@ -33,13 +33,13 @@ playStrategy :: Int -> ParsedSpec -> FilePath -> EitherT String (LoggerT IO) Boo
 playStrategy k spec sFile = evalStateT (playStrategy' k spec sFile) emptyManager
 
 playStrategy' k spec sFile = do
-    strat           <- readStrategyFile k sFile
+    (player, strat) <- readStrategyFile k sFile
     (init, cspec)   <- loadFmls k spec
     vars            <- mapM (mapFstM (mapM (mapFstM lookupVarName))) strat
     let varTree     = unfoldTree makeStrategy vars
     let assTree     = fmap (\(vs, r) -> map (\(var, val) -> makeAssignmentValue (map (setVarRank (r+1)) var) val) vs) varTree
 
-    evalStateT (checkStrategy cspec k init assTree) emptyLearnedStates
+    evalStateT (checkStrategy cspec k init player assTree) emptyLearnedStates
 
 makeStrategy :: [(a, Int)] -> ((a, Int), [[(a, Int)]])
 makeStrategy ((x, r):xrs) = ((x, r), children xrs)
@@ -84,8 +84,8 @@ loadFmls k spec = do
     cev <- mapM enumValidity contVars
     uev <- mapM enumValidity ucontVars
 
-    vc' <- equate c_idle u
-    vc  <- conjunct (vc' : catMaybes cev)
+    vc <- equate c_idle u
+---    vc  <- conjunct (vc' : catMaybes cev)
     vu' <- implicate u =<< (negation u_idle)
     vu  <- conjunct (vu' : catMaybes uev)
 
@@ -96,10 +96,10 @@ loadFmls k spec = do
     vcs <- iterateNM (k-1) unrollExpression vc
     vus <- iterateNM (k-1) unrollExpression vu
 
-    ts <- zipWith3M (\t vc vu -> conjunct [t, vc, vu]) ts vcs vus
+    steps <- zipWith3M (\t vc vu -> conjunct [t, vc, vu]) ts vcs vus
 
     let cspec = CompiledSpec {
-          t     = ts
+          t     = steps
         , cg    = cgs
         , ug    = ugs
         , u     = us
@@ -128,10 +128,12 @@ iterateNM n f x = do
 
 readStrategyFile k fn = do
     liftIO $ withFile fn ReadMode $ \h -> do
-        whileM (fmap not $ hIsEOF h) $ do
+        player <- hGetLine h
+        strategy <- whileM (fmap not $ hIsEOF h) $ do
             line <- hGetLine h
             let depth   = length (takeWhile (== ' ') line) `div` 4
             let nvPairs = map readValue $ splitOn ", " (dropWhile (== ' ') line)
             return (nvPairs, k-(depth+1))
+        return (player, strategy)
 
 readValue s = let [l, r] = splitOn " = " s in (l, read r :: Int)

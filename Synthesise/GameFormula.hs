@@ -151,11 +151,10 @@ getBlockedStates Existential rank copy = do
     return $ concatMap (\r -> concatMap (blockAtRank winningUn r) [0..copy]) [0..rank]
     where
         blockAtRank block r c = concatMap (blockAllRanks r c) (maybe [] Set.toList (Map.lookup r block))
-        blockAllRanks r c as  = map (\x -> CBlocked x c as) [r..r]
+        blockAllRanks r c as  = map (\x -> CBlocked x c as) [0..r]
 getBlockedStates Universal rank copy = do
     LearnedStates{..} <- get
     return $ [CBlocked r c a | r <- [0..rank], c <- [0..copy], a <- winningEx]
-    return []
 
 blockExpression CBlocked{..} = do
     let as = map (\a -> setAssignmentRankCopy a cbRank cbCopy) cbAssignment
@@ -231,6 +230,8 @@ makeMove spec player CMove{..} = do
             ]
 
     mc <- liftE $ setCopy cMap move
+---    mcp <- liftE $ printExpression mc
+---    liftIO $ putStrLn mcp
     return (Just mc)
 
 makeHatMove c valid m = do

@@ -35,12 +35,16 @@ checkRank spec rnk s = do
     r <- solveAbstract Universal spec s (gtNew Existential rnk)
     return (isNothing r)
 
-checkStrategy :: CompiledSpec -> Int -> Expression -> Tree [[Assignment]] -> SolverT Bool
-checkStrategy spec rnk s strat = do
-    let gt = buildStratGameTree (gtNew Existential rnk) strat
+checkStrategy :: CompiledSpec -> Int -> Expression -> String -> Tree [[Assignment]] -> SolverT Bool
+checkStrategy spec rnk s player strat = do
+    let gt'     = if player == "universal"
+                    then head $ gtChildren (appendChild (gtNew Existential rnk))
+                    else gtNew Existential rnk
+    let gt      = buildStratGameTree gt' strat
+    let p       = if player == "universal" then Universal else Universal
+    r           <- solveAbstract p spec s gt
     liftIO $ putStrLn "Playing Strategy from file:"
     liftIO $ putStrLn (printTree spec gt)
-    r <- solveAbstract Universal spec s gt
     return (isNothing r)
 
 buildStratGameTree gt strat = gtParent $ gtParent $ foldl buildStratGameTree gt' (subForest strat)
