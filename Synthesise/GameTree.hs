@@ -47,6 +47,7 @@ module Synthesise.GameTree (
     , projectMoves
     , appendChild
     , gtAppendMove
+    , gtAppendMoveU
     , appendNextMove
     , normaliseCopies
     ) where
@@ -529,31 +530,47 @@ appendNode mc mn m' s' n = (mc', mn+1, n')
             [] -> setChildren n [newNode n mn c' m' s']
             cs -> setExprId (Nothing, Nothing) $ setChildren n (children n ++ [newNode n mn c' m' s'])
 
-append2Nodes :: Int -> Int -> Move -> Move -> SNode -> (Int, Int, SNode)
-append2Nodes mc mn m' s' n = (mc', mn+2, node)
+append2Nodes :: Int -> Int -> Move -> Move -> Move -> Move -> SNode -> (Int, Int, SNode)
+append2Nodes mc mn m1 s1 m2 s2 n = (mc', mn+2, setExprId (Nothing, Nothing) node)
     where
-        n'          = newNode n mn c' m' s'
-        n''         = setChildren n' ([newNode n' (mn + 1) c' Nothing Nothing])
+        n'          = case replace of
+            Just i  -> children n !! i
+            Nothing -> newNode n mn c' m1 s1
+        n''         = setChildren n' (children n' ++ [newNode n' (mn + 1) c' m2 s2])
         (mc', c')   = appendCopy mc (copy n) (children n)
-        node        = case children n of
-            [] -> setChildren n [n'']
-            cs -> setExprId (Nothing, Nothing) $ setChildren n (children n ++ [n''])
+        node        = case replace of
+            Just i  -> setChildren n (update n'' i (children n))
+            Nothing -> setChildren n (children n ++ [n''])
+        replace     = case children n of
+            [] -> Nothing
+            cs -> if m1 == Nothing then elemIndex Nothing (map snodeMove cs) else Nothing
+
+append2Nodes1st :: Int -> Int -> Move -> Move -> SNode -> (Int, Int, SNode)
+append2Nodes1st mc mn m1 s1 n = append2Nodes mc mn m1 s1 Nothing Nothing n
 
 appendCopy mc c [] = (mc, c)
 appendCopy mc _ ns = (mc+1, mc+1)
 
-append2NodesAt mc mn [] m s n       = append2Nodes mc mn m s n
-append2NodesAt mc mn (c:cs) m s n   = (mc', mn', setChildren n (update n' c ns))
+append2NodesAt mc mn [] m1 s1 m2 s2 n       = append2Nodes mc mn m1 s1 m2 s2 n
+append2NodesAt mc mn (c:cs) m1 s1 m2 s2  n  = (mc', mn', setChildren n (update n' c ns))
     where
         ns              = children n
-        (mc', mn', n')  = append2NodesAt mc mn cs m s (ns !! c)
+        (mc', mn', n')  = append2NodesAt mc mn cs m1 s1 m2 s2 (ns !! c)
 
 gtAppendMove :: GameTree -> Move -> GameTree
 gtAppendMove gt m = gt' { maxCopy = c, maxId = n, crumb = crumb gt ++ [newCrumb-1, 0] }
     where
-        (c, n, r)   = append2NodesAt (maxCopy gt) (maxId gt) (crumb gt) m Nothing (root gt)
+        (c, n, r)   = append2NodesAt (maxCopy gt) (maxId gt) (crumb gt) m Nothing Nothing Nothing (root gt)
         gt'         = setRoot gt r
         newCrumb    = length (children (followGTCrumb gt'))
+
+gtAppendMoveU :: GameTree -> Move -> GameTree
+gtAppendMoveU gt m = gt' { maxCopy = c, maxId = n, crumb = crumb gt ++ [newCrumb-1, newCrumb2-1] }
+    where
+        (c, n, r)   = append2NodesAt (maxCopy gt) (maxId gt) (crumb gt) Nothing Nothing m Nothing (root gt)
+        gt'         = setRoot gt r
+        newCrumb    = length (children (followGTCrumb gt'))
+        newCrumb2   = length (children (followCrumb (root gt') (crumb gt ++ [newCrumb-1])))
 
 -- |Appends the first move in the list that is not already in the tree
 appendNextMove :: GameTree -> GameTree -> GameTree
@@ -572,7 +589,7 @@ appendMove r mc mn cex n
         ns                  = children n
         moveEq x y          = equalModCopy (snodeMove x) (snodeMove y) || snodeMove y == Nothing
         (ms, nms)           = matchIndices moveEq (children cex) (children n)
-        addNew              = if r <= 1 then appendNode else append2Nodes
+        addNew              = if r <= 1 then appendNode else append2Nodes1st
         addMove (c, i, x) y = addNew c i (snodeMove y) (snodeState y) x
 
 equalModCopy (Just xs) (Just ys)    = all (uncurry aEqualModCopy) (zip xs ys)
@@ -605,7 +622,7 @@ printNode spec r t cs n = tab t
 ---    ++ (if maybe False null cs then "*" else "")
 ---    ++ show (r `div` 2) ++ " "
     ++ printNodeType n 
-    ++ show (copy n) ++ " "
+---    ++ show (copy n) ++ " "
 ---    ++ show (nodeId n) ++ " "
 ---    ++ "(" ++ show (exprId n) ++ ") "
 ---    ++ show (isChanged n) ++ " "

@@ -55,6 +55,7 @@ module Expression.Expression (
     , assignmentToVar
     , setVarRank
     , getCachedStepDimacs
+    , analyseManagers
     ) where
 
 import Control.Monad.State
@@ -208,8 +209,9 @@ initManager :: MonadIO m => ExpressionT m ()
 initManager = do
     m@ExprManager{..} <- get
     let (Just c0) = IMap.lookup 0 copyManagers
-    put $ m { mgrMaxIndices = 3 * nextIndex c0 }
-    setCopyManager 0 (c0 { maxIndex = maxIndex c0 * 3 })
+    put $ m { mgrMaxIndices = maxIndex c0 }
+    liftIO $ putStrLn (show (maxIndex c0))
+    setCopyManager 0 (c0 { maxIndex = (maxIndex c0 * 2) })
 
 -- |Call this function with the max copy you will use before constructing expressions
 initCopyMaps :: MonadIO m => Int -> ExpressionT m ()
@@ -670,3 +672,25 @@ makeVector e = case exprType e of
         (a:b:_) = exprChildren (exprType e)
         litc (Var Pos v) = fromIntegral v
         litc (Var Neg v) = fromIntegral (-v)
+
+analyseManagers :: MonadIO m => ExpressionT m ()
+analyseManagers = do
+    ExprManager{..} <- get
+    liftIO $ putStrLn $ "Total copy managers: " ++ show (IMap.size copyManagers)
+    forM [0..(IMap.size copyManagers)-1] analyseCopyManager
+    return ()
+
+analyseCopyManager :: MonadIO m => Int -> ExpressionT m ()
+analyseCopyManager i = do
+    CopyManager{..} <- getCopyManager i
+    liftIO $ putStrLn $ "Manager " ++ (show i)
+    liftIO $ putStrLn $ "  Next: " ++ (show nextIndex)
+    liftIO $ putStrLn $ "  Max: " ++ (show maxIndex)
+    liftIO $ putStrLn $ "  Unused: " ++ (show (maxIndex - nextIndex))
+
+---      copyManagers  :: IMap.IntMap CopyManager
+---    , tempMaxIndex  :: Maybe ExprId
+---    , tempExprs     :: IMap.IntMap Expr
+---    , tempDepMap    :: IMap.IntMap ISet.IntSet
+---    , variables     :: Set.Set ExprVar
+---    , mgrMaxIndices :: Int

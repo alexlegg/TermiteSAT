@@ -33,23 +33,22 @@ import Utils.Utils
 checkRank :: CompiledSpec -> Int -> Expression -> SolverT Bool
 checkRank spec rnk s = do
     r <- solveAbstract Universal spec s (gtNew Existential rnk)
+    liftE $ analyseManagers
     return (isNothing r)
 
 checkStrategy :: CompiledSpec -> Int -> Expression -> String -> Tree [[Assignment]] -> SolverT Bool
 checkStrategy spec rnk s player strat = do
-    let gt'     = if player == "universal"
-                    then head $ gtChildren (appendChild (gtNew Existential rnk))
-                    else gtNew Existential rnk
-    let gt      = buildStratGameTree gt' strat
-    let p       = if player == "universal" then Universal else Universal
-    r           <- solveAbstract p spec s gt
+    let p       = if player == "universal" then Universal else Existential
+    let gt      = buildStratGameTree p (gtNew Existential rnk) strat
+    r           <- solveAbstract Universal spec s gt
     liftIO $ putStrLn "Playing Strategy from file:"
     liftIO $ putStrLn (printTree spec gt)
     return (isNothing r)
 
-buildStratGameTree gt strat = gtParent $ gtParent $ foldl buildStratGameTree gt' (subForest strat)
+buildStratGameTree player gt strat = gtParent $ gtParent $ foldl (buildStratGameTree player) gt' (subForest strat)
     where
-        gt' = gtAppendMove gt (Just (concat (rootLabel strat)))
+        append  = if player == Existential then gtAppendMove else gtAppendMoveU
+        gt'     = append gt (Just (concat (rootLabel strat)))
 
 solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Maybe GameTree)
 solveAbstract player spec s gt = do
@@ -93,6 +92,7 @@ findCandidate player spec s gt = do
     if satisfiable res
     then do
         (Just m)    <- shortenStrategy player gt' f (model res) es
+---        let (Just m) = model res
         gt'         <- setMoves player spec m (gtRoot gt')
         return (Just gt')
     else do

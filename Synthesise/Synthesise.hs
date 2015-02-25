@@ -89,6 +89,9 @@ loadFmls k spec = do
     vu' <- implicate u =<< (negation u_idle)
     vu  <- conjunct (vu' : catMaybes uev)
 
+    uevp <- mapM printExpression (catMaybes uev)
+    liftIO $ mapM putStrLn uevp
+
     ts  <- iterateNM (k-1) unrollExpression t
     cgs <- iterateNM (k-1) unrollExpression cg
     ugs <- iterateNM (k-1) unrollExpression ug
