@@ -209,9 +209,8 @@ initManager :: MonadIO m => ExpressionT m ()
 initManager = do
     m@ExprManager{..} <- get
     let (Just c0) = IMap.lookup 0 copyManagers
-    put $ m { mgrMaxIndices = maxIndex c0 }
-    liftIO $ putStrLn (show (maxIndex c0))
-    setCopyManager 0 (c0 { maxIndex = (maxIndex c0 * 2) })
+    put $ m { mgrMaxIndices = 1500 }
+    setCopyManager 0 (c0 { maxIndex = (maxIndex c0 * 2) - 2000 })
 
 -- |Call this function with the max copy you will use before constructing expressions
 initCopyMaps :: MonadIO m => Int -> ExpressionT m ()
@@ -238,9 +237,12 @@ getCopyManager c = do
             return cm
             
 fillCopyManagers c = do
+    liftIO $ putStrLn "fillCopyManager"
     prevIndex <- if c == 0
         then return 3
         else fillCopyManagers (c-1)
+
+    liftIO $ putStrLn (show prevIndex)
 
     mgr@ExprManager{..} <- get
     case (IMap.lookup c copyManagers) of
@@ -289,26 +291,29 @@ insertExpression _ (ELit v) = do
 insertExpression c e        = insertExpression' c e
 
 insertExpression' c e = do
-    cm@CopyManager{..} <- getCopyManager c
-    let i = nextIndex
+    cm' <- getCopyManager c
 
-    when (i >= maxIndex) $ do
+    when (nextIndex cm' >= maxIndex cm') $ do
         --Throw away all copy managers > c
+        liftIO $ putStrLn "overflow"
         mgr <- get
         let maxCopies = IMap.size (copyManagers mgr)
         when (c+1 < maxCopies) $ liftIO $ putStrLn ("Flushing managers: " ++ show (c+1) ++ " - " ++ show maxCopies)
         let copyManagers' = IMap.filterWithKey (\k _ -> k <= c) (copyManagers mgr)
-        put $ mgr { copyManagers = copyManagers' }
-        setCopyManager c $ cm { maxIndex = maxIndex + (mgrMaxIndices mgr)}
+        when (copyManagers mgr /= copyManagers') $ do
+            put $ mgr { copyManagers = copyManagers' }
+        setCopyManager c $ cm' { maxIndex = (maxIndex cm') + (mgrMaxIndices mgr)}
         clearTempExpressions
+        return ()
 
-    cm@CopyManager{..} <- getCopyManager c
-    deps <- childDependencies c e
+    cm      <- getCopyManager c
+    deps    <- childDependencies c e
+    let i   = nextIndex cm
     setCopyManager c $ cm {
-        nextIndex   = nextIndex+1,
-        exprMap     = IMap.insert i e exprMap,
-        depMap      = IMap.insert i (ISet.insert i deps) depMap,
-        indexMap    = Map.insert e i indexMap
+        nextIndex   = i + 1,
+        exprMap     = IMap.insert i e (exprMap cm),
+        depMap      = IMap.insert i (ISet.insert i deps) (depMap cm),
+        indexMap    = Map.insert e i (indexMap cm)
     }
 
     return $ Expression { eindex = i, expr = e }
