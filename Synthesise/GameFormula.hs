@@ -37,28 +37,36 @@ makeFml spec player s ogt = do
     let trans   = map Construct $ if null cs
                     then getTransitions rank root (Nothing, Nothing, Nothing)
                     else concatMap (getTransitions rank root) cs
+    let goals   = map Construct $ getGoals rank maxCopy player
     let moves   = map Construct $ concatMap (getMoves rank root) cs
     block'      <- getBlockedStates player rank maxCopy
     let block   = map Construct block'
 
     -- Construct everything in order
-    exprs       <- mapM (construct spec player (gtFirstPlayer gt)) (sortConstructibles (trans ++ moves ++ block))
+    exprs       <- mapM (construct spec player (gtFirstPlayer gt)) (sortConstructibles (trans ++ moves ++ goals ++ block))
 
     -- Construct init expression
     initMove    <- liftE $ moveToExpression (gtMaxCopy gt) (gtMove root)
     let s'      = s : catMaybes [initMove]
 
+    liftIO $ putStrLn "join"
     -- Join transitions into steps and finally fml
     (es, fml)   <- case gtStepChildren root of
         []  -> do
+            liftIO $ putStrLn "case 1"
             (es, step)  <- leafToBottom spec 0 maxCopy player rank
             return ([(Just (gtNodeId root), step) : es], step)
         scs -> do
+            liftIO $ putStrLn "case 2"
             steps       <- mapM (makeSteps rank spec player root) scs
+            liftIO $ putStrLn "steps done"
             step        <- liftE $ conjunctTemp maxCopy (map snd steps)
+            liftIO $ putStrLn "last step"
             return (map ((Just (gtNodeId root), step) :) (concatMap fst steps), step)
 
+    liftIO $ putStrLn "last conjunct"
     fml'        <- liftE $ conjunctTemp maxCopy (fml : s' ++ catMaybes exprs)
+    liftIO $ putStrLn "end join"
 
     -- Gametree and expression bookkeeping
     let node2expr   = concatMap catMaybeFst es
@@ -106,6 +114,16 @@ instance Constructible CBlocked where
     sortIndex CBlocked{..}  = cbCopy
     construct _ _ _         = blockExpression
 
+data CGoal = CGoal {
+      cgRank        :: Int
+    , cgCopy        :: Int
+    , cgPlayer      :: Player
+    } deriving (Show, Eq)
+
+instance Constructible CGoal where
+    sortIndex CGoal{..} = cgCopy
+    construct s p f     = makeGoal s p
+
 data Construct = forall a . (Constructible a, Show a) => Construct a
 
 instance Show Construct where
@@ -145,6 +163,18 @@ sortTransitions :: [(Int, Int, Int, Int)] -> [(Int, Int, Int, Int)]
 sortTransitions = sortBy f
     where f (_, x1, y1, z1) (_, x2, y2, z2) = compare (maximum [x1, y1, z1]) (maximum [x2, y2, z2])
 
+getGoals :: Int -> Int -> Player -> [CGoal]
+getGoals rank mc p = map (\(r, c) -> CGoal r c p) [(r, c) | r <- [0..rank], c <- [0..mc]]
+
+makeGoal :: CompiledSpec -> Player -> CGoal -> SolverT (Maybe Expression)
+makeGoal spec player CGoal{..} = do
+    let g   = goalFor player spec 0
+    cached  <- liftE $ getCached cgRank cgCopy cgCopy cgCopy (exprIndex g)
+    when (isNothing cached) $ do
+        cg      <- liftE $ setCopy (Map.singleton (StateVar, cgRank) cgCopy) g
+        liftE $ cacheStep cgRank cgCopy cgCopy cgCopy (exprIndex cg) cg
+    return Nothing
+
 getBlockedStates :: Player -> Int -> Int -> SolverT [CBlocked]
 getBlockedStates Existential rank copy = do
     LearnedStates{..} <- get
@@ -158,15 +188,17 @@ getBlockedStates Universal rank copy = do
 
 blockExpression CBlocked{..} = do
     let as = map (\a -> setAssignmentRankCopy a cbRank cbCopy) cbAssignment
-    cached <- liftE $ getCachedMove cbCopy (BlockedState, as)
-    case cached of
-        (Just b)    -> return (Just b)
-        Nothing     -> do
-            b <- liftE $ blockAssignment cbCopy as
+    b <- liftE $ blockAssignment cbCopy as
+    return (Just b)
+---    cached <- liftE $ getCachedMove cbCopy (BlockedState, as)
+---    case cached of
+---        (Just b)    -> return (Just b)
+---        Nothing     -> do
+---            b <- liftE $ blockAssignment cbCopy as
 ---            be <- liftE $ printExpression b
 ---            liftIO $ putStrLn be
 ---            liftE $ cacheMove cbCopy (BlockedState, as) b
-            return (Just b)
+---            return (Just b)
 
 makeTransition :: CompiledSpec -> Player -> CTransition -> SolverT (Maybe Expression)
 makeTransition spec first CTransition{..} = do
@@ -191,7 +223,9 @@ makeTransition spec first CTransition{..} = do
             liftE $ cacheStep ctRank ctParentCopy ctCopy1 ctCopy2 (exprIndex (t !! i)) step
 
         return Nothing
-    else return Nothing
+    else do
+        liftIO $ putStrLn $ "need goal for: " ++ show (ctParentCopy, ctCopy1, ctCopy2)
+        return Nothing
 
 makeSteps :: Int -> CompiledSpec -> Player -> GameTree -> GameTree -> SolverT ([[(Maybe Int, Expression)]], Expression)
 makeSteps rank spec player gt c = do
@@ -263,19 +297,6 @@ singleStep spec rank maxCopy player parentCopy copy1 copy2 next = do
 
     liftE $ conjunctTemp maxCopy [fromJust step, goal]
 
----makeBlockingExpressions :: Player -> Int -> Int -> SolverT [Expression]
----makeBlockingExpressions player rank copy = do
----    LearnedStates{..} <- get
----    if player == Existential
----        then do
----            concatMapM (makeBlockEx winningUn) [(r, c) | r <- [0..rank], c <- [0..copy]]
----        else do
----            concatMapM (\(r, c) -> blockExpression winningEx r c) [(r, c) | r <- [0..rank], c <- [0..copy]]
-
----makeBlockEx blocking (rank, copy) = do
----    let as = fromMaybe [] (Map.lookup rank blocking)
----    blockExpression as rank copy
-
 moveToExpression mc Nothing    = return Nothing
 moveToExpression mc (Just a)   = do
     e <- assignmentToExpression mc a
@@ -291,8 +312,13 @@ leafToBottom spec copy maxCopy player rank = do
 
     if rank == 0
     then do
-        let g = goalFor player spec 0
+        let g   = goalFor player spec 0
+        cg      <- liftE $ getCached rank copy copy copy (exprIndex g)
+---        when (isNothing cg) $ throwError $ "Goal was not created in advance: " ++ show (rank, copy)
+        liftIO $ putStrLn "setCopy 1"
+        liftIO $ putStrLn (show g)
         cg  <- liftE $ setCopy (Map.singleton (StateVar, rank) copy) g
+        liftIO $ putStrLn "setCopy 2"
         return ([], cg)
     else do
         (es, next) <- leafToBottom spec copy maxCopy player (rank - 1)

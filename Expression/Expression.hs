@@ -227,17 +227,16 @@ initCopyMap c = do
 
 getCopyManager :: MonadIO m => Int -> ExpressionT m CopyManager
 getCopyManager c = do
-    ExprManager{..} <- get
-    case (IMap.lookup c copyManagers) of
+    mgr <- get
+    case (IMap.lookup c (copyManagers mgr)) of
         Just cm -> return cm
         Nothing -> do
             fillCopyManagers c
-            ExprManager{..} <- get
-            let (Just cm) = IMap.lookup c copyManagers
+            mgr' <- get
+            let (Just cm) = IMap.lookup c (copyManagers mgr')
             return cm
             
 fillCopyManagers c = do
-    liftIO $ putStrLn "fillCopyManager"
     prevIndex <- if c == 0
         then return 3
         else fillCopyManagers (c-1)
@@ -246,7 +245,8 @@ fillCopyManagers c = do
 
     mgr@ExprManager{..} <- get
     case (IMap.lookup c copyManagers) of
-        Just cm -> return (maxIndex cm)
+        Just cm -> do
+            return (maxIndex cm)
         Nothing -> do
             let newManager = emptyCopyManager prevIndex mgrMaxIndices
             put $ mgr { copyManagers = IMap.insert c newManager copyManagers }
@@ -309,6 +309,14 @@ insertExpression' c e = do
     cm      <- getCopyManager c
     deps    <- childDependencies c e
     let i   = nextIndex cm
+    test <- lookupExpressionAndCopy c i
+    when (isJust test) $ do
+        cm <- getCopyManager c
+        liftIO $ putStrLn (show (maxIndex cm))
+        liftIO $ putStrLn (show c)
+        liftIO $ putStrLn (show test)
+        throwError "expression already exists"
+    cm      <- getCopyManager c
     setCopyManager c $ cm {
         nextIndex   = i + 1,
         exprMap     = IMap.insert i e (exprMap cm),
@@ -345,8 +353,8 @@ addExpression c e       = do
 
 addTempExpression :: MonadIO m => Int -> Expr -> ExpressionT m Expression
 addTempExpression mc e = do
-    m@ExprManager{..} <- get
     cm <- getCopyManager mc
+    m@ExprManager{..} <- get
     let i = fromMaybe (nextIndex cm + 1) tempMaxIndex
     deps <- childDependencies mc e
 
@@ -358,14 +366,13 @@ addTempExpression mc e = do
     return $ Expression { eindex = i, expr = e }
 
 childDependencies mc e = do
-    ExprManager{..} <- get
     deps <- mapM (getDependencies mc . var) (children e)
     return $ ISet.unions deps
 
 lookupExpression :: MonadIO m => Int -> Int -> ExpressionT m (Maybe Expression)
 lookupExpression mc i = do
-    ExprManager{..} <- get
     e <- mapMUntilJust (\c -> lookupExpressionC c i) [0..mc]
+    ExprManager{..} <- get
     if isNothing e
     then case (IMap.lookup i tempExprs) of
         Nothing     -> return Nothing
@@ -388,8 +395,8 @@ lookupExpressionC' c i = do
 
 lookupExpressionAndCopy :: MonadIO m => Int -> Int -> ExpressionT m (Maybe (Expression, Int))
 lookupExpressionAndCopy mc i = do
-    ExprManager{..} <- get
     e <- mapMUntilJust (\c -> lookupExpressionC' c i) [0..mc]
+    ExprManager{..} <- get
     if isNothing e
     then case (IMap.lookup i tempExprs) of
         Nothing     -> return Nothing
@@ -398,8 +405,8 @@ lookupExpressionAndCopy mc i = do
 
 lookupVar :: MonadIO m => ExprVar -> ExpressionT m (Maybe Expression)
 lookupVar v = do
-    ExprManager{..} <- get
-    let maxCopies = IMap.size copyManagers
+    mgr <- get
+    let maxCopies = IMap.size (copyManagers mgr)
     vs <- mapM (\c -> lookupVarC c v) [0..(maxCopies-1)]
     let vsj = catMaybes vs
     case vsj of
@@ -421,8 +428,8 @@ getDependenciesC c i = do
 
 getDependencies :: MonadIO m => Int -> Int -> ExpressionT m ISet.IntSet
 getDependencies mc i = do
-    ExprManager{..} <- get
     deps <- mapMUntilJust (\c -> getDependenciesC c i) [0..mc]
+    ExprManager{..} <- get
     if isNothing deps
         then return $ fromMaybe ISet.empty (IMap.lookup i tempDepMap)
         else return $ fromMaybe ISet.empty deps
