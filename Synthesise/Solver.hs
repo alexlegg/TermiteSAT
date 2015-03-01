@@ -86,25 +86,15 @@ refinementLoop player spec s (Just cand) origGT absGT = do
 
 findCandidate :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Maybe GameTree)
 findCandidate player spec s gt = do
-    liftIO $ putStrLn "makeFml1"
     (es, f, gt')    <- makeFml spec player s gt
     res             <- satSolve gt' Nothing f
 
     if satisfiable res
     then do
         (Just m)    <- shortenStrategy player gt' f (model res) es
----        let (Just m) = model res
         gt'         <- setMoves player spec m (gtRoot gt')
         return (Just gt')
     else do
-        --TEMP CODE
-        liftIO $ putStrLn "makeFml2"
-        (es1, f1, gt1)  <- makeFml spec player s gt
-        res1            <- satSolve gt1 Nothing f1
-        when (res /= res1) $ do
-            liftIO $ putStrLn (show (gt' == gt1))
-            liftIO $ putStrLn (show (zipWith (zipWith (\x y -> (exprIndex x, exprIndex y))) es es1))
-        --TEMP CODE
         mapM_ (learnStates spec player) (gtUnsetNodes gt)
 ---        computeCounterExample spec player gt
         return Nothing

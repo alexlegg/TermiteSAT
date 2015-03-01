@@ -49,24 +49,17 @@ makeFml spec player s ogt = do
     initMove    <- liftE $ moveToExpression (gtMaxCopy gt) (gtMove root)
     let s'      = s : catMaybes [initMove]
 
-    liftIO $ putStrLn "join"
     -- Join transitions into steps and finally fml
     (es, fml)   <- case gtStepChildren root of
         []  -> do
-            liftIO $ putStrLn "case 1"
             (es, step)  <- leafToBottom spec 0 maxCopy player rank
             return ([(Just (gtNodeId root), step) : es], step)
         scs -> do
-            liftIO $ putStrLn "case 2"
             steps       <- mapM (makeSteps rank spec player root) scs
-            liftIO $ putStrLn "steps done"
             step        <- liftE $ conjunctTemp maxCopy (map snd steps)
-            liftIO $ putStrLn "last step"
             return (map ((Just (gtNodeId root), step) :) (concatMap fst steps), step)
 
-    liftIO $ putStrLn "last conjunct"
     fml'        <- liftE $ conjunctTemp maxCopy (fml : s' ++ catMaybes exprs)
-    liftIO $ putStrLn "end join"
 
     -- Gametree and expression bookkeeping
     let node2expr   = concatMap catMaybeFst es
@@ -164,15 +157,15 @@ sortTransitions = sortBy f
     where f (_, x1, y1, z1) (_, x2, y2, z2) = compare (maximum [x1, y1, z1]) (maximum [x2, y2, z2])
 
 getGoals :: Int -> Int -> Player -> [CGoal]
-getGoals rank mc p = map (\(r, c) -> CGoal r c p) [(r, c) | r <- [0..rank], c <- [0..mc]]
+getGoals rank mc p = map (\(r, c) -> CGoal r c p) [(r, c) | r <- [0..rank-1], c <- [0..mc]]
 
 makeGoal :: CompiledSpec -> Player -> CGoal -> SolverT (Maybe Expression)
 makeGoal spec player CGoal{..} = do
-    let g   = goalFor player spec 0
+    let g   = goalFor player spec cgRank
     cached  <- liftE $ getCached cgRank cgCopy cgCopy cgCopy (exprIndex g)
     when (isNothing cached) $ do
         cg      <- liftE $ setCopy (Map.singleton (StateVar, cgRank) cgCopy) g
-        liftE $ cacheStep cgRank cgCopy cgCopy cgCopy (exprIndex cg) cg
+        liftE $ cacheStep cgRank cgCopy cgCopy cgCopy (exprIndex g) cg
     return Nothing
 
 getBlockedStates :: Player -> Int -> Int -> SolverT [CBlocked]
@@ -224,7 +217,6 @@ makeTransition spec first CTransition{..} = do
 
         return Nothing
     else do
-        liftIO $ putStrLn $ "need goal for: " ++ show (ctParentCopy, ctCopy1, ctCopy2)
         return Nothing
 
 makeSteps :: Int -> CompiledSpec -> Player -> GameTree -> GameTree -> SolverT ([[(Maybe Int, Expression)]], Expression)
@@ -264,8 +256,6 @@ makeMove spec player CMove{..} = do
             ]
 
     mc <- liftE $ setCopy cMap move
----    mcp <- liftE $ printExpression mc
----    liftIO $ putStrLn mcp
     return (Just mc)
 
 makeHatMove c valid m = do
@@ -279,18 +269,13 @@ singleStep spec rank maxCopy player parentCopy copy1 copy2 next = do
     let i                   = rank - 1
     let CompiledSpec{..}    = spec
 
-    let goal = goalFor player spec i
-
----    goalc <- liftE $ getCached rank parentCopy copy1 copy2 (exprIndex goal)
----    goal <- case goalc of
----        (Just g)    -> return g
----        Nothing     -> liftE $ setCopy (Map.singleton (StateVar, (rank-1)) copy2) goal
-
-    goal <- liftE $ setCopy (Map.singleton (StateVar, (rank-1)) copy2) goal
+    let goal    = goalFor player spec i
+    cg          <- liftE $ getCached i copy2 copy2 copy2 (exprIndex goal)
+    when (isNothing cg) $ throwError $ "Goal was not created in advance: " ++ show (i, copy2)
 
     goal <- if player == Existential
-        then liftE $ disjunctTemp maxCopy [next, goal]
-        else liftE $ conjunctTemp maxCopy [next, goal]
+        then liftE $ disjunctTemp maxCopy [next, fromJust cg]
+        else liftE $ conjunctTemp maxCopy [next, fromJust cg]
 
     step <- liftE $ getCached rank parentCopy copy1 copy2 (exprIndex (t !! i))
     when (isNothing step) $ throwError $ "Transition was not created in advance: " ++ show (rank, parentCopy, copy1, copy2)
@@ -314,12 +299,8 @@ leafToBottom spec copy maxCopy player rank = do
     then do
         let g   = goalFor player spec 0
         cg      <- liftE $ getCached rank copy copy copy (exprIndex g)
----        when (isNothing cg) $ throwError $ "Goal was not created in advance: " ++ show (rank, copy)
-        liftIO $ putStrLn "setCopy 1"
-        liftIO $ putStrLn (show g)
-        cg  <- liftE $ setCopy (Map.singleton (StateVar, rank) copy) g
-        liftIO $ putStrLn "setCopy 2"
-        return ([], cg)
+        when (isNothing cg) $ throwError $ "Goal was not created in advance: " ++ show (rank, copy)
+        return ([], fromJust cg)
     else do
         (es, next) <- leafToBottom spec copy maxCopy player (rank - 1)
 

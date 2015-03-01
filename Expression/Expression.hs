@@ -241,8 +241,6 @@ fillCopyManagers c = do
         then return 3
         else fillCopyManagers (c-1)
 
-    liftIO $ putStrLn (show prevIndex)
-
     mgr@ExprManager{..} <- get
     case (IMap.lookup c copyManagers) of
         Just cm -> do
@@ -295,7 +293,6 @@ insertExpression' c e = do
 
     when (nextIndex cm' >= maxIndex cm') $ do
         --Throw away all copy managers > c
-        liftIO $ putStrLn "overflow"
         mgr <- get
         let maxCopies = IMap.size (copyManagers mgr)
         when (c+1 < maxCopies) $ liftIO $ putStrLn ("Flushing managers: " ++ show (c+1) ++ " - " ++ show maxCopies)
@@ -309,14 +306,6 @@ insertExpression' c e = do
     cm      <- getCopyManager c
     deps    <- childDependencies c e
     let i   = nextIndex cm
-    test <- lookupExpressionAndCopy c i
-    when (isJust test) $ do
-        cm <- getCopyManager c
-        liftIO $ putStrLn (show (maxIndex cm))
-        liftIO $ putStrLn (show c)
-        liftIO $ putStrLn (show test)
-        throwError "expression already exists"
-    cm      <- getCopyManager c
     setCopyManager c $ cm {
         nextIndex   = i + 1,
         exprMap     = IMap.insert i e (exprMap cm),
@@ -699,10 +688,3 @@ analyseCopyManager i = do
     liftIO $ putStrLn $ "  Next: " ++ (show nextIndex)
     liftIO $ putStrLn $ "  Max: " ++ (show maxIndex)
     liftIO $ putStrLn $ "  Unused: " ++ (show (maxIndex - nextIndex))
-
----      copyManagers  :: IMap.IntMap CopyManager
----    , tempMaxIndex  :: Maybe ExprId
----    , tempExprs     :: IMap.IntMap Expr
----    , tempDepMap    :: IMap.IntMap ISet.IntSet
----    , variables     :: Set.Set ExprVar
----    , mgrMaxIndices :: Int
