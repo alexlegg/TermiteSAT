@@ -209,8 +209,8 @@ initManager :: MonadIO m => ExpressionT m ()
 initManager = do
     m@ExprManager{..} <- get
     let (Just c0) = IMap.lookup 0 copyManagers
-    put $ m { mgrMaxIndices = 1500 }
-    setCopyManager 0 (c0 { maxIndex = (maxIndex c0 * 2) - 2000 })
+    put $ m { mgrMaxIndices = 100 }
+    setCopyManager 0 (c0 { maxIndex = (maxIndex c0 * 2) })
 
 -- |Call this function with the max copy you will use before constructing expressions
 initCopyMaps :: MonadIO m => Int -> ExpressionT m ()
