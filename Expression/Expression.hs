@@ -156,6 +156,7 @@ data ExprManager = ExprManager {
     , tempMaxIndex  :: Maybe ExprId
     , tempExprs     :: IMap.IntMap Expr
     , tempDepMap    :: IMap.IntMap ISet.IntSet
+    , tempParentMap :: IMap.IntMap ISet.IntSet
     , variables     :: Set.Set ExprVar
     , mgrMaxIndices :: Int
 } deriving (Eq)
@@ -165,6 +166,7 @@ data CopyManager = CopyManager {
     , nextIndex     :: ExprId
     , exprMap       :: IMap.IntMap Expr
     , depMap        :: IMap.IntMap ISet.IntSet
+    , parentMap     :: IMap.IntMap ISet.IntSet
     , indexMap      :: Map.Map Expr ExprId
     , stepCache     :: Map.Map (Int, Int, Int, Int, Int) ExprId
     , moveCache     :: Map.Map (MoveCacheType, [Assignment]) ExprId
@@ -184,6 +186,7 @@ emptyManager = ExprManager {
     , tempMaxIndex  = Nothing
     , tempExprs     = IMap.empty
     , tempDepMap    = IMap.empty
+    , tempParentMap = IMap.empty
     , variables     = Set.empty
     , mgrMaxIndices = 200
 }
@@ -193,6 +196,7 @@ emptyCopyManager mi incr = CopyManager {
     , nextIndex     = mi + 1
     , exprMap       = IMap.empty
     , depMap        = IMap.empty
+    , parentMap     = IMap.empty
     , indexMap      = Map.empty
     , stepCache     = Map.empty
     , moveCache     = Map.empty
@@ -310,8 +314,10 @@ insertExpression' c e = do
         nextIndex   = i + 1,
         exprMap     = IMap.insert i e (exprMap cm),
         depMap      = IMap.insert i (ISet.insert i deps) (depMap cm),
+        parentMap   = IMap.insert i ISet.empty (parentMap cm),
         indexMap    = Map.insert e i (indexMap cm)
     }
+    mapM (insertParent c i) (map var (children e))
 
     return $ Expression { eindex = i, expr = e }
 
@@ -350,7 +356,8 @@ addTempExpression mc e = do
     put m {
         tempMaxIndex    = Just (i+1),
         tempExprs       = IMap.insert i e tempExprs,
-        tempDepMap      = IMap.insert i (ISet.insert i deps) tempDepMap
+        tempDepMap      = IMap.insert i (ISet.insert i deps) tempDepMap,
+        tempParentMap   = IMap.insert i (ISet.empty) $ foldl (\m (Var _ x) -> IMap.adjust (ISet.insert i) x m) tempParentMap (children e)
     }
     return $ Expression { eindex = i, expr = e }
 
@@ -423,19 +430,36 @@ getDependencies mc i = do
         then return $ fromMaybe ISet.empty (IMap.lookup i tempDepMap)
         else return $ fromMaybe ISet.empty deps
 
----traverseExpression :: MonadIO m => (ExprVar -> ExprVar) -> Expression -> ExpressionT m Expression
----traverseExpression f e = do
----    let signs = map sign (children (expr e))
----    cs <- getChildren e
----    cs' <- mapM (traverseExpression f) cs
----    let cs'' = map (uncurry Var) (zip signs (map eindex cs'))
----    addExpression 0 (applyToVars f (expr e) cs'')
----    where
----        applyToVars f (ELit v) _ = ELit (f v)
----        applyToVars f x ncs      = setChildren x ncs
+getParentsC :: MonadIO m => Int -> Int -> ExpressionT m (Maybe ISet.IntSet)
+getParentsC c i = do
+    CopyManager{..} <- getCopyManager c
+    return $ IMap.lookup i parentMap
 
-traverseExpression2 :: MonadIO m => Int -> (ExprVar -> ExprVar) -> Expression -> ExpressionT m Expression
-traverseExpression2 mc f e = do
+getParents :: MonadIO m => Int -> Int -> ExpressionT m ISet.IntSet
+getParents mc i = do
+    r <- mapMUntilJust (\c -> getParentsC c i) [0..mc]
+    case r of
+        Just p  -> return p
+        Nothing -> do
+            ExprManager{..} <- get
+            return $ fromMaybe ISet.empty (IMap.lookup i tempParentMap)
+
+insertParentC :: MonadIO m => Int -> Int -> Int -> ExpressionT m (Maybe Int)
+insertParentC i p c = do
+    cm <- getCopyManager c
+    if (isJust (IMap.lookup i (parentMap cm)))
+    then do
+        setCopyManager c (cm { parentMap = IMap.adjust (ISet.insert p) i (parentMap cm) })
+        return (Just c)
+    else return Nothing
+
+insertParent :: MonadIO m => Int -> Int -> Int -> ExpressionT m ()
+insertParent mc p i = do
+    mapMUntilJust (insertParentC i p) [0..mc]
+    return ()
+
+traverseExpression :: MonadIO m => Int -> (ExprVar -> ExprVar) -> Expression -> ExpressionT m Expression
+traverseExpression mc f e = do
     ds  <- getDependencies mc (eindex e)
     when (ISet.null ds) $ throwError "Empty dependencies"
     es  <- (liftM catMaybes) $ mapM (lookupExpression mc) (ISet.toList ds)
@@ -464,25 +488,31 @@ tryToApply mc f (pool, doneMap) e = do
     else return (e : pool, doneMap)
 
 setRank :: MonadIO m => Int -> Expression -> ExpressionT m Expression
-setRank r = traverseExpression2 0 (setVarRank r)
+setRank r = traverseExpression 0 (setVarRank r)
     
 setVarRank r v = v {rank = r}
 
 setHatVar :: MonadIO m => Int -> Expression -> ExpressionT m Expression
-setHatVar mc = traverseExpression2 mc setVarHat
+setHatVar mc = traverseExpression mc setVarHat
 
 setVarHat v = if varsect v == UContVar || varsect v == ContVar
                 then v {varname = varname v ++ "_hat", varsect = HatVar}
                 else v
 
 unrollExpression :: MonadIO m => Expression -> ExpressionT m Expression
-unrollExpression = traverseExpression2 0 shiftVar
+unrollExpression = traverseExpression 0 shiftVar
 
 shiftVar v = v {rank = rank v + 1}
 
-liftConjuncts Expression { expr = (EConjunct vs) }  = vs
-liftConjuncts Expression { expr = ETrue }           = []
-liftConjuncts Expression { eindex = i }             = [Var Pos i]
+liftConjuncts :: MonadIO m => Int -> Expression -> ExpressionT m [Var]
+liftConjuncts c Expression { eindex = i, expr = EConjunct vs }  = do
+    p <- getParents c i
+    when (ISet.null p) $ do
+        --TODO We can free this conjunct since it has no ancestors
+        return ()
+    return vs
+liftConjuncts _ Expression { expr = ETrue }   = return []
+liftConjuncts _ Expression { eindex = i }     = return [Var Pos i]
 
 liftDisjuncts Expression { expr = (EDisjunct vs) }  = vs
 liftDisjuncts Expression { expr = EFalse }          = []
@@ -495,12 +525,16 @@ conjunct = conjunctC 0
 conjunctC :: MonadIO m => Int -> [Expression] -> ExpressionT m Expression
 conjunctC c []      = addExpression c EFalse
 conjunctC c (e:[])  = return e
-conjunctC c es      = addExpression c (EConjunct (concatMap liftConjuncts es))
+conjunctC c es      = do
+    conj <- concatMapM (liftConjuncts c) es
+    addExpression c (EConjunct conj)
 
 conjunctTemp :: MonadIO m => Int -> [Expression] -> ExpressionT m Expression
 conjunctTemp mc []      = addTempExpression mc EFalse
 conjunctTemp mc (e:[])  = return e
-conjunctTemp mc es      = addTempExpression mc (EConjunct (concatMap liftConjuncts es))
+conjunctTemp mc es      = do
+    conj <- concatMapM (liftConjuncts mc) es
+    addTempExpression mc (EConjunct conj)
 
 -- |The 'disjunct' function takes a list of Expressions and produces one disjunction Expression
 disjunct :: MonadIO m => [Expression] -> ExpressionT m Expression
@@ -589,7 +623,7 @@ printExpression' tabs s e = do
         (ELit v)        -> show v
 
 setCopy :: MonadIO m => (Map.Map (Section, Int) Int) -> Expression -> ExpressionT m Expression
-setCopy cMap e = traverseExpression2 mc f e
+setCopy cMap e = traverseExpression mc f e
     where
         f v = v { ecopy = fromMaybe (ecopy v) (Map.lookup (varsect v, rank v) cMap) }
         mc  = maximum (Map.elems cMap)
