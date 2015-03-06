@@ -21,13 +21,14 @@ import Expression.Compile
 import Expression.Expression
 import Synthesise.Solver
 import Expression.AST
+import SatSolver.Interpolator
 
 synthesise :: Int -> ParsedSpec -> EitherT String (LoggerT IO) Bool
 synthesise k spec = evalStateT (synthesise' k spec) emptyManager
 
 synthesise' k spec = do
     (init, cspec) <- loadFmls k spec
-    evalStateT (checkRank cspec k init) emptyLearnedStates
+    evalStateT (evalStateT (checkRank cspec k init) emptyLearnedStates) (InterpolantState True)
 
 playStrategy :: Int -> ParsedSpec -> FilePath -> EitherT String (LoggerT IO) Bool
 playStrategy k spec sFile = evalStateT (playStrategy' k spec sFile) emptyManager
@@ -39,7 +40,7 @@ playStrategy' k spec sFile = do
     let varTree     = unfoldTree makeStrategy vars
     let assTree     = fmap (\(vs, r) -> map (\(var, val) -> makeAssignmentValue (map (setVarRank (r+1)) var) val) vs) varTree
 
-    evalStateT (checkStrategy cspec k init player assTree) emptyLearnedStates
+    evalStateT (evalStateT (checkStrategy cspec k init player assTree) emptyLearnedStates) (InterpolantState True)
 
 makeStrategy :: [(a, Int)] -> ((a, Int), [[(a, Int)]])
 makeStrategy ((x, r):xrs) = ((x, r), children xrs)
@@ -116,7 +117,7 @@ loadFmls k spec = do
     init <- compile init
     init <- setRank k init
 
-    initManager
+    initManager (map exprIndex (steps ++ cgs ++ ugs ++ us ++ vcs ++ vus))
     return (init, cspec)
 
 iterateNM :: Monad m => Int -> (a -> m a) -> a -> m [a]

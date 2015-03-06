@@ -14,6 +14,8 @@ import Expression.Expression
 import Expression.Parse
 import Synthesise.Synthesise
 
+import SatSolver.Interpolator
+
 data Option = InputFile String
             | Bound String
             | DebugMode (Maybe String)
@@ -46,6 +48,7 @@ addOption (Strategy s) c    = c {strategyFile = Just s}
 main = do
     putStrLn "------------------------------------"
     putStrLn "TermiteSAT  v0.1"
+    interpolate 3 [[1], [2]] [[-2, 3], [-3]]
     timeIt $ mainTimed
 
 mainTimed = do

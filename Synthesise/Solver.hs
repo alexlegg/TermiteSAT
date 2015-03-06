@@ -53,7 +53,7 @@ buildStratGameTree player gt strat = gtParent $ gtParent $ foldl (buildStratGame
 solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Maybe GameTree)
 solveAbstract player spec s gt = do
 ---    liftIO $ putStrLn ("Solve abstract for " ++ show player)
-    pLearn <- printLearnedStates spec player
+---    pLearn <- printLearnedStates spec player
     liftLog $ logSolve gt player []
 
     cand <- findCandidate player spec s gt

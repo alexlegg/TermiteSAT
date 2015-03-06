@@ -20,7 +20,6 @@ module Expression.Expression (
     , getCachedMove
     , exprIndex
     , exprType
-    , exprChildren
     , flipSign
     , emptyManager
     , lookupVar
@@ -164,6 +163,7 @@ data ExprManager = ExprManager {
 data CopyManager = CopyManager {
       maxIndex      :: ExprId
     , nextIndex     :: ExprId
+    , indexPool     :: ISet.IntSet
     , exprMap       :: IMap.IntMap Expr
     , depMap        :: IMap.IntMap ISet.IntSet
     , parentMap     :: IMap.IntMap ISet.IntSet
@@ -194,6 +194,7 @@ emptyManager = ExprManager {
 emptyCopyManager mi incr = CopyManager {
       maxIndex      = mi + incr
     , nextIndex     = mi + 1
+    , indexPool     = ISet.empty
     , exprMap       = IMap.empty
     , depMap        = IMap.empty
     , parentMap     = IMap.empty
@@ -209,12 +210,18 @@ clearTempExpressions = do
     put m { tempMaxIndex = Nothing, tempExprs = IMap.empty, tempDepMap = IMap.empty }
 
 -- |Call this function once the base formula is loaded
-initManager :: MonadIO m => ExpressionT m ()
-initManager = do
+initManager :: MonadIO m => [Int] -> ExpressionT m ()
+initManager save = do
     m@ExprManager{..} <- get
     let (Just c0) = IMap.lookup 0 copyManagers
     put $ m { mgrMaxIndices = 100 }
-    setCopyManager 0 (c0 { maxIndex = (maxIndex c0 * 2) })
+    setCopyManager 0 (c0 { maxIndex = ceiling ((fromIntegral (maxIndex c0)) * 1.5) })
+
+    forM (IMap.toList (parentMap c0)) $ \(i, ps) -> do
+        when ((not (i `elem` save)) && ISet.null ps) $ do
+            freeIndex 0 i
+
+    return ()
 
 -- |Call this function with the max copy you will use before constructing expressions
 initCopyMaps :: MonadIO m => Int -> ExpressionT m ()
@@ -283,6 +290,19 @@ getCachedMove copy mi = do
     let ei = Map.lookup mi moveCache
     maybeM Nothing (lookupExpression copy) ei
 
+freeIndex :: MonadIO m => Int -> Int -> ExpressionT m ()
+freeIndex mc i = do
+    Just (e, c) <- lookupExpressionAndCopy mc i
+    cm          <- getCopyManager c
+
+    setCopyManager c $ cm {
+          indexPool     = ISet.insert i (indexPool cm)
+        , exprMap       = IMap.delete i (exprMap cm)
+        , depMap        = IMap.delete i (depMap cm)
+        , parentMap     = IMap.delete i (parentMap cm)
+        , indexMap      = Map.delete (expr e) (indexMap cm)
+        }
+
 insertExpression :: MonadIO m => Int -> Expr -> ExpressionT m Expression
 insertExpression _ (ELit v) = do
     when (ecopy v == 0) $ do
@@ -299,7 +319,11 @@ insertExpression' c e = do
         --Throw away all copy managers > c
         mgr <- get
         let maxCopies = IMap.size (copyManagers mgr)
-        when (c+1 < maxCopies) $ liftIO $ putStrLn ("Flushing managers: " ++ show (c+1) ++ " - " ++ show maxCopies)
+
+        when (c+1 < maxCopies) $ do
+            liftIO $ putStrLn ("Flushing managers: " ++ show (c+1) ++ " - " ++ show maxCopies)
+            --analyseManagers
+
         let copyManagers' = IMap.filterWithKey (\k _ -> k <= c) (copyManagers mgr)
         when (copyManagers mgr /= copyManagers') $ do
             put $ mgr { copyManagers = copyManagers' }
@@ -458,6 +482,20 @@ insertParent mc p i = do
     mapMUntilJust (insertParentC i p) [0..mc]
     return ()
 
+foldExpression :: MonadIO m => Int -> (Int -> Expr -> [(Sign, a)] -> a) -> Expression -> ExpressionT m a
+foldExpression mc f e = do
+    let cs  = children (expr e)
+    ces     <- mapM (lookupExpression mc) (map var cs)
+    fes     <- mapM (foldExpression mc f) (catMaybes ces)
+    return $ f (eindex e) (expr e) (zip (map sign cs) fes)
+
+foldExpressionM :: (MonadIO m) => Int -> (Int -> Expr -> [(Sign, a)] -> m a) -> Expression -> ExpressionT m a
+foldExpressionM mc f e = do
+    let cs  = children (expr e)
+    ces     <- mapM (lookupExpression mc) (map var cs)
+    fes     <- mapM (foldExpressionM mc f) (catMaybes ces)
+    lift $ lift $ f (eindex e) (expr e) (zip (map sign cs) fes)
+
 traverseExpression :: MonadIO m => Int -> (ExprVar -> ExprVar) -> Expression -> ExpressionT m Expression
 traverseExpression mc f e = do
     ds  <- getDependencies mc (eindex e)
@@ -504,15 +542,10 @@ unrollExpression = traverseExpression 0 shiftVar
 
 shiftVar v = v {rank = rank v + 1}
 
-liftConjuncts :: MonadIO m => Int -> Expression -> ExpressionT m [Var]
-liftConjuncts c Expression { eindex = i, expr = EConjunct vs }  = do
-    p <- getParents c i
-    when (ISet.null p) $ do
-        --TODO We can free this conjunct since it has no ancestors
-        return ()
-    return vs
-liftConjuncts _ Expression { expr = ETrue }   = return []
-liftConjuncts _ Expression { eindex = i }     = return [Var Pos i]
+liftConjuncts :: Expression -> [Var]
+liftConjuncts Expression { expr = EConjunct vs }    = vs
+liftConjuncts Expression { expr = ETrue }           = []
+liftConjuncts Expression { eindex = i }             = [Var Pos i]
 
 liftDisjuncts Expression { expr = (EDisjunct vs) }  = vs
 liftDisjuncts Expression { expr = EFalse }          = []
@@ -525,16 +558,12 @@ conjunct = conjunctC 0
 conjunctC :: MonadIO m => Int -> [Expression] -> ExpressionT m Expression
 conjunctC c []      = addExpression c EFalse
 conjunctC c (e:[])  = return e
-conjunctC c es      = do
-    conj <- concatMapM (liftConjuncts c) es
-    addExpression c (EConjunct conj)
+conjunctC c es      = addExpression c (EConjunct (concatMap liftConjuncts es))
 
 conjunctTemp :: MonadIO m => Int -> [Expression] -> ExpressionT m Expression
 conjunctTemp mc []      = addTempExpression mc EFalse
 conjunctTemp mc (e:[])  = return e
-conjunctTemp mc es      = do
-    conj <- concatMapM (liftConjuncts mc) es
-    addTempExpression mc (EConjunct conj)
+conjunctTemp mc es      = addTempExpression mc (EConjunct (concatMap liftConjuncts es))
 
 -- |The 'disjunct' function takes a list of Expressions and produces one disjunction Expression
 disjunct :: MonadIO m => [Expression] -> ExpressionT m Expression
