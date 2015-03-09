@@ -5,6 +5,7 @@ using namespace periplo;
 struct periplo_solver_t {
     PeriploContext *ctx;
     int b;
+    Enode *interpolant;
 };
 
 extern "C" {
@@ -65,5 +66,50 @@ extern "C" {
             lits.push_back(es[i]);
         }
         return s->ctx->mkOr(s->ctx->mkCons(lits));
+    }
+
+    Enode *enodeVar(periplo_solver *s, int id)
+    {
+        s->ctx->DeclareFun("abc", NULL, s->ctx->mkSortBool());
+        return s->ctx->mkVar("abc");
+    }
+
+    bool interpolate(periplo_solver *s, Enode *a, Enode *b)
+    {
+        s->ctx->Assert(a);
+        s->ctx->Assert(b);
+        s->ctx->CheckSATStatic();
+        lbool r = s->ctx->getStatus();
+        if (r == l_True) {
+            return false;
+            s->ctx->deleteProofGraph();
+            s->ctx->Reset();
+        }
+        s->ctx->createProofGraph();
+        s->ctx->setNumReductionLoops(2);
+        s->ctx->setNumGraphTraversals(2);
+        s->ctx->reduceProofGraph();
+        s->ctx->setMcMillanInterpolation();
+        s->ctx->enableRestructuringForStrongerInterpolant();
+
+        vector<Enode*> interpolants;
+        s->ctx->getSingleInterpolant(interpolants);
+        bool result;
+
+        if (interpolants.size() == 1) {
+            result = true;;
+            s->interpolant = interpolants[0];
+        } else {
+            result = false;
+        }
+
+        s->ctx->deleteProofGraph();
+        s->ctx->Reset();
+        return result;
+    }
+
+    Enode *interpolant(periplo_solver *s)
+    {
+        return s->interpolant;
     }
 }

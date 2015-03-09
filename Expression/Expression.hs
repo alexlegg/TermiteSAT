@@ -25,6 +25,8 @@ module Expression.Expression (
     , lookupVar
     , lookupVarName
     , unrollExpression
+    , foldExpression
+    , foldExpressionM
     , setRank
     , setHatVar
     , conjunct

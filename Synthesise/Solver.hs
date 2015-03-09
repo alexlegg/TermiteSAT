@@ -27,14 +27,31 @@ import Synthesise.GameTree
 import Synthesise.Strategy
 import Synthesise.GameFormula
 import SatSolver.SatSolver
+import SatSolver.Interpolator
 import Utils.Logger
 import Utils.Utils
 
 checkRank :: CompiledSpec -> Int -> Expression -> SolverT Bool
 checkRank spec rnk s = do
+    testInterpolants
     r <- solveAbstract Universal spec s (gtNew Existential rnk)
     liftE $ analyseManagers
     return (isNothing r)
+
+testInterpolants :: SolverT ()
+testInterpolants = do
+    v1  <- liftE $ literal $ ExprVar "testInterp1" StateVar 0 0 0
+    v2  <- liftE $ literal $ ExprVar "testInterp2" StateVar 0 0 0
+    v3  <- liftE $ literal $ ExprVar "testInterp3" StateVar 0 0 0
+
+    a   <- liftE $ conjunct [v1, v2]
+    b'  <- liftE $ implicate v2 v3
+    nv3 <- liftE $ negation v3
+    b   <- liftE $ conjunct [b', nv3]
+
+    lift $ interpolate 0 a b
+
+    return ()
 
 checkStrategy :: CompiledSpec -> Int -> Expression -> String -> Tree [[Assignment]] -> SolverT Bool
 checkStrategy spec rnk s player strat = do
