@@ -1,4 +1,5 @@
 #include "PeriploContext.h"
+#include <string>
 
 using namespace periplo;
 
@@ -6,6 +7,7 @@ struct periplo_solver_t {
     PeriploContext *ctx;
     int b;
     Enode *interpolant;
+    set<int> vars;
 };
 
 extern "C" {
@@ -19,11 +21,6 @@ extern "C" {
         s->ctx->SetOption(":produce-interpolants", "true");
         s->ctx->setVerbosity(0);
         return s;
-    }
-
-    void periplo_addClause(periplo_solver *s, bool partitionA, int length, int *clause)
-    {
-
     }
 
     void periplo_delete(periplo_solver *s)
@@ -45,7 +42,8 @@ extern "C" {
 
     Enode *enodeNot(periplo_solver *s, Enode *e)
     {
-        return s->ctx->mkNot(e);
+        Enode *r = s->ctx->mkNot(s->ctx->mkCons(e));
+        return r;
     }
 
     Enode *enodeAnd(periplo_solver *s, int length, Enode **es)
@@ -55,7 +53,8 @@ extern "C" {
         {
             lits.push_back(es[i]);
         }
-        return s->ctx->mkAnd(s->ctx->mkCons(lits));
+        Enode *r = s->ctx->mkAnd(s->ctx->mkCons(lits));
+        return r;
     }
 
     Enode *enodeOr(periplo_solver *s, int length, Enode **es)
@@ -70,8 +69,13 @@ extern "C" {
 
     Enode *enodeVar(periplo_solver *s, int id)
     {
-        s->ctx->DeclareFun("abc", NULL, s->ctx->mkSortBool());
-        return s->ctx->mkVar("abc");
+        if (s->vars.find(abs(id)) == s->vars.end())
+        {
+            s->ctx->DeclareFun(std::to_string(abs(id)).c_str(), NULL, s->ctx->mkSortBool());
+            s->vars.insert(abs(id));
+        }
+
+        return s->ctx->mkVar(std::to_string(abs(id)).c_str());
     }
 
     bool interpolate(periplo_solver *s, Enode *a, Enode *b)
@@ -111,5 +115,24 @@ extern "C" {
     Enode *interpolant(periplo_solver *s)
     {
         return s->interpolant;
+    }
+
+    enode_type enodeType(periplo_solver *s, Enode *e)
+    {
+        if (e->isVar()) {
+            return ENODEVAR;
+        } else if (e->isAnd()) {
+            return ENODEAND;
+        } else if (e->isOr()) {
+            return ENODEOR;
+        } else if (e->isNot()) {
+            return ENODENOT;
+        }
+    }
+
+    int enodeVarId(periplo_solver *s, Enode *e)
+    {
+        string str = e->getCar()->getName();
+        return std::stoi(str);
     }
 }

@@ -11,7 +11,7 @@ INC_PER=-I${BASE_PER}/src/ -I${BASE_PER}/src/api/ -I${BASE_PER}/src/cnfizers/ -I
 ###LIB_LZ=-lz
 
 all: periplo_wrapper.h periplo_wrapper.cc
-	g++ -c $(INC_PER) -o periplo_wrapper.o periplo_wrapper.cc -DPRODUCE_PROOF
+	g++ -std=c++11 -c $(INC_PER) -o periplo_wrapper.o periplo_wrapper.cc -DPRODUCE_PROOF
 	ar x ../periplo/build/src/.libs/libperiplolibrary.a
 	ar rs libperiplo_wrapper.a *.o
 

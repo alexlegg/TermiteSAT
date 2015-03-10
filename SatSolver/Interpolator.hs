@@ -18,6 +18,8 @@ data PeriploSolver
 
 data ENode
 
+data ENodeType = ENodeVar | ENodeAnd | ENodeOr | ENodeNot deriving (Eq, Show, Enum)
+
 type InterpolantState = Maybe (Ptr PeriploSolver)
 
 data InterpolantResult = InterpolantResult {
@@ -45,24 +47,55 @@ interpolate mc a b = do
 
 exprToPeriplo :: MonadIO m => Ptr PeriploSolver -> Int -> Expr -> [(Sign, Ptr ENode)] -> m (Ptr ENode)
 
-exprToPeriplo s i ETrue cs = liftIO $ c_periplo_enodeTrue s
+exprToPeriplo s _ ETrue _ = liftIO $ c_periplo_enodeTrue s
 
-exprToPeriplo s i EFalse cs = liftIO $ c_periplo_enodeFalse s
+exprToPeriplo s _ EFalse _ = liftIO $ c_periplo_enodeFalse s
 
-exprToPeriplo s i (ELit v) cs = do
-    liftIO $ c_periplo_enodeFalse s
+exprToPeriplo s i (ELit _) _ = do
+    e <- liftIO $ c_periplo_enodeVar s (fromIntegral i)
+    return e
 
-addClauseA solver clause = do
-    SV.unsafeWith clause (c_periplo_addClause solver True (fromIntegral (SV.length clause)))
+exprToPeriplo s _ (ENot _) ((Pos,v):[]) = do
+    liftIO $ c_periplo_enodeNot s v
+
+exprToPeriplo s _ (EEquals _ _) ((s1,v1):(s2,v2):[]) = error $ "Not implemented"
+
+exprToPeriplo s _ (EConjunct _) vs = do
+    vs' <- forM vs $ \(sign, v) -> do
+        if sign == Pos 
+            then return v
+            else do
+                liftIO $ c_periplo_enodeNot s v
+
+    let vec = SV.fromList vs'
+    liftIO $ SV.unsafeWith vec (c_periplo_enodeAnd s (fromIntegral (length vs')))
+
+exprToPeriplo s _ (EDisjunct _) vs = do
+    vs' <- forM vs $ \(sign, v) -> do
+        if sign == Pos 
+            then return v
+            else liftIO $ c_periplo_enodeNot s v
+
+    let vec = SV.fromList vs'
+    liftIO $ SV.unsafeWith vec (c_periplo_enodeOr s (fromIntegral (length vs')))
+
+periploToExpr s e = do
+    typ <- liftIO $ c_periplo_enodeType s e
+
+    case toEnum (fromIntegral typ) of
+        ENodeVar    -> do
+            v <- liftIO $ c_periplo_enodeVarId s e
+            liftIO $ putStrLn (show v)
+            return ()
+        ENodeAnd    -> return ()
+        ENodeOr     -> return ()
+        ENodeNot    -> return ()
 
 foreign import ccall unsafe "periplo_wrapper/periplo_wrapper.h periplo_new"
     c_periplo_new :: IO (Ptr PeriploSolver)
 
 foreign import ccall unsafe "periplo_wrapper/periplo_wrapper.h periplo_delete"
     c_periplo_delete :: Ptr PeriploSolver -> IO ()
-
-foreign import ccall unsafe "periplo_wrapper/periplo_wrapper.h periplo_addClause"
-    c_periplo_addClause :: Ptr PeriploSolver -> Bool -> CInt -> Ptr CInt -> IO ()
 
 foreign import ccall unsafe "periplo_wrapper/periplo_wrappher.h enodeTrue"
     c_periplo_enodeTrue :: Ptr PeriploSolver -> IO (Ptr ENode)
@@ -74,10 +107,10 @@ foreign import ccall unsafe "periplo_wrapper/periplo_wrappher.h enodeNot"
     c_periplo_enodeNot :: Ptr PeriploSolver -> Ptr ENode -> IO (Ptr ENode)
 
 foreign import ccall unsafe "periplo_wrapper/periplo_wrappher.h enodeAnd"
-    c_periplo_enodeAnd :: Ptr PeriploSolver -> Ptr ENode -> IO (Ptr (Ptr ENode))
+    c_periplo_enodeAnd :: Ptr PeriploSolver -> CInt -> Ptr (Ptr ENode) -> IO (Ptr ENode)
 
 foreign import ccall unsafe "periplo_wrapper/periplo_wrappher.h enodeOr"
-    c_periplo_enodeOr :: Ptr PeriploSolver -> Ptr ENode -> IO (Ptr (Ptr ENode))
+    c_periplo_enodeOr :: Ptr PeriploSolver -> CInt -> Ptr (Ptr ENode) -> IO (Ptr ENode)
 
 foreign import ccall unsafe "periplo_wrapper/periplo_wrappher.h enodeVar"
     c_periplo_enodeVar :: Ptr PeriploSolver -> CInt -> IO (Ptr ENode)
@@ -87,3 +120,9 @@ foreign import ccall unsafe "periplo_wrapper/periplo_wrapper.h interpolate"
 
 foreign import ccall unsafe "periplo_wrapper/periplo_wrapper.h interpolant"
     c_periplo_interpolant :: Ptr PeriploSolver -> IO (Ptr ENode)
+
+foreign import ccall unsafe "periplo_wrapper/periplo_wrapper.h enodeType"
+    c_periplo_enodeType :: Ptr PeriploSolver -> Ptr ENode -> IO CInt
+
+foreign import ccall unsafe "periplo_wrapper/periplo_wrapper.h enodeVarId"
+    c_periplo_enodeVarId :: Ptr PeriploSolver -> Ptr ENode -> IO CInt
