@@ -43,11 +43,14 @@ testInterpolants = do
     v1  <- liftE $ literal $ ExprVar "testInterp1" StateVar 0 0 0
     v2  <- liftE $ literal $ ExprVar "testInterp2" StateVar 0 0 0
     v3  <- liftE $ literal $ ExprVar "testInterp3" StateVar 0 0 0
+    v4  <- liftE $ literal $ ExprVar "testInterp4" StateVar 0 0 0
 
-    a   <- liftE $ conjunct [v1, v2]
+    a'  <- liftE $ conjunct [v1, v2]
+    a   <- liftE $ disjunct [v4, a']
     b'  <- liftE $ implicate v2 v3
     nv3 <- liftE $ negation v3
-    b   <- liftE $ conjunct [b', nv3]
+    nv4 <- liftE $ negation v4
+    b   <- liftE $ conjunct [b', nv3, nv4]
 
     lift $ interpolate 0 a b
 

@@ -117,8 +117,9 @@ extern "C" {
         return s->interpolant;
     }
 
-    enode_type enodeType(periplo_solver *s, Enode *e)
+    enode_type enodeType(Enode *e)
     {
+        if (e == NULL) cout << "bad pointer in type" << endl;
         if (e->isVar()) {
             return ENODEVAR;
         } else if (e->isAnd()) {
@@ -127,12 +128,35 @@ extern "C" {
             return ENODEOR;
         } else if (e->isNot()) {
             return ENODENOT;
+        } else {
+            return ENODEINVALID;
         }
     }
 
-    int enodeVarId(periplo_solver *s, Enode *e)
+    int enodeVarId(Enode *e)
     {
+        if (e == NULL) cout << "bad pointer in varId" << endl;
         string str = e->getCar()->getName();
         return std::stoi(str);
+    }
+
+    int enodeArity(Enode *e)
+    {
+        if (e == NULL) cout << "bad pointer in arity" << endl;
+        return e->getArity();
+    }
+
+    Enode *enode1st(Enode *e)
+    {
+        if (e == NULL) cout << "bad pointer in 1st" << endl;
+        if (e->get1st() == NULL) cout << "bad pointer in 1st" << endl;
+        return e->get1st();
+    }
+
+    Enode *enode2nd(Enode *e)
+    {
+        if (e == NULL) cout << "bad pointer in 2nd" << endl;
+        if (e->get2nd() == NULL) cout << "bad pointer in 2nd" << endl;
+        return e->get2nd();
     }
 }

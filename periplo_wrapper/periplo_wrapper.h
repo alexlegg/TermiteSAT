@@ -4,6 +4,7 @@
 typedef struct periplo_solver_t periplo_solver;
 
 typedef enum {
+    ENODEINVALID,
     ENODEVAR,
     ENODEAND,
     ENODEOR,
@@ -23,6 +24,10 @@ Enode           *enodeAnd(periplo_solver *s, int length, Enode **es);
 Enode           *enodeOr(periplo_solver *s, int length, Enode **es);
 Enode           *enodeVar(periplo_solver *s, int id);
 
-enode_type      enodeType(periplo_solver *s, Enode *e);
+enode_type      enodeType(Enode *e);
+int             enodeVarId(Enode *e);
+int             enodeArity(Enode *e);
+Enode           *enode1st(Enode *e);
+Enode           *enode2nd(Enode *e);
 
 #endif

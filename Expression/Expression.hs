@@ -24,6 +24,7 @@ module Expression.Expression (
     , emptyManager
     , lookupVar
     , lookupVarName
+    , lookupExpression
     , unrollExpression
     , foldExpression
     , foldExpressionM

@@ -18,7 +18,7 @@ data PeriploSolver
 
 data ENode
 
-data ENodeType = ENodeVar | ENodeAnd | ENodeOr | ENodeNot deriving (Eq, Show, Enum)
+data ENodeType = ENodeInvalid | ENodeVar | ENodeAnd | ENodeOr | ENodeNot deriving (Eq, Show, Enum)
 
 type InterpolantState = Maybe (Ptr PeriploSolver)
 
@@ -33,12 +33,21 @@ interpolate mc a b = do
     pa <- lift $ foldExpressionM mc (exprToPeriplo solver) a
     pb <- lift $ foldExpressionM mc (exprToPeriplo solver) b
 
+    liftIO $ putStrLn "interpolate"
     r <- liftIO $ c_periplo_interpolate solver pa pb
     when r $ do
-        enode <- liftIO $ c_periplo_interpolant solver
+        liftIO $ putStrLn "interpolant"
+        enode   <- liftIO $ c_periplo_interpolant solver
+        liftIO $ putStrLn "toExpr"
+        expr    <- periploToExpr mc enode
+        liftIO $ putStrLn "done"
+        p       <- lift $ printExpression expr
+        liftIO $ putStrLn p
         return ()
 
+    liftIO $ putStrLn "delete"
     liftIO $ c_periplo_delete solver 
+    liftIO $ putStrLn "delete"
 
     return $ InterpolantResult {
         success = False,
@@ -79,17 +88,48 @@ exprToPeriplo s _ (EDisjunct _) vs = do
     let vec = SV.fromList vs'
     liftIO $ SV.unsafeWith vec (c_periplo_enodeOr s (fromIntegral (length vs')))
 
-periploToExpr s e = do
-    typ <- liftIO $ c_periplo_enodeType s e
-
+periploToExpr mc e = do
+    typ <- liftIO $ c_periplo_enodeType e
+    liftIO $ putStrLn "got type"
     case toEnum (fromIntegral typ) of
+        ENodeInvalid -> error "Invalid enode"
         ENodeVar    -> do
-            v <- liftIO $ c_periplo_enodeVarId s e
+            liftIO $ putStrLn "var"
+            v       <- liftIO $ c_periplo_enodeVarId e
             liftIO $ putStrLn (show v)
-            return ()
-        ENodeAnd    -> return ()
-        ENodeOr     -> return ()
-        ENodeNot    -> return ()
+            liftIO $ putStrLn (show ((fromIntegral v) :: Int))
+            liftIO $ putStrLn "lookupExpression!"
+            Just e' <- lift $ lookupExpression mc 464
+            liftIO $ putStrLn "expr done"
+            return e'
+        ENodeAnd    -> do
+            liftIO $ putStrLn "and"
+            arity   <- liftIO $ c_periplo_enodeArity e
+            when (arity /= 2) $ error "Enode: Wrong arity for And"
+            a       <- liftIO $ c_periplo_enode1st e
+            a'      <- periploToExpr mc a
+            b       <- liftIO $ c_periplo_enode2nd e
+            b'      <- periploToExpr mc b
+            lift $ conjunctC mc [a', b']
+        ENodeOr     -> do
+            liftIO $ putStrLn "or"
+            arity   <- liftIO $ c_periplo_enodeArity e
+            liftIO $ putStrLn (show arity)
+            when (arity /= 2) $ error "Enode: Wrong arity for Or"
+            a       <- liftIO $ c_periplo_enode1st e
+            liftIO $ putStrLn "periploToExpr a"
+            a'      <- periploToExpr mc a
+            b       <- liftIO $ c_periplo_enode2nd e
+            liftIO $ putStrLn "periploToExpr b"
+            b'      <- periploToExpr mc b
+            lift $ disjunctC mc [a', b']
+        ENodeNot    -> do
+            liftIO $ putStrLn "not"
+            arity   <- liftIO $ c_periplo_enodeArity e
+            when (arity /= 1) $ error "Enode: Wrong arity for Not"
+            x       <- liftIO $ c_periplo_enode1st e
+            x'      <- periploToExpr mc x
+            lift $ negationC mc x'
 
 foreign import ccall unsafe "periplo_wrapper/periplo_wrapper.h periplo_new"
     c_periplo_new :: IO (Ptr PeriploSolver)
@@ -122,7 +162,16 @@ foreign import ccall unsafe "periplo_wrapper/periplo_wrapper.h interpolant"
     c_periplo_interpolant :: Ptr PeriploSolver -> IO (Ptr ENode)
 
 foreign import ccall unsafe "periplo_wrapper/periplo_wrapper.h enodeType"
-    c_periplo_enodeType :: Ptr PeriploSolver -> Ptr ENode -> IO CInt
+    c_periplo_enodeType :: Ptr ENode -> IO CInt
 
 foreign import ccall unsafe "periplo_wrapper/periplo_wrapper.h enodeVarId"
-    c_periplo_enodeVarId :: Ptr PeriploSolver -> Ptr ENode -> IO CInt
+    c_periplo_enodeVarId :: Ptr ENode -> IO CInt
+
+foreign import ccall unsafe "periplo_wrapper/periplo_wrapper.h enodeArity"
+    c_periplo_enodeArity :: Ptr ENode -> IO CInt
+
+foreign import ccall unsafe "periplo_wrapper/periplo_wrapper.h enode1st"
+    c_periplo_enode1st :: Ptr ENode -> IO (Ptr ENode)
+
+foreign import ccall unsafe "periplo_wrapper/periplo_wrapper.h enode2nd"
+    c_periplo_enode2nd :: Ptr ENode -> IO (Ptr ENode)
