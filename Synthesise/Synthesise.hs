@@ -28,7 +28,7 @@ synthesise k spec = evalStateT (synthesise' k spec) emptyManager
 
 synthesise' k spec = do
     (init, cspec) <- loadFmls k spec
-    evalStateT (evalStateT (checkRank cspec k init) emptyLearnedStates) Nothing
+    evalStateT (checkRank cspec k init) emptyLearnedStates
 
 playStrategy :: Int -> ParsedSpec -> FilePath -> EitherT String (LoggerT IO) Bool
 playStrategy k spec sFile = evalStateT (playStrategy' k spec sFile) emptyManager
@@ -40,7 +40,7 @@ playStrategy' k spec sFile = do
     let varTree     = unfoldTree makeStrategy vars
     let assTree     = fmap (\(vs, r) -> map (\(var, val) -> makeAssignmentValue (map (setVarRank (r+1)) var) val) vs) varTree
 
-    evalStateT (evalStateT (checkStrategy cspec k init player assTree) emptyLearnedStates) Nothing
+    evalStateT (checkStrategy cspec k init player assTree) emptyLearnedStates
 
 makeStrategy :: [(a, Int)] -> ((a, Int), [[(a, Int)]])
 makeStrategy ((x, r):xrs) = ((x, r), children xrs)

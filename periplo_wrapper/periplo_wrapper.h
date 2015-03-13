@@ -11,23 +11,17 @@ typedef enum {
     ENODENOT
 } enode_type;
 
-periplo_solver  *periplo_new();
-void            periplo_delete(periplo_solver *s);
+typedef struct EnodeExpr_t EnodeExpr;
 
-bool            interpolate(periplo_solver *s, Enode *a, Enode *b);
-Enode           *interpolant(periplo_solver *s);
+struct EnodeExpr_t {
+    enode_type enodeType;
+    int enodeVarId;
+    EnodeExpr **enodeChildren;
+    int enodeArity;
+};
 
-Enode           *enodeTrue(periplo_solver *s);
-Enode           *enodeFalse(periplo_solver *s);
-Enode           *enodeNot(periplo_solver *s, Enode *e);
-Enode           *enodeAnd(periplo_solver *s, int length, Enode **es);
-Enode           *enodeOr(periplo_solver *s, int length, Enode **es);
-Enode           *enodeVar(periplo_solver *s, int id);
+int interpolate(EnodeExpr *a, EnodeExpr *b);
 
-enode_type      enodeType(Enode *e);
-int             enodeVarId(Enode *e);
-int             enodeArity(Enode *e);
-Enode           *enode1st(Enode *e);
-Enode           *enode2nd(Enode *e);
+void print_expr(EnodeExpr *e);
 
 #endif

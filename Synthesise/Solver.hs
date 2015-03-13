@@ -52,7 +52,7 @@ testInterpolants = do
     nv4 <- liftE $ negation v4
     b   <- liftE $ conjunct [b', nv3, nv4]
 
-    lift $ interpolate 0 a b
+    interpolate 0 a b
 
     return ()
 

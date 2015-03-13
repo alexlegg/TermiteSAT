@@ -13,10 +13,9 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Expression.Expression
 import Utils.Logger
-import SatSolver.Interpolator
 
 type SolverST m = StateT LearnedStates m
-type SolverT = SolverST (InterpolatorST (ExpressionT (LoggerT IO)))
+type SolverT = SolverST (ExpressionT (LoggerT IO))
 
 data LearnedStates = LearnedStates {
       winningEx :: [[Assignment]]
@@ -31,10 +30,10 @@ emptyLearnedStates = LearnedStates {
 throwError :: String -> SolverT a
 throwError s = do
     liftLog logDumpLog
-    lift (lift (lift (left s)))
+    lift (lift (left s))
 
 liftLog :: LoggerT IO a -> SolverT a
-liftLog = lift . lift . lift . lift
+liftLog = lift . lift . lift
 
 liftE :: ExpressionT (LoggerT IO) a -> SolverT a
-liftE = lift . lift
+liftE = lift
