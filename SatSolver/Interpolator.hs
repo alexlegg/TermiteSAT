@@ -18,20 +18,12 @@ data InterpolantResult = InterpolantResult {
     , interpolant   :: [[Int]]
 } deriving (Show, Eq)
 
-foreign import ccall unsafe "periplo_wrapper/periplo_wrapper.h interpolate"
+foreign import ccall safe "periplo_wrapper/periplo_wrapper.h interpolate"
     c_interpolate :: Ptr EnodeStruct -> Ptr EnodeStruct -> IO CInt
 
 interpolate mc a b = do
     a'  <- lift $ foldExpression mc exprToEnodeExpr a
-    b'  <- lift $ foldExpression mc exprToEnodeExpr a
-
-    ap  <- lift $ printExpression a
-    liftIO $ putStrLn (ap)
-
-    bp  <- lift $ printExpression b
-    liftIO $ putStrLn (bp)
-
-    liftIO $ putStrLn (show b')
+    b'  <- lift $ foldExpression mc exprToEnodeExpr b
 
     pa  <- liftIO $ enodeToStruct a'
     pb  <- liftIO $ enodeToStruct b'
@@ -41,7 +33,7 @@ interpolate mc a b = do
     liftIO $ freeEnodeStruct pa
     liftIO $ freeEnodeStruct pb
 
-    liftIO $ putStrLn (show r)
+    liftIO $ putStrLn ("Interpolation result: " ++ (show r))
 
     return $ InterpolantResult {
         success = False,

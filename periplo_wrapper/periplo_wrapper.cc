@@ -13,14 +13,106 @@ struct periplo_solver_t {
 extern "C" {
 #include "periplo_wrapper.h"
 
+    Enode *expr_to_enode(PeriploContext *ctx, set<int> *vars, EnodeExpr *e);
+
     int interpolate(EnodeExpr *a, EnodeExpr *b)
     {
-        cout << "A:" << endl;
-        print_expr(a);
+        set<int> *vars = new set<int>();
+        bool result;
+        Enode *ea, *eb;
+        PeriploContext *ctx = new PeriploContext();
 
-        cout << "B:" << endl;
-        print_expr(b);
+        ctx->SetLogic("QF_BOOL");
+        ctx->SetOption(":produce-interpolants", "true");
+        ctx->setVerbosity(0);
+
+        ea = expr_to_enode(ctx, vars, a);
+        eb = expr_to_enode(ctx, vars, b);
+        delete vars;
+        
+        cout << "ea:" << endl;
+        ea->print(cout);
+
+        cout << endl << "eb:" << endl;
+        eb->print(cout);
+
+        ctx->Assert(ea);
+        ctx->Assert(eb);
+        ctx->CheckSATStatic();
+
+        lbool r = ctx->getStatus();
+        if (r == l_True) {
+            result = false;
+        } else {
+            ctx->createProofGraph();
+            ctx->setNumReductionLoops(2);
+            ctx->setNumGraphTraversals(2);
+            ctx->reduceProofGraph();
+            ctx->setMcMillanInterpolation();
+            ctx->enableRestructuringForStrongerInterpolant();
+
+            vector<Enode*> interpolants;
+            ctx->getSingleInterpolant(interpolants);
+
+            if (interpolants.size() == 1) {
+                result = true;
+                //s->interpolant = interpolants[0];
+            } else {
+                result = false;
+            }
+        }
+
+        ctx->deleteProofGraph();
+        ctx->Reset();
+        delete ctx;
+
         return 0;
+    }
+
+    Enode *expr_to_enode(PeriploContext *ctx, set<int> *vars, EnodeExpr *e)
+    {
+        Enode *r;
+        int id = abs(e->enodeVarId);
+        string str = std::to_string(id);
+        list<Enode*> lits;
+
+        switch (e->enodeType) {
+            case ENODEVAR:
+                if (vars->find(id) == vars->end())
+                {
+                    ctx->DeclareFun(str.c_str(), NULL, ctx->mkSortBool());
+                    vars->insert(abs(id));
+                }
+
+                r = ctx->mkVar(str.c_str());
+                break;
+
+            case ENODEAND:
+            case ENODEOR:
+            case ENODENOT:
+                for (int i = 0; i != e->enodeArity; ++i)
+                {
+                    Enode *c = expr_to_enode(ctx, vars, e->enodeChildren[i]);
+                    lits.push_back(c);
+                }
+
+                if (e->enodeType == ENODEAND)
+                {
+                    r = ctx->mkAnd(ctx->mkCons(lits));
+                } else if (e->enodeType == ENODEOR) {
+                    r = ctx->mkOr(ctx->mkCons(lits));
+                } else if (e->enodeType == ENODENOT) {
+                    r = ctx->mkNot(ctx->mkCons(lits));
+                }
+                break;
+
+            case ENODEINVALID:
+            default:
+                cout << "invalid" << endl;
+                break;
+        }
+        assert(r != NULL);
+        return r;
     }
 
     void print_expr(EnodeExpr *e)
@@ -50,7 +142,8 @@ extern "C" {
                 break;
 
             case ENODENOT:
-                cout << "not" << endl;
+                cout << "not ";
+                print_expr(e->enodeChildren[0]);
                 break;
                 
             case ENODEINVALID:
