@@ -14,11 +14,13 @@ extern "C" {
 #include "periplo_wrapper.h"
 
     Enode *expr_to_enode(PeriploContext *ctx, set<int> *vars, EnodeExpr *e);
+    EnodeExpr *enode_to_expr(Enode *e);
 
-    int interpolate(EnodeExpr *a, EnodeExpr *b)
+    EnodeExpr *interpolate(EnodeExpr *a, EnodeExpr *b)
     {
         set<int> *vars = new set<int>();
         bool result;
+        EnodeExpr *interp = NULL;
         Enode *ea, *eb;
         PeriploContext *ctx = new PeriploContext();
 
@@ -30,11 +32,11 @@ extern "C" {
         eb = expr_to_enode(ctx, vars, b);
         delete vars;
         
-        cout << "ea:" << endl;
-        ea->print(cout);
+///        cout << "ea:" << endl;
+///        ea->print(cout);
 
-        cout << endl << "eb:" << endl;
-        eb->print(cout);
+///        cout << endl << "eb:" << endl;
+///        eb->print(cout);
 
         ctx->Assert(ea);
         ctx->Assert(eb);
@@ -56,17 +58,18 @@ extern "C" {
 
             if (interpolants.size() == 1) {
                 result = true;
-                //s->interpolant = interpolants[0];
+                interp = enode_to_expr(interpolants[0]);
             } else {
                 result = false;
             }
         }
 
+
         ctx->deleteProofGraph();
         ctx->Reset();
         delete ctx;
 
-        return 0;
+        return interp;
     }
 
     Enode *expr_to_enode(PeriploContext *ctx, set<int> *vars, EnodeExpr *e)
@@ -113,6 +116,58 @@ extern "C" {
         }
         assert(r != NULL);
         return r;
+    }
+
+    EnodeExpr *enode_to_expr(Enode *e)
+    {
+        assert (e->isTerm());
+        if (e->isAnd() || e->isOr()) {
+            assert(e->getArity() == 2);
+            EnodeExpr *a = enode_to_expr(e->get1st());
+            EnodeExpr *b = enode_to_expr(e->get2nd());
+
+            EnodeExpr *r = (EnodeExpr*)malloc(sizeof(EnodeExpr));
+            EnodeExpr **cs = (EnodeExpr**)malloc(2*sizeof(EnodeExpr*));
+            cs[0] = a;
+            cs[1] = b;
+
+            if (e->isAnd()) {
+                r->enodeType = ENODEAND;
+            } else {
+                r->enodeType = ENODEOR;
+            }
+            r->enodeVarId = 0;
+            r->enodeChildren = cs;
+            r->enodeArity = 2;
+
+            return r;
+        } else if (e->isNot()) {
+            assert(e->getArity() == 1);
+            EnodeExpr *a = enode_to_expr(e->get1st());
+
+            EnodeExpr *r = (EnodeExpr*)malloc(sizeof(EnodeExpr));
+            EnodeExpr **cs = (EnodeExpr**)malloc(1*sizeof(EnodeExpr*));
+            cs[0] = a;
+
+            r->enodeType = ENODENOT;
+            r->enodeVarId = 0;
+            r->enodeChildren = cs;
+            r->enodeArity = 1;
+
+            return r;
+        } else if (e->isVar()) {
+            string name = e->getCar()->getName();
+            int id = std::stoi(name);
+            EnodeExpr *r = (EnodeExpr*)malloc(sizeof(EnodeExpr));
+            r->enodeType = ENODEVAR;
+            r->enodeVarId = id;
+            r->enodeChildren = NULL;
+            r->enodeArity = 0;
+
+            return r;
+        } else {
+            assert(false);
+        }
     }
 
     void print_expr(EnodeExpr *e)

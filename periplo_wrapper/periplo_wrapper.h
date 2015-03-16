@@ -20,7 +20,7 @@ struct EnodeExpr_t {
     int enodeArity;
 };
 
-int interpolate(EnodeExpr *a, EnodeExpr *b);
+EnodeExpr *interpolate(EnodeExpr *a, EnodeExpr *b);
 
 void print_expr(EnodeExpr *e);
 
