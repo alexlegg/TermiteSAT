@@ -4,3 +4,9 @@
 [submodule "periplo"]
 	path = periplo
 	url = git@github.inside.nicta.com.au:alegg/periplo.git
+[submodule "cudd"]
+	path = cudd
+	url = https://github.com/adamwalker/cudd
+[submodule "haskell_cudd"]
+	path = haskell_cudd
+	url = https://github.com/adamwalker/haskell_cudd.git
