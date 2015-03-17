@@ -1,8 +1,6 @@
 #ifndef PERIPLO_WRAPPER_H
 #define PERIPLO_WRAPPER_H
 
-typedef struct periplo_solver_t periplo_solver;
-
 typedef enum {
     ENODEINVALID,
     ENODEVAR,

@@ -1,20 +1,37 @@
 #include "PeriploContext.h"
 #include <string>
+#include <cudd.h>
 
 using namespace periplo;
+using namespace std;
 
-struct periplo_solver_t {
-    PeriploContext *ctx;
-    int b;
-    Enode *interpolant;
-    set<int> vars;
+enum    VarStateValues                     	  { SETTRUE, SETFALSE, UNSET};
+
+struct VarState {
+	VarState(int _id, VarStateValues _state = UNSET) {id = _id;state = _state;}
+	int id;
+	VarStateValues state;
+	 inline bool operator == (const VarState &o) const {
+	        return id == o.id? true:false;
+	 }
+	 inline bool operator < (const VarState &o) const {
+	        return id == o.id? true:false;
+	 }
+
+	 inline bool operator != (const VarState &o) const {
+	        return id != o.id? true:false;
+	 }
 };
 
 extern "C" {
 #include "periplo_wrapper.h"
 
+    //Helper functions
     Enode *expr_to_enode(PeriploContext *ctx, set<int> *vars, EnodeExpr *e);
     EnodeExpr *enode_to_expr(Enode *e);
+    vector< vector<VarState> > enodeToBDD(Enode *e, vector<int> project, bool &success);
+    DdNode* enodeToDdNode(DdManager *mgr, map<string, int> vars, Enode *f, bool &success);
+    vector< vector<VarState> > reduceCubes(DdManager *mgr, DdNode *dd, map<int, int> rvars);
 
     EnodeExpr *interpolate(EnodeExpr *a, EnodeExpr *b)
     {
@@ -59,6 +76,10 @@ extern "C" {
             if (interpolants.size() == 1) {
                 result = true;
                 interp = enode_to_expr(interpolants[0]);
+                bool success;
+                vector<int> project;
+                vector< vector<VarState> > reduced;
+                reduced = enodeToBDD(interpolants[0], project, success);
             } else {
                 result = false;
             }
@@ -208,151 +229,194 @@ extern "C" {
         }
     }
 
+    vector< vector<VarState> > enodeToBDD(Enode *e, vector<int> project, bool &success)
+    {
+        DdManager *mgr;
+        DdNode *dd;
+        vector< vector<VarState> > result;
+        map<string, int> vars;
+        map<int, int> rvars;
 
-///    periplo_solver *periplo_new()
-///    {
-///        periplo_solver *s = new periplo_solver_t();
-///        s->ctx = new PeriploContext();
-///        s->ctx->SetLogic("QF_BOOL");
-///        s->ctx->SetOption(":produce-interpolants", "true");
-///        s->ctx->setVerbosity(0);
-///        return s;
-///    }
+        int bdd_var = 0;
+        for (auto p = project.begin(); p != project.end(); ++p)
+        {
+            stringstream s;
+            s << *p;
+            vars[s.str().c_str()] = bdd_var;
+            rvars[bdd_var] = *p;
+            bdd_var++;
+        }
 
-///    void periplo_delete(periplo_solver *s)
-///    {
-///        s->ctx->Reset();
-///        delete s->ctx;
-///        delete s;
-///    }
+        mgr = Cudd_Init(project.size(), 0, CUDD_UNIQUE_SLOTS, CUDD_CACHE_SLOTS, 0);
+        Cudd_AutodynEnable(mgr, CUDD_REORDER_GROUP_SIFT);
+        Cudd_EnableReorderingReporting(mgr);
 
-///    Enode *enodeTrue(periplo_solver *s)
-///    {
-///        return s->ctx->mkTrue();
-///    }
+        assert(Cudd_DebugCheck(mgr) == 0);
 
-///    Enode *enodeFalse(periplo_solver *s)
-///    {
-///        return s->ctx->mkFalse();
-///    }
+        clock_t start = clock(), end;
 
-///    Enode *enodeNot(periplo_solver *s, Enode *e)
-///    {
-///        Enode *r = s->ctx->mkNot(s->ctx->mkCons(e));
-///        return r;
-///    }
+        dd = enodeToDdNode(mgr, vars, e, success);
+        end = clock();
 
-///    Enode *enodeAnd(periplo_solver *s, int length, Enode **es)
-///    {
-///        list<Enode*> lits;
-///        for (int i = 0; i != length; ++i)
-///        {
-///            lits.push_back(es[i]);
-///        }
-///        Enode *r = s->ctx->mkAnd(s->ctx->mkCons(lits));
-///        return r;
-///    }
+        result.clear();
+        if (!success) return result;
 
-///    Enode *enodeOr(periplo_solver *s, int length, Enode **es)
-///    {
-///        list<Enode*> lits;
-///        for (int i = 0; i != length; ++i)
-///        {
-///            lits.push_back(es[i]);
-///        }
-///        return s->ctx->mkOr(s->ctx->mkCons(lits));
-///    }
+        assert(Cudd_DebugCheck(mgr) == 0);
 
-///    Enode *enodeVar(periplo_solver *s, int id)
-///    {
-///        if (s->vars.find(abs(id)) == s->vars.end())
-///        {
-///            s->ctx->DeclareFun(std::to_string(abs(id)).c_str(), NULL, s->ctx->mkSortBool());
-///            s->vars.insert(abs(id));
-///        }
+        result = reduceCubes(mgr, dd, rvars);
+        Cudd_RecursiveDeref(mgr, dd);
 
-///        return s->ctx->mkVar(std::to_string(abs(id)).c_str());
-///    }
+        assert(Cudd_DebugCheck(mgr) == 0);
 
-///    bool interpolate(periplo_solver *s, Enode *a, Enode *b)
-///    {
-///        s->ctx->Assert(a);
-///        s->ctx->Assert(b);
-///        s->ctx->CheckSATStatic();
-///        lbool r = s->ctx->getStatus();
-///        if (r == l_True) {
-///            return false;
-///            s->ctx->deleteProofGraph();
-///            s->ctx->Reset();
-///        }
-///        s->ctx->createProofGraph();
-///        s->ctx->setNumReductionLoops(2);
-///        s->ctx->setNumGraphTraversals(2);
-///        s->ctx->reduceProofGraph();
-///        s->ctx->setMcMillanInterpolation();
-///        s->ctx->enableRestructuringForStrongerInterpolant();
+        Cudd_RecursiveDeref(mgr, dd);
 
-///        vector<Enode*> interpolants;
-///        s->ctx->getSingleInterpolant(interpolants);
-///        bool result;
+        Cudd_Quit(mgr);
 
-///        if (interpolants.size() == 1) {
-///            result = true;;
-///            s->interpolant = interpolants[0];
-///        } else {
-///            result = false;
-///        }
+        return result;
+    }
 
-///        s->ctx->deleteProofGraph();
-///        s->ctx->Reset();
-///        return result;
-///    }
+    DdNode* enodeToDdNode(DdManager *mgr, map<string, int> vars, Enode *f, bool &success)
+    {
+        Enode *e;
+        map<enodeid_t, DdNode*> cache;
+        vector<Enode *> stack;
 
-///    Enode *interpolant(periplo_solver *s)
-///    {
-///        return s->interpolant;
-///    }
+        stack.push_back(f);
 
-///    enode_type enodeType(Enode *e)
-///    {
-///        if (e == NULL) cout << "bad pointer in type" << endl;
-///        if (e->isVar()) {
-///            return ENODEVAR;
-///        } else if (e->isAnd()) {
-///            return ENODEAND;
-///        } else if (e->isOr()) {
-///            return ENODEOR;
-///        } else if (e->isNot()) {
-///            return ENODENOT;
-///        } else {
-///            return ENODEINVALID;
-///        }
-///    }
+        while (!stack.empty())
+        {
+            e = stack.back();
+            stack.pop_back();
 
-///    int enodeVarId(Enode *e)
-///    {
-///        if (e == NULL) cout << "bad pointer in varId" << endl;
-///        string str = e->getCar()->getName();
-///        return std::stoi(str);
-///    }
+            if (e->isEnil()) return NULL;
+            if (!e->isTerm()) return NULL;
 
-///    int enodeArity(Enode *e)
-///    {
-///        if (e == NULL) cout << "bad pointer in arity" << endl;
-///        return e->getArity();
-///    }
+            auto c = cache.find(e->getId());
+            if (c != cache.end()) {
+                //Already processed
+                continue;
+            }
 
-///    Enode *enode1st(Enode *e)
-///    {
-///        if (e == NULL) cout << "bad pointer in 1st" << endl;
-///        if (e->get1st() == NULL) cout << "bad pointer in 1st" << endl;
-///        return e->get1st();
-///    }
+            if (e->isVar()) {
+                int var = vars[e->getCar()->getName()];
+                cache[e->getId()] = Cudd_bddIthVar(mgr, var);
+                Cudd_Ref(cache[e->getId()]);
+            } else if (e->isAnd() || e->isOr()) {
+                assert(e->getArity() == 2);
+                auto ca = cache.find(e->get1st()->getId());
+                auto cb = cache.find(e->get2nd()->getId());
 
-///    Enode *enode2nd(Enode *e)
-///    {
-///        if (e == NULL) cout << "bad pointer in 2nd" << endl;
-///        if (e->get2nd() == NULL) cout << "bad pointer in 2nd" << endl;
-///        return e->get2nd();
-///    }
+                if (ca == cache.end() || cb == cache.end()) {
+                    //Defer until children are cached
+                    stack.push_back(e);
+
+                    if (ca == cache.end()) stack.push_back(e->get1st());
+                    if (cb == cache.end()) stack.push_back(e->get2nd());
+                } else {
+                    //Otherwise we can build this node now
+                    DdNode *a = ca->second;
+                    Cudd_Ref(a);
+                    DdNode *b = cb->second;
+                    Cudd_Ref(b);
+
+                    if (e->isAnd()) {
+                        cache[e->getId()] = Cudd_bddAnd(mgr, a, b);
+                    } else if (e->isOr()) {
+                        cache[e->getId()] = Cudd_bddOr(mgr, a, b);
+                    }
+
+                    Cudd_Ref(cache[e->getId()]);
+                    Cudd_RecursiveDeref(mgr, a);
+                    Cudd_RecursiveDeref(mgr, b);
+                }
+            } else if (e->isNot()) {
+                assert(e->getArity() == 1);
+                auto cn = cache.find(e->get1st()->getId());
+
+                if (cn == cache.end()) {
+                    //Defer until x in not(x) is true
+                    stack.push_back(e);
+                    stack.push_back(e->get1st());
+                } else {
+                    //It is processed, we can use it
+                    cache[e->getId()] = Cudd_Not(cn->second);
+                    Cudd_Ref(cache[e->getId()]);
+                }
+            }
+        }
+
+        DdNode* dd = cache[f->getId()];
+        if (dd == NULL) {
+            success = false;
+            return NULL;
+        } else {
+            Cudd_Ref(dd);
+        }
+
+        //Clean up the cache
+        for (auto cdd = cache.begin(); cdd != cache.end(); ++cdd)
+        {
+            Cudd_RecursiveDeref(mgr, cdd->second);
+        }
+
+        return dd;
+    }
+
+    vector< vector<VarState> > reduceCubes(DdManager *mgr, DdNode *dd, map<int, int> rvars)
+    {
+        vector< vector<VarState> > result;
+        int length;
+        DdGen *gen;
+        DdNode *cube, *implicant, *tmp;
+        int *c;
+        CUDD_VALUE_TYPE v;
+
+        Cudd_Ref(dd);
+
+        assert(Cudd_DebugCheck(mgr) == 0);
+
+        while (1)
+        {
+            cube = Cudd_LargestCube(mgr, dd, &length);
+            if (cube == NULL) {
+                Cudd_RecursiveDeref(mgr, dd);
+                break;
+            }
+            Cudd_Ref(cube);
+
+            assert(Cudd_DebugCheck(mgr) == 0);
+
+            implicant = Cudd_bddMakePrime(mgr, cube, dd);
+            if (implicant == NULL) {
+                Cudd_RecursiveDeref(mgr, cube);
+                Cudd_RecursiveDeref(mgr, dd);
+                break;
+            }
+            Cudd_Ref(implicant);
+            Cudd_RecursiveDeref(mgr, cube);
+
+            Cudd_ForeachCube(mgr, implicant, gen, c, v)
+            {
+                vector<VarState> vs_cube;
+                for (int i = 0; i != Cudd_ReadSize(mgr); ++i)
+                {
+                    if (c[i] == 0) {
+                        vs_cube.push_back(VarState(rvars[i], SETFALSE));
+                    } else if (c[i] == 1) {
+                        vs_cube.push_back(VarState(rvars[i], SETTRUE));
+                    }
+                }
+                result.push_back(vs_cube);
+            }
+
+            tmp = Cudd_bddAnd(mgr, dd, Cudd_Not(implicant));
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(mgr, dd);
+            Cudd_RecursiveDeref(mgr, implicant);
+            dd = tmp;
+        }
+
+        return result;
+    }
+
 }
