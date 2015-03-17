@@ -16,7 +16,7 @@ data PeriploSolver
 
 data InterpolantResult = InterpolantResult {
       success       :: Bool
-    , interpolant   :: [[Int]]
+    , interpolant   :: Maybe Expression
 } deriving (Show, Eq)
 
 foreign import ccall safe "periplo_wrapper/periplo_wrapper.h interpolate"
@@ -42,14 +42,14 @@ interpolate mc a b = do
     liftIO $ freeEnodeStruct pb
     liftIO $ freeEnodeStruct r
 
-    when succ $ do
-        let Just e = i
-        pe <- liftE $ printExpression e
-        liftIO $ putStrLn pe
+---    when succ $ do
+---        let Just e = i
+---        pe <- liftE $ printExpression e
+---        liftIO $ putStrLn pe
 
     return $ InterpolantResult {
-        success = False,
-        interpolant = []
+        success = succ,
+        interpolant = i
     }
 
 exprToEnodeExpr :: Int -> Expr -> [(Sign, EnodeExpr)] -> EnodeExpr

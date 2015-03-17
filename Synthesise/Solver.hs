@@ -116,6 +116,7 @@ findCandidate player spec s gt = do
         return (Just gt')
     else do
         mapM_ (learnStates spec player) (gtUnsetNodes gt)
+        learnWinning spec player s gt
 ---        computeCounterExample spec player gt
         return Nothing
 
@@ -141,6 +142,17 @@ learnStates spec player ogt = do
         else do
             put $ ls { winningEx = winningEx ls ++ [c] }
             liftLog $ logLosingState (printMove spec (Just c))
+
+learnWinning :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ()
+learnWinning spec player s gt = do
+    when (player == Existential) $ do
+        fmls <- makeLastNodeFmls spec player s gt
+        let ((fmlA, fmlB):[]) = fmls
+        ir <- interpolate 0 fmlA fmlB
+        when (success ir) $ do
+            pi <- liftE $ printExpression (fromJust (interpolant ir))
+            liftIO $ putStrLn pi
+    return ()
 
 printLearnedStates spec player = do
     LearnedStates{..} <- get
