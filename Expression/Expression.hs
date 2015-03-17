@@ -113,7 +113,6 @@ data Expr   = ETrue
             | EFalse
             | ELit ExprVar
             | ENot Var
-            | EEquals Var Var
             | EConjunct [Var]
             | EDisjunct [Var]
             deriving (Eq, Ord, Show)
@@ -134,7 +133,6 @@ children (ETrue)            = []
 children (EFalse)           = []
 children (ELit _)           = []
 children (ENot v)           = [v]
-children (EEquals x y)      = [x, y]
 children (EConjunct vs)     = vs
 children (EDisjunct vs)     = vs
 
@@ -147,7 +145,6 @@ setChildren (EFalse) _          = EFalse
 setChildren (ELit l) _          = ELit l
 setChildren (ENot _) (v:[])     = ENot v
 setChildren (ENot _) []         = error $ "ENot of empty list"
-setChildren (EEquals _ _) vs    = let (x:y:[]) = vs in EEquals x y
 setChildren (EConjunct _) vs    = EConjunct vs
 setChildren (EDisjunct _) vs    = EDisjunct vs
 
@@ -595,7 +592,9 @@ equalsConstant es const = do
 
 equate :: MonadIO m => Expression -> Expression -> ExpressionT m Expression
 equate a b = do
-    addExpression 0 (EEquals (Var Pos (eindex a)) (Var Pos (eindex b)))
+    aImpB <- addExpression 0 (EDisjunct [Var Neg (eindex a), Var Pos (eindex b)])
+    bImpA <- addExpression 0 (EDisjunct [Var Pos (eindex a), Var Neg (eindex b)])
+    addExpression 0 (EConjunct [Var Pos (eindex aImpB), Var Pos (eindex bImpA)])
 
 implicate :: MonadIO m => Expression -> Expression -> ExpressionT m Expression
 implicate = implicateC 0
@@ -650,7 +649,6 @@ printExpression' tabs s e = do
         (EFalse)        -> "F"
         (EConjunct _)   -> "conj {\n" ++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}"
         (EDisjunct _)   -> "disj {\n" ++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}"
-        (EEquals _ _)   -> "eq {\n" ++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}"
         (ENot _)        -> "not {\n"++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}" 
         (ELit v)        -> show v
 
@@ -726,10 +724,6 @@ makeVector e = case exprType e of
     (ENot _)        -> [ SV.fromList [-i, -(litc x)]
                        , SV.fromList [i, (litc x)]]
     (ELit _)        -> []
-    (EEquals _ _)   -> [ SV.fromList [-i, -(litc a), (litc b)]
-                       , SV.fromList [-i, (litc a), -(litc b)]
-                       , SV.fromList [i, (litc a), (litc b)]
-                       , SV.fromList [i, -(litc a), -(litc b)]]
     (EConjunct _)   -> SV.fromList (i : (map (negate . litc) cs)) : (map (\c -> SV.fromList [-i, (litc c)]) cs)
     (EDisjunct _)   -> SV.fromList (-i : map litc cs) : (map (\c -> SV.fromList [i, -(litc c)]) cs)
     where
