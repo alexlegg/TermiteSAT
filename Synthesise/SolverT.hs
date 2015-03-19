@@ -1,6 +1,7 @@
 module Synthesise.SolverT (
       SolverT(..)
     , LearnedStates(..)
+    , LearningType(..)
     , emptyLearnedStates
     , throwError
     , liftLog
@@ -17,14 +18,22 @@ import Utils.Logger
 type SolverST m = StateT LearnedStates m
 type SolverT = SolverST (ExpressionT (LoggerT IO))
 
+data LearningType = BoundedLearning | UnboundedLearning deriving (Show, Eq)
+
 data LearnedStates = LearnedStates {
-      winningEx :: [[Assignment]]
-    , winningUn :: Map.Map Int (Set.Set [Assignment])
+      learningType  :: LearningType
+    , winningEx     :: [[Assignment]]
+    , winningUn     :: Map.Map Int (Set.Set [Assignment])
+    , winningMay    :: [[Assignment]]
+    , winningMust   :: [[Assignment]]
 }
 
-emptyLearnedStates = LearnedStates {
-      winningEx = []
-    , winningUn = Map.empty
+emptyLearnedStates t = LearnedStates {
+      learningType  = t
+    , winningEx     = []
+    , winningUn     = Map.empty
+    , winningMay    = []
+    , winningMust   = []
 }
 
 throwError :: String -> SolverT a

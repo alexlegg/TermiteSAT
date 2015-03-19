@@ -390,6 +390,8 @@ childDependencies mc e = do
     return $ ISet.unions deps
 
 lookupExpression :: MonadIO m => Int -> Int -> ExpressionT m (Maybe Expression)
+lookupExpression _ 1 = return $ Just $ Expression { eindex = 1, expr = ETrue }
+lookupExpression _ 2 = return $ Just $ Expression { eindex = 2, expr = EFalse }
 lookupExpression mc i = do
     e <- mapMUntilJust (\c -> lookupExpressionC c i) [0..mc]
     ExprManager{..} <- get
@@ -572,12 +574,16 @@ disjunct = disjunctC 0
 disjunctC :: MonadIO m => Int -> [Expression] -> ExpressionT m Expression
 disjunctC c []      = addExpression c ETrue
 disjunctC c (e:[])  = return e
-disjunctC c es      = addExpression c (EDisjunct (concatMap liftDisjuncts es))
+disjunctC c es      = case (concatMap liftDisjuncts es) of
+    ((Var Pos i):[])    -> return $ fromJust $ find ((==) i . exprIndex) es
+    es'                 -> addExpression c (EDisjunct es')
 
 disjunctTemp :: MonadIO m => Int -> [Expression] -> ExpressionT m Expression
 disjunctTemp mc []      = addTempExpression mc ETrue
 disjunctTemp mc (e:[])  = return e
-disjunctTemp mc es      = addTempExpression mc (EDisjunct (concatMap liftDisjuncts es))
+disjunctTemp mc es      = case (concatMap liftDisjuncts es) of
+    ((Var Pos i):[])    -> return $ fromJust $ find ((==) i . exprIndex) es
+    es'                 -> addTempExpression mc (EDisjunct es')
 
 makeSignsFromValue :: Int -> Int -> [Sign]
 makeSignsFromValue v sz = map f [0..(sz-1)]
@@ -647,10 +653,10 @@ printExpression' tabs s e = do
     return $ t ++ s ++ case expr e of
         (ETrue)         -> "T"
         (EFalse)        -> "F"
-        (EConjunct _)   -> "conj {\n" ++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}"
-        (EDisjunct _)   -> "disj {\n" ++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}"
-        (ENot _)        -> "not {\n"++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}" 
-        (ELit v)        -> show v
+        (EConjunct _)   -> "conj(" ++ show (eindex e) ++ ") {\n" ++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}"
+        (EDisjunct _)   -> "disj(" ++ show (eindex e) ++ ") {\n" ++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}"
+        (ENot _)        -> "not(" ++ show (eindex e) ++ ") {\n"++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}" 
+        (ELit v)        -> "(" ++ show (eindex e) ++ ")" ++ show v
 
 setCopy :: MonadIO m => (Map.Map (Section, Int) Int) -> Expression -> ExpressionT m Expression
 setCopy cMap e = traverseExpression mc f e

@@ -68,7 +68,7 @@ makeFml spec player s ogt = do
 
     return (map (map snd) es, fml', gt')
 
-makeLastNodeFmls :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT [(Expression, Expression)]
+makeLastNodeFmls :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT [(GameTree, Expression, Expression)]
 makeLastNodeFmls spec player s gt = do
     let leaves = map (normaliseCopies . makePathTree) (gtLeaves gt)
 
@@ -95,8 +95,8 @@ makeLastNodeFml spec player s gt = do
     let block   = map Construct block'
 
     -- Construct everything
-    let constA  = filter (((<) 1) . cRank) $ trans ++ moves ++ goals ++ block
-    let constB  = filter (((>=) 1) . cRank) $ trans ++ moves ++ goals ++ block
+    let constA  = filter (((<) 1) . cRank) $ trans ++ moves ++ goals -- ++ block
+    let constB  = filter (((>=) 1) . cRank) $ trans ++ moves ++ goals -- ++ block
     exprsA      <- mapM (construct spec player (gtFirstPlayer gt)) constA
     exprsB      <- mapM (construct spec player (gtFirstPlayer gt)) constB
 
@@ -106,13 +106,13 @@ makeLastNodeFml spec player s gt = do
 
     -- Make path to rank 1, and path from 1 to 0
     (_, pathA)  <- leafToNoGoal spec 0 maxCopy player rank 1
-    (_, pathB)  <- leafToNoGoal spec 0 maxCopy player 1 0
+    (_, pathB)  <- leafTo spec 0 maxCopy player 1 0
 
     -- Add in s, moves and blocked states
     fmlA        <- liftE $ conjunctTemp maxCopy (pathA : s' ++ catMaybes exprsA)
     fmlB        <- liftE $ conjunctTemp maxCopy (pathB : catMaybes exprsB)
 
-    return (fmlA, fmlB)
+    return (gt, fmlA, fmlB)
 
 class Constructible a where
     sortIndex   :: a -> Int

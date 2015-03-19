@@ -22,14 +22,14 @@ data Option = InputFile String
             | Strategy FilePath
 
 data Config = Config { tslFile      :: String
-                     , bound        :: Int
+                     , bound        :: Maybe Int
                      , debugMode    :: Int
                      , strategyFile :: Maybe FilePath
                      } deriving (Show, Eq)
 
 defaultConfig = Config {
       tslFile       = ""
-    , bound         = 3
+    , bound         = Nothing
     , debugMode     = 1
     , strategyFile  = Nothing
     }
@@ -41,7 +41,7 @@ options =
     ]
 
 addOption (InputFile fn) c  = c {tslFile = fn}
-addOption (Bound k) c       = c {bound = (read k)}
+addOption (Bound k) c       = c {bound = Just (read k)}
 addOption (DebugMode d) c   = maybe c (\x -> c {debugMode = read x}) d
 addOption (Strategy s) c    = c {strategyFile = Just s}
 
@@ -92,8 +92,11 @@ getConfig = do
 
 run config f = do
     spec <- hoistEither $ parser (tslFile config) f
-    if isJust (strategyFile config)
-    then do
-        playStrategy (bound config) spec (fromJust (strategyFile config))
-    else do
-        synthesise (bound config) spec
+    case (bound config) of
+        Nothing -> unboundedSynthesis spec
+        Just k  -> do
+            if isJust (strategyFile config)
+            then do
+                playStrategy k spec (fromJust (strategyFile config))
+            else do
+                synthesise k spec

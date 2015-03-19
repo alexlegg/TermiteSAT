@@ -27,17 +27,15 @@ extern "C" {
 #include "periplo_wrapper.h"
 
     //Helper functions
-    Enode *expr_to_enode(PeriploContext *ctx, set<int> *vars, EnodeExpr *e);
+    Enode *expr_to_enode(PeriploContext *ctx, set<int> *vars, set<int> *new_vars, EnodeExpr *e);
     EnodeExpr *enode_to_expr(Enode *e);
-    vector< vector<VarState> > enodeToBDD(Enode *e, vector<int> project, bool &success);
-    DdNode* enodeToDdNode(DdManager *mgr, map<string, int> vars, Enode *f, bool &success);
-    vector< vector<VarState> > reduceCubes(DdManager *mgr, DdNode *dd, map<int, int> rvars);
+    VarAssignment **enodeToBDD(Enode *e, vector<int> project, bool &success);
+    DdNode *enodeToDdNode(DdManager *mgr, map<string, int> vars, Enode *f, bool &success);
+    VarAssignment **reduceCubes(DdManager *mgr, DdNode *dd, map<int, int> rvars);
 
-    EnodeExpr *interpolate(EnodeExpr *a, EnodeExpr *b)
+    VarAssignment **interpolate(EnodeExpr *a, EnodeExpr *b)
     {
-        set<int> *vars = new set<int>();
-        bool result;
-        EnodeExpr *interp = NULL;
+        VarAssignment **interp = NULL;
         Enode *ea, *eb;
         PeriploContext *ctx = new PeriploContext();
 
@@ -45,24 +43,31 @@ extern "C" {
         ctx->SetOption(":produce-interpolants", "true");
         ctx->setVerbosity(0);
 
-        ea = expr_to_enode(ctx, vars, a);
-        eb = expr_to_enode(ctx, vars, b);
-        delete vars;
+        set<int> *varsAll = new set<int>();
+        set<int> *varsA = new set<int>();
+        set<int> *varsB = new set<int>();
+
+        ea = expr_to_enode(ctx, varsAll, varsA, a);
+        eb = expr_to_enode(ctx, varsAll, varsB, b);
+
+        vector<int> project;
+        for (auto va = varsA->begin(); va != varsA->end(); ++va)
+        {
+            if (varsB->find(*va) != varsB->end()) {
+                project.push_back(*va);
+            }
+        }
+
+        delete varsAll;
+        delete varsA;
+        delete varsB;
         
-///        cout << "ea:" << endl;
-///        ea->print(cout);
-
-///        cout << endl << "eb:" << endl;
-///        eb->print(cout);
-
         ctx->Assert(ea);
         ctx->Assert(eb);
         ctx->CheckSATStatic();
 
         lbool r = ctx->getStatus();
-        if (r == l_True) {
-            result = false;
-        } else {
+        if (r == l_False) {
             ctx->createProofGraph();
             ctx->setNumReductionLoops(2);
             ctx->setNumGraphTraversals(2);
@@ -74,17 +79,14 @@ extern "C" {
             ctx->getSingleInterpolant(interpolants);
 
             if (interpolants.size() == 1) {
-                result = true;
-                interp = enode_to_expr(interpolants[0]);
                 bool success;
-                vector<int> project;
-                vector< vector<VarState> > reduced;
-                reduced = enodeToBDD(interpolants[0], project, success);
-            } else {
-                result = false;
+                interp = enodeToBDD(interpolants[0], project, success);
+                if (!success) {
+                    cout << "Error reducing cubes" << endl;
+                    interp = NULL;
+                }
             }
         }
-
 
         ctx->deleteProofGraph();
         ctx->Reset();
@@ -93,7 +95,7 @@ extern "C" {
         return interp;
     }
 
-    Enode *expr_to_enode(PeriploContext *ctx, set<int> *vars, EnodeExpr *e)
+    Enode *expr_to_enode(PeriploContext *ctx, set<int> *vars, set<int> *new_vars, EnodeExpr *e)
     {
         Enode *r;
         int id = abs(e->enodeVarId);
@@ -102,6 +104,7 @@ extern "C" {
 
         switch (e->enodeType) {
             case ENODEVAR:
+                new_vars->insert(abs(id));
                 if (vars->find(id) == vars->end())
                 {
                     ctx->DeclareFun(str.c_str(), NULL, ctx->mkSortBool());
@@ -116,7 +119,7 @@ extern "C" {
             case ENODENOT:
                 for (int i = 0; i != e->enodeArity; ++i)
                 {
-                    Enode *c = expr_to_enode(ctx, vars, e->enodeChildren[i]);
+                    Enode *c = expr_to_enode(ctx, vars, new_vars, e->enodeChildren[i]);
                     lits.push_back(c);
                 }
 
@@ -128,6 +131,14 @@ extern "C" {
                 } else if (e->enodeType == ENODENOT) {
                     r = ctx->mkNot(ctx->mkCons(lits));
                 }
+                break;
+
+            case ENODETRUE:
+                r = ctx->mkTrue();
+                break;
+
+            case ENODEFALSE:
+                r = ctx->mkFalse();
                 break;
 
             case ENODEINVALID:
@@ -187,6 +198,7 @@ extern "C" {
 
             return r;
         } else {
+            cout << "Bad enode" << endl;
             assert(false);
         }
     }
@@ -229,11 +241,11 @@ extern "C" {
         }
     }
 
-    vector< vector<VarState> > enodeToBDD(Enode *e, vector<int> project, bool &success)
+    VarAssignment **enodeToBDD(Enode *e, vector<int> project, bool &success)
     {
         DdManager *mgr;
         DdNode *dd;
-        vector< vector<VarState> > result;
+        VarAssignment **result;
         map<string, int> vars;
         map<int, int> rvars;
 
@@ -253,13 +265,9 @@ extern "C" {
 
         assert(Cudd_DebugCheck(mgr) == 0);
 
-        clock_t start = clock(), end;
-
         dd = enodeToDdNode(mgr, vars, e, success);
-        end = clock();
 
-        result.clear();
-        if (!success) return result;
+        if (!success) return NULL;
 
         assert(Cudd_DebugCheck(mgr) == 0);
 
@@ -298,6 +306,7 @@ extern "C" {
             }
 
             if (e->isVar()) {
+                assert(vars.find(e->getCar()->getName()) != vars.end());
                 int var = vars[e->getCar()->getName()];
                 cache[e->getId()] = Cudd_bddIthVar(mgr, var);
                 Cudd_Ref(cache[e->getId()]);
@@ -350,6 +359,7 @@ extern "C" {
             success = false;
             return NULL;
         } else {
+            success = true;
             Cudd_Ref(dd);
         }
 
@@ -362,9 +372,9 @@ extern "C" {
         return dd;
     }
 
-    vector< vector<VarState> > reduceCubes(DdManager *mgr, DdNode *dd, map<int, int> rvars)
+    VarAssignment **reduceCubes(DdManager *mgr, DdNode *dd, map<int, int> rvars)
     {
-        vector< vector<VarState> > result;
+        vector<VarAssignment*> cubes;
         int length;
         DdGen *gen;
         DdNode *cube, *implicant, *tmp;
@@ -395,18 +405,38 @@ extern "C" {
             Cudd_Ref(implicant);
             Cudd_RecursiveDeref(mgr, cube);
 
+            int cube_size = 0;
             Cudd_ForeachCube(mgr, implicant, gen, c, v)
             {
-                vector<VarState> vs_cube;
+                cube_size++;
+            }
+
+            Cudd_ForeachCube(mgr, implicant, gen, c, v)
+            {
+                VarAssignment *va;
+                int cube_size = 0;
+                for (int i = 0; i != Cudd_ReadSize(mgr); ++i)
+                {
+                    if (c[i] == 0 || c[i] == 1) cube_size++;
+                }
+                va = (VarAssignment*)malloc(sizeof(VarAssignment)*(cube_size+1));
+
+                int j = 0;
                 for (int i = 0; i != Cudd_ReadSize(mgr); ++i)
                 {
                     if (c[i] == 0) {
-                        vs_cube.push_back(VarState(rvars[i], SETFALSE));
+                        va[j].id = rvars[i];
+                        va[j].sign = VARFALSE;
+                        j++;
                     } else if (c[i] == 1) {
-                        vs_cube.push_back(VarState(rvars[i], SETTRUE));
+                        va[j].id = rvars[i];
+                        va[j].sign = VARTRUE;
+                        j++;
                     }
                 }
-                result.push_back(vs_cube);
+                va[cube_size].id = 0;
+                va[cube_size].id = VARFALSE;
+                cubes.push_back(va);
             }
 
             tmp = Cudd_bddAnd(mgr, dd, Cudd_Not(implicant));
@@ -415,6 +445,17 @@ extern "C" {
             Cudd_RecursiveDeref(mgr, implicant);
             dd = tmp;
         }
+
+        VarAssignment **result = (VarAssignment**)malloc(sizeof(VarAssignment*)*(cubes.size()+1));
+
+        int i = 0;
+        for (auto cube = cubes.begin(); cube != cubes.end(); ++cube)
+        {
+            result[i] = *cube;
+            i++;
+        }
+
+        result[cubes.size()] = NULL;
 
         return result;
     }

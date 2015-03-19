@@ -3,6 +3,7 @@ module Synthesise.Solver (
       checkRank
     , checkStrategy
     , LearnedStates(..)
+    , LearningType(..)
     , emptyLearnedStates
     ) where
 
@@ -33,7 +34,7 @@ import Utils.Utils
 
 checkRank :: CompiledSpec -> Int -> Expression -> SolverT Bool
 checkRank spec rnk s = do
-    testInterpolants
+    --testInterpolants
     r <- solveAbstract Universal spec s (gtNew Existential rnk)
     liftE $ analyseManagers
     return (isNothing r)
@@ -115,9 +116,12 @@ findCandidate player spec s gt = do
         gt'         <- setMoves player spec m (gtRoot gt')
         return (Just gt')
     else do
-        mapM_ (learnStates spec player) (gtUnsetNodes gt)
-        learnWinning spec player s gt
----        computeCounterExample spec player gt
+        ls <- get
+        if (learningType ls == BoundedLearning)
+        then do
+            mapM_ (learnStates spec player) (gtUnsetNodes gt)
+        else do
+            learnWinning spec player s gt
         return Nothing
 
 learnStates :: CompiledSpec -> Player -> GameTree -> SolverT ()
@@ -145,13 +149,25 @@ learnStates spec player ogt = do
 
 learnWinning :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ()
 learnWinning spec player s gt = do
+    liftIO $ putStrLn "learnWinning"
     when (player == Existential) $ do
         fmls <- makeLastNodeFmls spec player s gt
-        let ((fmlA, fmlB):[]) = fmls
+        let ((gt', fmlA, fmlB):[]) = fmls
+        rA <- satSolve gt' Nothing fmlA
+        rB <- satSolve gt' Nothing fmlB
+        liftIO $ putStrLn (show (satisfiable rA))
+        liftIO $ putStrLn (show (satisfiable rB))
+
+        both <- liftE $ conjunctTemp 0 [fmlA, fmlB]
+        rBoth <- satSolve gt' Nothing both
+        liftIO $ putStrLn (show rBoth)
+
         ir <- interpolate 0 fmlA fmlB
-        when (success ir) $ do
-            pi <- liftE $ printExpression (fromJust (interpolant ir))
-            liftIO $ putStrLn pi
+        liftIO $ putStrLn (show ir)
+        return ()
+---        when (success ir) $ do
+---            pi <- liftE $ printExpression (fromJust (interpolant ir))
+---            liftIO $ putStrLn pi
     return ()
 
 printLearnedStates spec player = do

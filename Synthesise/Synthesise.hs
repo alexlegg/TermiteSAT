@@ -1,6 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 module Synthesise.Synthesise (
         synthesise
+      , unboundedSynthesis
       , playStrategy
     ) where
 
@@ -24,11 +25,16 @@ import Expression.AST
 import SatSolver.Interpolator
 
 synthesise :: Int -> ParsedSpec -> EitherT String (LoggerT IO) Bool
-synthesise k spec = evalStateT (synthesise' k spec) emptyManager
+synthesise k spec = evalStateT (synthesise' k spec BoundedLearning) emptyManager
 
-synthesise' k spec = do
+unboundedSynthesis :: ParsedSpec -> EitherT String (LoggerT IO) Bool
+unboundedSynthesis spec = do
+    liftIO $ putStrLn "unbounded"
+    evalStateT (synthesise' 2 spec UnboundedLearning) emptyManager
+
+synthesise' k spec learning = do
     (init, cspec) <- loadFmls k spec
-    evalStateT (checkRank cspec k init) emptyLearnedStates
+    evalStateT (checkRank cspec k init) (emptyLearnedStates learning)
 
 playStrategy :: Int -> ParsedSpec -> FilePath -> EitherT String (LoggerT IO) Bool
 playStrategy k spec sFile = evalStateT (playStrategy' k spec sFile) emptyManager
@@ -40,7 +46,7 @@ playStrategy' k spec sFile = do
     let varTree     = unfoldTree makeStrategy vars
     let assTree     = fmap (\(vs, r) -> map (\(var, val) -> makeAssignmentValue (map (setVarRank (r+1)) var) val) vs) varTree
 
-    evalStateT (checkStrategy cspec k init player assTree) emptyLearnedStates
+    evalStateT (checkStrategy cspec k init player assTree) (emptyLearnedStates BoundedLearning)
 
 makeStrategy :: [(a, Int)] -> ((a, Int), [[(a, Int)]])
 makeStrategy ((x, r):xrs) = ((x, r), children xrs)

@@ -16,11 +16,11 @@ data PeriploSolver
 
 data InterpolantResult = InterpolantResult {
       success       :: Bool
-    , interpolant   :: Maybe Expression
+    , interpolant   :: Maybe [[Assignment]]
 } deriving (Show, Eq)
 
 foreign import ccall safe "periplo_wrapper/periplo_wrapper.h interpolate"
-    c_interpolate :: Ptr EnodeStruct -> Ptr EnodeStruct -> IO (Ptr EnodeStruct)
+    c_interpolate :: Ptr EnodeStruct -> Ptr EnodeStruct -> IO (Ptr (Ptr AssignmentStruct))
 
 interpolate mc a b = do
     a'  <- lift $ foldExpression mc exprToEnodeExpr a
@@ -34,21 +34,20 @@ interpolate mc a b = do
     let succ = (r /= nullPtr)
     i   <- if succ 
         then do 
-            e <- liftIO $ structToEnode r
-            liftM Just $ liftE $ enodeExprToExpr mc e
+            assignments <- liftIO $ cubesToAssignments r
+            liftM Just $ forM assignments $ \vs -> do
+                let (ss, vars)  = unzip vs
+                es              <- liftE $ mapM (lookupExpression mc) vars
+                let vars'       = map (\(Just v) -> (\(ELit var) -> var) (exprType v)) es
+                return $ zipWith Assignment ss vars'
         else return Nothing
 
     liftIO $ freeEnodeStruct pa
     liftIO $ freeEnodeStruct pb
-    liftIO $ freeEnodeStruct r
-
----    when succ $ do
----        let Just e = i
----        pe <- liftE $ printExpression e
----        liftIO $ putStrLn pe
+    when (r /= nullPtr) $ liftIO $ freeCubes r
 
     return $ InterpolantResult {
-        success = succ,
+        success     = succ,
         interpolant = i
     }
 
@@ -57,6 +56,8 @@ exprToEnodeExpr i (ELit _) []       = EnodeExpr EnodeVar (Just i) []
 exprToEnodeExpr i (ENot _) cs       = EnodeExpr EnodeNot Nothing (expandNots cs)
 exprToEnodeExpr i (EConjunct _) cs  = EnodeExpr EnodeAnd Nothing (expandNots cs)
 exprToEnodeExpr i (EDisjunct _) cs  = EnodeExpr EnodeOr Nothing (expandNots cs)
+exprToEnodeExpr i (ETrue) _         = EnodeExpr EnodeTrue Nothing []
+exprToEnodeExpr i (EFalse) _        = EnodeExpr EnodeFalse Nothing []
 
 expandNots []               = []
 expandNots ((Pos, x):xs)    = x : expandNots xs

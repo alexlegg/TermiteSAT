@@ -6,7 +6,9 @@ typedef enum {
     ENODEVAR,
     ENODEAND,
     ENODEOR,
-    ENODENOT
+    ENODENOT,
+    ENODETRUE,
+    ENODEFALSE
 } enode_type;
 
 typedef struct EnodeExpr_t EnodeExpr;
@@ -18,7 +20,20 @@ struct EnodeExpr_t {
     int enodeArity;
 };
 
-EnodeExpr *interpolate(EnodeExpr *a, EnodeExpr *b);
+typedef enum {
+    VARFALSE,
+    VARTRUE,
+    VARUNSET
+} sign_t;
+
+typedef struct VarAssignment_t VarAssignment;
+
+struct VarAssignment_t {
+    sign_t sign;
+    int id;
+};
+
+VarAssignment **interpolate(EnodeExpr *a, EnodeExpr *b);
 
 void print_expr(EnodeExpr *e);
 

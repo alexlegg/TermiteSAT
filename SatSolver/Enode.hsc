@@ -2,14 +2,19 @@ module SatSolver.Enode (
       EnodeExpr(..)
     , EnodeType(..)
     , EnodeStruct
+    , AssignmentStruct
     , enodeToStruct
     , structToEnode
     , freeEnodeStruct
+    , cubesToAssignments
+    , freeCubes
     ) where
 
 import Foreign
 import Foreign.C
 import Data.Maybe
+import Control.Monad (forM)
+import Expression.Expression (Sign(..))
 
 #include "periplo_wrapper.h"
 
@@ -19,6 +24,8 @@ data EnodeType =
     | EnodeAnd
     | EnodeOr
     | EnodeNot
+    | EnodeTrue
+    | EnodeFalse
     deriving (Show, Eq, Enum)
 
 data EnodeExpr = EnodeExpr
@@ -33,6 +40,11 @@ data EnodeStruct = EnodeStruct
     , enodeChildren :: !(Ptr (Ptr EnodeStruct))
     , enodeArity    :: !CInt
     } deriving (Show)
+
+data AssignmentStruct = AssignmentStruct
+    { assignmentSign    :: !CInt
+    , assignmentVarId   :: !CInt
+    } deriving (Show, Eq)
 
 #let alignment t = "%lu", (unsigned long)offsetof(struct {char x__; t (y__); }, y__)
 
@@ -54,9 +66,43 @@ instance Storable EnodeStruct where
         #{poke EnodeExpr, enodeChildren} ptr children
         #{poke EnodeExpr, enodeArity} ptr arity
 
+instance Storable AssignmentStruct where
+    sizeOf _        = #{size VarAssignment}
+
+    alignment _     = #{alignment VarAssignment}
+
+    peek ptr        = do
+        sign        <- #{peek VarAssignment, sign} ptr
+        varId       <- #{peek VarAssignment, id} ptr
+        return (AssignmentStruct sign varId)
+
+    poke ptr (AssignmentStruct sign varId) = do
+        #{poke VarAssignment, sign} ptr sign
+        #{poke VarAssignment, id} ptr varId
+
 enodeToStruct :: EnodeExpr -> IO (Ptr EnodeStruct)
 enodeToStruct e = case (exprEType e) of
     EnodeInvalid    -> error "Invalid Enode"
+
+    EnodeTrue       -> do
+        let struct = EnodeStruct {
+              enodeType     = fromIntegral (fromEnum (exprEType e))
+            , enodeVarId    = 0
+            , enodeChildren = nullPtr
+            , enodeArity    = 0 }
+        p <- malloc
+        poke p struct
+        return p
+
+    EnodeFalse      -> do
+        let struct = EnodeStruct {
+              enodeType     = fromIntegral (fromEnum (exprEType e))
+            , enodeVarId    = 0
+            , enodeChildren = nullPtr
+            , enodeArity    = 0 }
+        p <- malloc
+        poke p struct
+        return p
 
     EnodeVar        -> do
         let struct = EnodeStruct {
@@ -91,6 +137,12 @@ freeEnodeStruct p = do
         EnodeVar        -> do
             free p
 
+        EnodeTrue       -> do
+            free p
+
+        EnodeFalse      -> do
+            free p
+
         _               -> do
             cs <- peekArray (fromIntegral (enodeArity s)) (enodeChildren s)
             mapM freeEnodeStruct cs
@@ -113,3 +165,15 @@ structToEnode p = do
         , exprVarId     = varId
         , exprChildren  = children
         }
+
+cubesToAssignments :: Ptr (Ptr AssignmentStruct) -> IO [[(Sign, Int)]]
+cubesToAssignments p = do
+    cubesPtr    <- peekArray0 nullPtr p
+    cubes       <- mapM (peekArray0 (AssignmentStruct 0 0)) cubesPtr
+    return $ map (map (\(AssignmentStruct s i) -> (if s == 1 then Pos else Neg, fromIntegral i))) cubes
+
+freeCubes :: Ptr (Ptr AssignmentStruct) -> IO ()
+freeCubes p = do
+    cubes <- peekArray0 nullPtr p
+    mapM free cubes
+    free p

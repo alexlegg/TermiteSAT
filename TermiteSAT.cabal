@@ -69,7 +69,8 @@ executable TermiteSAT
 
   default-language:     Haskell2010
 
-  extra-lib-dirs:         glucose_wrapper, periplo_wrapper
+  extra-lib-dirs:         glucose_wrapper
+                        , periplo_wrapper
   extra-libraries:        glucose_wrapper
                         , periplo_wrapper
                         , stdc++
