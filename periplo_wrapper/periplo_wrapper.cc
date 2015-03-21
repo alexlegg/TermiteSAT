@@ -405,12 +405,6 @@ extern "C" {
             Cudd_Ref(implicant);
             Cudd_RecursiveDeref(mgr, cube);
 
-            int cube_size = 0;
-            Cudd_ForeachCube(mgr, implicant, gen, c, v)
-            {
-                cube_size++;
-            }
-
             Cudd_ForeachCube(mgr, implicant, gen, c, v)
             {
                 VarAssignment *va;
@@ -435,7 +429,7 @@ extern "C" {
                     }
                 }
                 va[cube_size].id = 0;
-                va[cube_size].id = VARFALSE;
+                va[cube_size].sign = VARFALSE;
                 cubes.push_back(va);
             }
 

@@ -1,7 +1,7 @@
 {-# LANGUAGE RecordWildCards, ExistentialQuantification #-}
 module Synthesise.GameFormula (
       makeFml
-    , makeLastNodeFmls
+    , makeSplitFmls
 ---    , getStepExpressions
     ) where
 
@@ -68,18 +68,19 @@ makeFml spec player s ogt = do
 
     return (map (map snd) es, fml', gt')
 
-makeLastNodeFmls :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT [(GameTree, Expression, Expression)]
-makeLastNodeFmls spec player s gt = do
-    let leaves = map (normaliseCopies . makePathTree) (gtLeaves gt)
+makeSplitFmls :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT [(GameTree, Expression, Expression)]
+makeSplitFmls spec player s gt = do
+    let leaves  = map (normaliseCopies . makePathTree) (gtLeaves gt)
+
 
     --TODO: If we do all at once we have to ensure construction in the correct order
     -- Is this true? We're only using copy 0
     liftE $ clearTempExpressions
     liftE $ initCopyMaps 0
 
-    mapM (makeLastNodeFml spec player s) (take 1 leaves)
+    concatMapM (makeSplitFml spec player s) leaves
 
-makeLastNodeFml spec player s gt = do
+makeSplitFml spec player s gt = do
     let maxCopy = gtMaxCopy gt
     let root    = gtRoot gt
     let rank    = gtRank root
@@ -94,25 +95,26 @@ makeLastNodeFml spec player s gt = do
     block'      <- getBlockedStates player rank maxCopy
     let block   = map Construct block'
 
-    -- Construct everything
-    let constA  = filter (((<) 1) . cRank) $ trans ++ moves ++ goals -- ++ block
-    let constB  = filter (((>=) 1) . cRank) $ trans ++ moves ++ goals -- ++ block
-    exprsA      <- mapM (construct spec player (gtFirstPlayer gt)) constA
-    exprsB      <- mapM (construct spec player (gtFirstPlayer gt)) constB
+    forM [1..rank] $ \r -> do
+        -- Construct everything
+        let constA  = filter ((\cr -> cr > r) . cRank) $ trans ++ moves ++ goals -- ++ block
+        let constB  = filter ((\cr -> cr <= r) . cRank) $ trans ++ moves ++ goals -- ++ block
+        exprsA      <- mapM (construct spec player (gtFirstPlayer gt)) constA
+        exprsB      <- mapM (construct spec player (gtFirstPlayer gt)) constB
 
-    -- Construct init expression
-    initMove    <- liftE $ moveToExpression (gtMaxCopy gt) (gtMove root)
-    let s'      = s : catMaybes [initMove]
+        -- Construct init expression
+        initMove    <- liftE $ moveToExpression (gtMaxCopy gt) (gtMove root)
+        let s'      = s : catMaybes [initMove]
 
-    -- Make path to rank 1, and path from 1 to 0
-    (_, pathA)  <- leafToNoGoal spec 0 maxCopy player rank 1
-    (_, pathB)  <- leafTo spec 0 maxCopy player 1 0
+        -- Make path to rank 1, and path from 1 to 0
+        (_, pathA)  <- leafToNoGoal spec 0 maxCopy player rank r
+        (_, pathB)  <- leafTo spec 0 maxCopy player r (r-1)
 
-    -- Add in s, moves and blocked states
-    fmlA        <- liftE $ conjunctTemp maxCopy (pathA : s' ++ catMaybes exprsA)
-    fmlB        <- liftE $ conjunctTemp maxCopy (pathB : catMaybes exprsB)
+        -- Add in s, moves and blocked states
+        fmlA        <- liftE $ conjunctTemp maxCopy (pathA : s' ++ catMaybes exprsA)
+        fmlB        <- liftE $ conjunctTemp maxCopy (pathB : catMaybes exprsB)
 
-    return (gt, fmlA, fmlB)
+        return (gt, fmlA, fmlB)
 
 class Constructible a where
     sortIndex   :: a -> Int

@@ -151,23 +151,23 @@ learnWinning :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ()
 learnWinning spec player s gt = do
     liftIO $ putStrLn "learnWinning"
     when (player == Existential) $ do
-        fmls <- makeLastNodeFmls spec player s gt
-        let ((gt', fmlA, fmlB):[]) = fmls
-        rA <- satSolve gt' Nothing fmlA
-        rB <- satSolve gt' Nothing fmlB
-        liftIO $ putStrLn (show (satisfiable rA))
-        liftIO $ putStrLn (show (satisfiable rB))
+        fmls <- makeSplitFmls spec player s gt
+        forM_ fmls $ \(gt', fmlA, fmlB) -> do
+            rA <- satSolve gt' Nothing fmlA
+            rB <- satSolve gt' Nothing fmlB
+            liftIO $ putStrLn (show (satisfiable rA))
+            liftIO $ putStrLn (show (satisfiable rB))
 
-        both <- liftE $ conjunctTemp 0 [fmlA, fmlB]
-        rBoth <- satSolve gt' Nothing both
-        liftIO $ putStrLn (show rBoth)
+---            pa <- liftE $ printExpression fmlA
+---            liftIO $ putStrLn pa
 
-        ir <- interpolate 0 fmlA fmlB
-        liftIO $ putStrLn (show ir)
-        return ()
----        when (success ir) $ do
----            pi <- liftE $ printExpression (fromJust (interpolant ir))
----            liftIO $ putStrLn pi
+            both <- liftE $ conjunctTemp 0 [fmlA, fmlB]
+            rBoth <- satSolve gt' Nothing both
+            liftIO $ putStrLn (show rBoth)
+
+            ir <- interpolate 0 fmlA fmlB
+            liftIO $ putStrLn (show ir)
+            return ()
     return ()
 
 printLearnedStates spec player = do
