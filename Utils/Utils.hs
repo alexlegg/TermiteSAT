@@ -7,6 +7,7 @@ module Utils.Utils (
     , mapFstM
     , mapSnd
     , mapSndM
+    , mapThd
     , concatMapM
     , mapUntilJust
     , mapMUntilJust
@@ -66,6 +67,9 @@ mapSndM :: Monad m => (a -> m b) -> (c, a) -> m (c, b)
 mapSndM f (x,y) = do
     y' <- f y
     return (x, y')
+
+mapThd :: (c -> d) -> (a, b, c) -> (a, b, d)
+mapThd f (x, y, z) = (x, y, f z)
 
 concatMapM :: Monad m => (a -> m [b]) -> [a] -> m [b]
 concatMapM f xs = (liftM concat) (mapM f xs)

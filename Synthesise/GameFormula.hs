@@ -70,6 +70,11 @@ makeFml spec player s ogt = do
 
 makeSplitFmls :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT [(GameTree, Expression, Expression)]
 makeSplitFmls spec player s gt = do
+    let eGt = gtExtend gt
+    liftIO $ putStrLn (printTree spec eGt)
+    let (t1, t2) = gtSplit (gtExtend gt)
+    liftIO $ putStrLn (printTree spec t1)
+    liftIO $ putStrLn (printTree spec t2)
     let leaves  = map (normaliseCopies . makePathTree) (gtLeaves gt)
 
 

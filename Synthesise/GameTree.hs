@@ -50,6 +50,8 @@ module Synthesise.GameTree (
     , gtAppendMoveU
     , appendNextMove
     , normaliseCopies
+    , gtSplit
+    , gtExtend
     ) where
 
 import Data.Maybe
@@ -686,3 +688,26 @@ normaliseNodes c n = if null (children n') then (n', c) else (setChildren n' (fs
         first   = mapFst (\x -> [x]) $ normaliseNodes c fc
         ns      = foldl (\(xs, c') x -> mapFst (\x' -> xs ++ [x']) (normaliseNodes (c' + 1) x)) first cs
 
+gtExtend :: GameTree -> GameTree
+gtExtend gt = (setRoot gt r') { maxCopy = mc', maxId = mn' }
+    where
+        (mc', mn', r') = extendNodes (maxCopy gt) (maxId gt) (baseRank gt) (root gt)
+    
+
+extendNodes :: Int -> Int -> Int -> SNode -> (Int, Int, SNode)
+extendNodes mc mn 0 n                   = (mc, mn, n)
+extendNodes mc mn d n@(children -> [])  = (mc'', mn'', setChildren n' [n''])
+    where
+        (mc', mn', n')      = appendNode mc mn Nothing Nothing n 
+        (mc'', mn'', n'')   = extendNodes mc' mn' (d-1) (children n' !! 0)
+extendNodes mc mn d n                   = foldl collect (mc, mn, n) [0..(length cs - 1)]
+    where
+        collect (mc', mn', n') ci       = mapThd (\c -> setChildren n' (update c ci (children n'))) (extendNodes mc' mn' (d-1) (cs !! ci))
+        cs = children n
+
+gtSplit :: GameTree -> (GameTree, GameTree)
+gtSplit gt = (gtSetChildren (gtParent maxDepthLeaf) [], maxDepthLeaf)
+    where
+        leaves          = gtLeaves gt
+        leafDepth       = map (length . gtCrumb) leaves
+        maxDepthLeaf    = fst $ maximumBy (\x y -> compare (snd x) (snd y)) (zip leaves leafDepth)
