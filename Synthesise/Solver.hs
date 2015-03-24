@@ -151,24 +151,39 @@ learnWinning :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ()
 learnWinning spec player s gt = do
     liftIO $ putStrLn "learnWinning"
     when (player == Existential) $ do
-        fmls <- makeSplitFmls spec player s gt
-        forM_ fmls $ \(gt', fmlA, fmlB) -> do
-            rA <- satSolve gt' Nothing fmlA
-            rB <- satSolve gt' Nothing fmlB
-            liftIO $ putStrLn (show (satisfiable rA))
-            liftIO $ putStrLn (show (satisfiable rB))
-
----            pa <- liftE $ printExpression fmlA
----            liftIO $ putStrLn pa
-
-            both <- liftE $ conjunctTemp 0 [fmlA, fmlB]
-            rBoth <- satSolve gt' Nothing both
-            liftIO $ putStrLn (show rBoth)
-
-            ir <- interpolate 0 fmlA fmlB
-            liftIO $ putStrLn (show ir)
-            return ()
+        interpolateTree spec player s (gtExtend gt)
+        return ()
     return ()
+
+interpolateTree :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT [InterpolantResult]
+interpolateTree spec player s gt = do
+    fmls <- makeSplitFmls spec player s gt
+    if (isJust fmls)
+    then do
+        let Just (gt', fmlA, fmlB) = fmls
+
+        rA      <- satSolve gt' Nothing fmlA
+        rB      <- satSolve gt' Nothing fmlB
+
+        liftIO $ putStrLn (show (satisfiable rA))
+        liftIO $ putStrLn (show (satisfiable rB))
+
+        both    <- liftE $ conjunctTemp 0 [fmlA, fmlB]
+        rBoth   <- satSolve gt' Nothing both
+
+        liftIO $ putStrLn (show (satisfiable rBoth))
+        when (satisfiable rBoth) $ throwError "Interpolation formulas are satisfiable"
+
+        ir      <- interpolate 0 fmlA fmlB
+        when (not (success ir)) $ throwError "Interpolation failed"
+
+        liftIO $ mapM_ (putStrLn . printMove spec . Just) (fromJust (interpolant ir))
+        liftIO $ putStrLn (show ir)
+
+        next    <- interpolateTree spec player s gt'
+
+        return $ ir : next
+    else return []
 
 printLearnedStates spec player = do
     LearnedStates{..} <- get

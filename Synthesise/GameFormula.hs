@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, ExistentialQuantification #-}
+{-# LANGUAGE RecordWildCards, ExistentialQuantification, ViewPatterns #-}
 module Synthesise.GameFormula (
       makeFml
     , makeSplitFmls
@@ -56,7 +56,7 @@ makeFml spec player s ogt = do
             (es, step)  <- leafTo spec 0 maxCopy player rank 0
             return ([(Just (gtNodeId root), step) : es], step)
         scs -> do
-            steps       <- mapM (makeSteps rank spec player root) scs
+            steps       <- mapM (makeSteps rank spec player True root) scs
             step        <- liftE $ conjunctTemp maxCopy (map snd steps)
             return (map ((Just (gtNodeId root), step) :) (concatMap fst steps), step)
 
@@ -68,27 +68,24 @@ makeFml spec player s ogt = do
 
     return (map (map snd) es, fml', gt')
 
-makeSplitFmls :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT [(GameTree, Expression, Expression)]
-makeSplitFmls spec player s gt = do
-    let eGt = gtExtend gt
-    liftIO $ putStrLn (printTree spec eGt)
-    let (t1, t2) = gtSplit (gtExtend gt)
+makeSplitFmls :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT (Maybe (GameTree, Expression, Expression))
+makeSplitFmls _ _ _ (gtEmpty -> True) = return Nothing
+makeSplitFmls spec player s gt' = do
+    let gt      = normaliseCopies gt'
+    let maxCopy = gtMaxCopy gt
+    let root    = gtRoot gt
+    let rank    = gtRank root
+
+    liftIO $ putStrLn (printTree spec gt)
+    let (t1, t2) = gtSplit gt
+
     liftIO $ putStrLn (printTree spec t1)
     liftIO $ putStrLn (printTree spec t2)
-    let leaves  = map (normaliseCopies . makePathTree) (gtLeaves gt)
-
 
     --TODO: If we do all at once we have to ensure construction in the correct order
     -- Is this true? We're only using copy 0
     liftE $ clearTempExpressions
     liftE $ initCopyMaps 0
-
-    concatMapM (makeSplitFml spec player s) leaves
-
-makeSplitFml spec player s gt = do
-    let maxCopy = gtMaxCopy gt
-    let root    = gtRoot gt
-    let rank    = gtRank root
 
     -- Make a list of transitions, moves and blocking expressions to construct
     let cs      = gtSteps root
@@ -100,26 +97,33 @@ makeSplitFml spec player s gt = do
     block'      <- getBlockedStates player rank maxCopy
     let block   = map Construct block'
 
-    forM [1..rank] $ \r -> do
-        -- Construct everything
-        let constA  = filter ((\cr -> cr > r) . cRank) $ trans ++ moves ++ goals -- ++ block
-        let constB  = filter ((\cr -> cr <= r) . cRank) $ trans ++ moves ++ goals -- ++ block
-        exprsA      <- mapM (construct spec player (gtFirstPlayer gt)) constA
-        exprsB      <- mapM (construct spec player (gtFirstPlayer gt)) constB
+    -- Construct everything in order
+    exprs       <- mapM (construct spec player (gtFirstPlayer gt)) (sortConstructibles (trans ++ moves ++ goals ++ block))
 
-        -- Construct init expression
-        initMove    <- liftE $ moveToExpression (gtMaxCopy gt) (gtMove root)
-        let s'      = s : catMaybes [initMove]
+    -- Construct init expression
+    initMove    <- liftE $ moveToExpression maxCopy (gtMove root)
+    let s'      = s : catMaybes [initMove]
 
-        -- Make path to rank 1, and path from 1 to 0
-        (_, pathA)  <- leafToNoGoal spec 0 maxCopy player rank r
-        (_, pathB)  <- leafTo spec 0 maxCopy player r (r-1)
+    -- Join transitions into steps and finally fml
+    fmlA' <- case gtStepChildren (gtRoot t1) of
+        []  -> do
+            liftE $ trueExpr
+        scs -> do
+            steps <- mapM (makeSteps (gtRank (gtRoot t1)) spec player False (gtRoot t1)) scs
+            liftE $ conjunctTemp maxCopy (map snd steps)
 
-        -- Add in s, moves and blocked states
-        fmlA        <- liftE $ conjunctTemp maxCopy (pathA : s' ++ catMaybes exprsA)
-        fmlB        <- liftE $ conjunctTemp maxCopy (pathB : catMaybes exprsB)
+    fmlA        <- liftE $ conjunctTemp maxCopy (fmlA' : s' ++ catMaybes exprs)
 
-        return (gt, fmlA, fmlB)
+    fmlB' <- case gtStepChildren (gtRoot t2) of
+        []  -> do
+            liftE $ trueExpr
+        scs -> do
+            steps <- mapM (makeSteps (gtRank (gtRoot t2)) spec player True (gtRoot t2)) scs
+            liftE $ conjunctTemp maxCopy (map snd steps)
+
+---    fmlB        <- liftE $ conjunctTemp maxCopy (fmlB' : catMaybes exprs)
+
+    return (Just (t1, fmlA, fmlB'))
 
 class Constructible a where
     sortIndex   :: a -> Int
@@ -279,8 +283,8 @@ makeTransition spec first CTransition{..} = do
     else do
         return Nothing
 
-makeSteps :: Int -> CompiledSpec -> Player -> GameTree -> GameTree -> SolverT ([[(Maybe Int, Expression)]], Expression)
-makeSteps rank spec player gt c = do
+makeSteps :: Int -> CompiledSpec -> Player -> Bool -> GameTree -> GameTree -> SolverT ([[(Maybe Int, Expression)]], Expression)
+makeSteps rank spec player extend gt c = do
     let parentCopy          = gtCopyId gt 
     let copy1               = gtCopyId (gtParent c)
     let copy2               = gtCopyId c
@@ -288,10 +292,17 @@ makeSteps rank spec player gt c = do
 
     (es, next) <- case gtStepChildren c of
         [] -> do
-            (es, step) <- leafTo spec copy2 maxCopy player (rank-1) 0
-            return ([(Just (gtNodeId c), step) : es], step)
+            if extend
+            then do
+                (es, step) <- leafTo spec copy2 maxCopy player (rank-1) 0
+                return ([(Just (gtNodeId c), step) : es], step)
+            else do
+                next <- if player == Existential
+                    then liftE $ trueExpr
+                    else liftE $ trueExpr
+                return ([], next)
         cs -> do
-            steps <- mapM (makeSteps (rank-1) spec player c) cs
+            steps <- mapM (makeSteps (rank-1) spec player extend c) cs
             conj <- liftE $ conjunctTemp maxCopy (map snd steps)
             return (map ((Just (gtNodeId c), conj) :) (concatMap fst steps), conj)
 

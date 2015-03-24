@@ -52,6 +52,7 @@ module Synthesise.GameTree (
     , normaliseCopies
     , gtSplit
     , gtExtend
+    , gtEmpty
     ) where
 
 import Data.Maybe
@@ -622,7 +623,7 @@ printTree spec gt = "---\n" ++ printNode spec (2*(gtBaseRank gt)) 0 (Just (crumb
 printNode :: CompiledSpec -> Int -> Int -> Maybe [Int] -> SNode -> String
 printNode spec r t cs n = tab t 
 ---    ++ (if maybe False null cs then "*" else "")
----    ++ show (r `div` 2) ++ " "
+    ++ show (r `div` 2) ++ " "
     ++ printNodeType n 
 ---    ++ show (copy n) ++ " "
 ---    ++ show (nodeId n) ++ " "
@@ -689,25 +690,17 @@ normaliseNodes c n = if null (children n') then (n', c) else (setChildren n' (fs
         ns      = foldl (\(xs, c') x -> mapFst (\x' -> xs ++ [x']) (normaliseNodes (c' + 1) x)) first cs
 
 gtExtend :: GameTree -> GameTree
-gtExtend gt = (setRoot gt r') { maxCopy = mc', maxId = mn' }
-    where
-        (mc', mn', r') = extendNodes (maxCopy gt) (maxId gt) (baseRank gt) (root gt)
+gtExtend gt = case filter (not . gtAtBottom) (gtLeaves gt) of
+    []      -> gtRoot gt
+    (l:_)   -> gtExtend (gtRoot (appendChild l))
+
+gtEmpty :: GameTree -> Bool
+gtEmpty gt = null (children (root gt))
     
-
-extendNodes :: Int -> Int -> Int -> SNode -> (Int, Int, SNode)
-extendNodes mc mn 0 n                   = (mc, mn, n)
-extendNodes mc mn d n@(children -> [])  = (mc'', mn'', setChildren n' [n''])
-    where
-        (mc', mn', n')      = appendNode mc mn Nothing Nothing n 
-        (mc'', mn'', n'')   = extendNodes mc' mn' (d-1) (children n' !! 0)
-extendNodes mc mn d n                   = foldl collect (mc, mn, n) [0..(length cs - 1)]
-    where
-        collect (mc', mn', n') ci       = mapThd (\c -> setChildren n' (update c ci (children n'))) (extendNodes mc' mn' (d-1) (cs !! ci))
-        cs = children n
-
 gtSplit :: GameTree -> (GameTree, GameTree)
-gtSplit gt = (gtSetChildren (gtParent maxDepthLeaf) [], maxDepthLeaf)
+gtSplit gt = (gtSetChildren (gtParent maxDepthLeaf) [], gtRebase maxDepthLeaf)
     where
         leaves          = gtLeaves gt
-        leafDepth       = map (length . gtCrumb) leaves
-        maxDepthLeaf    = fst $ maximumBy (\x y -> compare (snd x) (snd y)) (zip leaves leafDepth)
+        leaves'         = map (\l -> if (isUNode (followGTCrumb l)) then gtParent l else l) leaves
+        leafDepth       = map (length . gtCrumb) leaves'
+        maxDepthLeaf    = fst $ maximumBy (\x y -> compare (snd x) (snd y)) (zip leaves' leafDepth)
