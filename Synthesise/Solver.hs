@@ -160,13 +160,19 @@ interpolateTree spec player s gt = do
     fmls <- makeSplitFmls spec player s gt
     if (isJust fmls)
     then do
-        let Just (gt', fmlA, fmlB) = fmls
+        let Just (gt', rank, fmlA, fmlB) = fmls
 
         rA      <- satSolve gt' Nothing fmlA
         rB      <- satSolve gt' Nothing fmlB
 
         liftIO $ putStrLn (show (satisfiable rA))
         liftIO $ putStrLn (show (satisfiable rB))
+
+        pA      <- liftE $ printExpression fmlA
+        liftIO $ writeFile "fmlA" pA
+
+        pB      <- liftE $ printExpression fmlB
+        liftIO $ writeFile "fmlB" pB
 
         both    <- liftE $ conjunctTemp 0 [fmlA, fmlB]
         rBoth   <- satSolve gt' Nothing both
@@ -177,8 +183,9 @@ interpolateTree spec player s gt = do
         ir      <- interpolate 0 fmlA fmlB
         when (not (success ir)) $ throwError "Interpolation failed"
 
-        liftIO $ mapM_ (putStrLn . printMove spec . Just) (fromJust (interpolant ir))
-        liftIO $ putStrLn (show ir)
+        ls <- get
+        let cube = fromJust (interpolant ir)
+        put $ ls { winningMay = Map.alter (\s -> Just ((foldl (flip Set.insert) (fromMaybe (Set.empty) s) cube))) rank (winningMay ls) }
 
         next    <- interpolateTree spec player s gt'
 

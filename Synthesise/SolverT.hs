@@ -24,7 +24,7 @@ data LearnedStates = LearnedStates {
       learningType  :: LearningType
     , winningEx     :: [[Assignment]]
     , winningUn     :: Map.Map Int (Set.Set [Assignment])
-    , winningMay    :: [[Assignment]]
+    , winningMay    :: Map.Map Int (Set.Set [Assignment])
     , winningMust   :: [[Assignment]]
 }
 
@@ -32,7 +32,7 @@ emptyLearnedStates t = LearnedStates {
       learningType  = t
     , winningEx     = []
     , winningUn     = Map.empty
-    , winningMay    = []
+    , winningMay    = Map.empty
     , winningMust   = []
 }
 

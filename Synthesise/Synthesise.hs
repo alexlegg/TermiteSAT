@@ -30,7 +30,7 @@ synthesise k spec = evalStateT (synthesise' k spec BoundedLearning) emptyManager
 unboundedSynthesis :: ParsedSpec -> EitherT String (LoggerT IO) Bool
 unboundedSynthesis spec = do
     liftIO $ putStrLn "unbounded"
-    evalStateT (synthesise' 3 spec UnboundedLearning) emptyManager
+    evalStateT (synthesise' 4 spec UnboundedLearning) emptyManager
 
 synthesise' k spec learning = do
     (init, cspec) <- loadFmls k spec

@@ -50,6 +50,16 @@ extern "C" {
         ea = expr_to_enode(ctx, varsAll, varsA, a);
         eb = expr_to_enode(ctx, varsAll, varsB, b);
 
+        ofstream fEnodeA;
+        fEnodeA.open("enodeA");
+        ea->print(fEnodeA);
+        fEnodeA.close();
+
+        ofstream fEnodeB;
+        fEnodeB.open("enodeB");
+        eb->print(fEnodeB);
+        fEnodeB.close();
+        
         vector<int> project;
         for (auto va = varsA->begin(); va != varsA->end(); ++va)
         {

@@ -68,37 +68,31 @@ makeFml spec player s ogt = do
 
     return (map (map snd) es, fml', gt')
 
-makeSplitFmls :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT (Maybe (GameTree, Expression, Expression))
+makeSplitFmls :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT (Maybe (GameTree, Int, Expression, Expression))
 makeSplitFmls _ _ _ (gtEmpty -> True) = return Nothing
 makeSplitFmls spec player s gt' = do
-    let gt      = normaliseCopies gt'
-    let maxCopy = gtMaxCopy gt
-    let root    = gtRoot gt
-    let rank    = gtRank root
+    let gt          = normaliseCopies gt'
+    let maxCopy     = gtMaxCopy gt
+    let root        = gtRoot gt
+    let rank        = gtRank root
+    let (t1, t2)    = gtSplit gt
+
 
     liftIO $ putStrLn (printTree spec gt)
-    let (t1, t2) = gtSplit gt
-
     liftIO $ putStrLn (printTree spec t1)
     liftIO $ putStrLn (printTree spec t2)
 
-    --TODO: If we do all at once we have to ensure construction in the correct order
-    -- Is this true? We're only using copy 0
     liftE $ clearTempExpressions
     liftE $ initCopyMaps 0
 
-    -- Make a list of transitions, moves and blocking expressions to construct
-    let cs      = gtSteps root
-    let trans   = map Construct $ if null cs
-                    then getTransitions rank root (Nothing, Nothing, Nothing)
-                    else concatMap (getTransitions rank root) cs
-    let goals   = map Construct $ getGoals rank maxCopy player
-    let moves   = map Construct $ concatMap (getMoves rank root) cs
-    block'      <- getBlockedStates player rank maxCopy
-    let block   = map Construct block'
+    constA <- liftM (zip (repeat True)) $ getConstructsFor t1 player (gtBaseRank t2)
+    constB <- liftM (zip (repeat False)) $ getConstructsFor t2 player 0
+    let sorted = sortBy (\x y -> compare (sortIndex (snd x)) (sortIndex (snd y))) (constA ++ constB)
 
     -- Construct everything in order
-    exprs       <- mapM (construct spec player (gtFirstPlayer gt)) (sortConstructibles (trans ++ moves ++ goals ++ block))
+    exprs       <- mapM (mapSndM (construct spec player (gtFirstPlayer gt))) sorted
+    let exprsA  = catMaybes $ map snd (filter fst exprs)
+    let exprsB  = catMaybes $ map snd (filter (not . fst) exprs)
 
     -- Construct init expression
     initMove    <- liftE $ moveToExpression maxCopy (gtMove root)
@@ -112,7 +106,7 @@ makeSplitFmls spec player s gt' = do
             steps <- mapM (makeSteps (gtRank (gtRoot t1)) spec player False (gtRoot t1)) scs
             liftE $ conjunctTemp maxCopy (map snd steps)
 
-    fmlA        <- liftE $ conjunctTemp maxCopy (fmlA' : s' ++ catMaybes exprs)
+    fmlA        <- liftE $ conjunctTemp maxCopy (fmlA' : s' ++ exprsA)
 
     fmlB' <- case gtStepChildren (gtRoot t2) of
         []  -> do
@@ -121,9 +115,24 @@ makeSplitFmls spec player s gt' = do
             steps <- mapM (makeSteps (gtRank (gtRoot t2)) spec player True (gtRoot t2)) scs
             liftE $ conjunctTemp maxCopy (map snd steps)
 
----    fmlB        <- liftE $ conjunctTemp maxCopy (fmlB' : catMaybes exprs)
+    fmlB        <- liftE $ conjunctTemp maxCopy (fmlB' : exprsB)
 
-    return (Just (t1, fmlA, fmlB'))
+    return (Just (t1, gtBaseRank t2, fmlA, fmlB))
+
+getConstructsFor :: GameTree -> Player -> Int -> SolverT [Construct]
+getConstructsFor gt player toRank = do
+    let root    = gtRoot gt
+    let rank    = gtRank root
+    let maxCopy = gtMaxCopy gt
+    let cs      = gtSteps root
+    let trans   = map Construct $ if null cs
+                    then getTransitions rank root (Nothing, Nothing, Nothing)
+                    else concatMap (getTransitions rank root) cs
+    let goals   = map Construct $ getGoals rank maxCopy player
+    let moves   = map Construct $ concatMap (getMoves rank root) cs
+    block'      <- getBlockedStates player rank maxCopy
+    let block   = map Construct $ filter (\b -> cbRank b > toRank && cbRank b <= gtBaseRank gt) block'
+    return $ trans ++ goals ++ moves ++ block
 
 class Constructible a where
     sortIndex   :: a -> Int
@@ -235,10 +244,13 @@ makeGoal spec player CGoal{..} = do
 getBlockedStates :: Player -> Int -> Int -> SolverT [CBlocked]
 getBlockedStates Existential rank copy = do
     LearnedStates{..} <- get
-    return $ concatMap (\r -> concatMap (blockAtRank winningUn r) [0..copy]) [0..rank]
+    let blockingStates = case learningType of
+                BoundedLearning     -> winningUn
+                UnboundedLearning   -> winningMay
+    return $ concatMap (\r -> concatMap (blockAtRank blockingStates r) [0..copy]) [1..rank]
     where
         blockAtRank block r c = concatMap (blockAllRanks r c) (maybe [] Set.toList (Map.lookup r block))
-        blockAllRanks r c as  = map (\x -> CBlocked x c as) [0..r]
+        blockAllRanks r c as  = map (\x -> CBlocked x c as) [1..r]
 getBlockedStates Universal rank copy = do
     LearnedStates{..} <- get
     return $ [CBlocked r c a | r <- [0..rank], c <- [0..copy], a <- winningEx]

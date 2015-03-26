@@ -58,6 +58,7 @@ module Expression.Expression (
     , setVarRank
     , getCachedStepDimacs
     , analyseManagers
+    , flipAssignment
     ) where
 
 import Control.Monad.State
