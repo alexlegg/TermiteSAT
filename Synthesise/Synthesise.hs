@@ -21,6 +21,7 @@ import Expression.Parse
 import Expression.Compile
 import Expression.Expression
 import Synthesise.Solver
+import Synthesise.SolverT
 import Expression.AST
 import SatSolver.Interpolator
 
@@ -30,7 +31,20 @@ synthesise k spec = evalStateT (synthesise' k spec BoundedLearning) emptyManager
 unboundedSynthesis :: ParsedSpec -> EitherT String (LoggerT IO) Bool
 unboundedSynthesis spec = do
     liftIO $ putStrLn "unbounded"
-    evalStateT (synthesise' 4 spec UnboundedLearning) emptyManager
+    evalStateT (unbounded 1 spec) emptyManager
+
+unbounded k spec = do
+    evalStateT (unboundedLoop spec k) (emptyLearnedStates UnboundedLearning)
+
+unboundedLoop :: ParsedSpec -> Int -> SolverT Bool
+unboundedLoop spec k = do
+    when (k == 5) $ lift $ lift $ left "stop here"
+    (init, cspec) <- liftE $ loadFmls k spec
+    liftIO $ putStrLn $ "Unbounded Loop " ++ show k
+    r <- checkRank cspec k init
+    if r
+    then return r
+    else unboundedLoop spec (k+1)
 
 synthesise' k spec learning = do
     (init, cspec) <- loadFmls k spec

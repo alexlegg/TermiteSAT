@@ -149,7 +149,6 @@ learnStates spec player ogt = do
 
 learnWinning :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ()
 learnWinning spec player s gt = do
-    liftIO $ putStrLn "learnWinning"
     when (player == Existential) $ do
         interpolateTree spec player s (gtExtend gt)
         return ()
@@ -185,6 +184,9 @@ interpolateTree spec player s gt = do
 
         ls <- get
         let cube = fromJust (interpolant ir)
+        liftIO $ putStrLn "CUBE"
+        liftIO $ mapM (putStrLn . printMove spec . Just) cube
+        liftIO $ putStrLn "CUBE"
         put $ ls { winningMay = Map.alter (\s -> Just ((foldl (flip Set.insert) (fromMaybe (Set.empty) s) cube))) rank (winningMay ls) }
 
         next    <- interpolateTree spec player s gt'

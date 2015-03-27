@@ -53,6 +53,7 @@ module Synthesise.GameTree (
     , gtSplit
     , gtExtend
     , gtEmpty
+    , gtStripMoves
     ) where
 
 import Data.Maybe
@@ -704,3 +705,8 @@ gtSplit gt = (gtSetChildren (gtParent maxDepthLeaf) [], gtRebase maxDepthLeaf)
         leaves'         = map (\l -> if (isUNode (followGTCrumb l)) then gtParent l else l) leaves
         leafDepth       = map (length . gtCrumb) leaves'
         maxDepthLeaf    = fst $ maximumBy (\x y -> compare (snd x) (snd y)) (zip leaves' leafDepth)
+
+gtStripMoves :: GameTree -> GameTree
+gtStripMoves gt = setRoot gt (stripMoves (root gt))
+
+stripMoves n = setChildren (setMove Nothing n) (map stripMoves (children n))

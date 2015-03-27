@@ -39,9 +39,11 @@ makeFml spec player s ogt = do
                     then getTransitions rank root (Nothing, Nothing, Nothing)
                     else concatMap (getTransitions rank root) cs
     let goals   = map Construct $ getGoals rank maxCopy player
-    let moves   = map Construct $ concatMap (getMoves rank root) cs
+    let moves   = map Construct $ concatMap (getMoves rank player root) cs
     block'      <- getBlockedStates player rank maxCopy
     let block   = map Construct block'
+
+---    liftIO $ mapM (putStrLn . show) block'
 
     -- Construct everything in order
     exprs       <- mapM (construct spec player (gtFirstPlayer gt)) (sortConstructibles (trans ++ moves ++ goals ++ block))
@@ -75,8 +77,8 @@ makeSplitFmls spec player s gt' = do
     let maxCopy     = gtMaxCopy gt
     let root        = gtRoot gt
     let rank        = gtRank root
-    let (t1, t2)    = gtSplit gt
-
+    let (t1, t2')   = gtSplit gt
+    let t2          = gtStripMoves t2'
 
     liftIO $ putStrLn (printTree spec gt)
     liftIO $ putStrLn (printTree spec t1)
@@ -129,9 +131,12 @@ getConstructsFor gt player toRank = do
                     then getTransitions rank root (Nothing, Nothing, Nothing)
                     else concatMap (getTransitions rank root) cs
     let goals   = map Construct $ getGoals rank maxCopy player
-    let moves   = map Construct $ concatMap (getMoves rank root) cs
+    let moves   = map Construct $ concatMap (getMoves rank player root) cs
     block'      <- getBlockedStates player rank maxCopy
     let block   = map Construct $ filter (\b -> cbRank b > toRank && cbRank b <= gtBaseRank gt) block'
+---    liftIO $ putStrLn "-----"
+---    liftIO $ mapM (putStrLn . show) block
+---    liftIO $ putStrLn "-----"
     return $ trans ++ goals ++ moves ++ block
 
 class Constructible a where
@@ -199,9 +204,10 @@ instance Constructible Construct where
     construct s p f (Construct x)   = construct s p f x
     cRank (Construct x)             = cRank x
 
-getMoves :: Int -> GameTree -> (Move, Move, Maybe GameTree) -> [CMove]
-getMoves rank gt (m1, m2, c) = m1' ++ m2' ++ next
+getMoves :: Int -> Player -> GameTree -> (Move, Move, Maybe GameTree) -> [CMove]
+getMoves rank player gt (m1, m2, c) = m ++ next
     where
+        m           = if player == first then m2' else m1'
         m1'         = maybe [] (\m -> [CMove rank parentCopy copy1 first m]) m1
         m2'         = maybe [] (\m -> [CMove rank parentCopy copy2 (opponent first) m]) m2
         parentCopy  = gtCopyId gt 
@@ -209,7 +215,7 @@ getMoves rank gt (m1, m2, c) = m1' ++ m2' ++ next
         copy2       = maybe copy1 gtCopyId c
         first       = gtFirstPlayer gt
         next        = if isJust c && rank >= 1
-            then concatMap (getMoves (rank-1) (fromJust c)) (gtSteps (fromJust c))
+            then concatMap (getMoves (rank-1) player (fromJust c)) (gtSteps (fromJust c))
             else []
 
 
