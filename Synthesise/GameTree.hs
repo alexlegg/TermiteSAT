@@ -34,6 +34,7 @@ module Synthesise.GameTree (
     , gtPrevStateGT
     , gtRebase
     , printTree
+    , gtIsPrefix
 
     -- Modifiers
     , gtNew
@@ -710,3 +711,8 @@ gtStripMoves :: GameTree -> GameTree
 gtStripMoves gt = setRoot gt (stripMoves (root gt))
 
 stripMoves n = setChildren (setMove Nothing n) (map stripMoves (children n))
+
+gtIsPrefix gt = not $ hasNothingMove (root gt)
+    where
+        hasNothingMove (snodeMove -> Nothing)   = True
+        hasNothingMove n                        = any hasNothingMove (children n)

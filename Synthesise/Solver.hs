@@ -164,34 +164,37 @@ interpolateTree spec player s gt = do
         rA      <- satSolve gt' Nothing fmlA
         rB      <- satSolve gt' Nothing fmlB
 
-        liftIO $ putStrLn (show (satisfiable rA))
-        liftIO $ putStrLn (show (satisfiable rB))
+        if (not (satisfiable rA && satisfiable rB))
+        then return []
+        else do
+---            liftIO $ putStrLn (show (satisfiable rA))
+---            liftIO $ putStrLn (show (satisfiable rB))
 
-        pA      <- liftE $ printExpression fmlA
-        liftIO $ writeFile "fmlA" pA
+            pA      <- liftE $ printExpression fmlA
+            liftIO $ writeFile "fmlA" pA
 
-        pB      <- liftE $ printExpression fmlB
-        liftIO $ writeFile "fmlB" pB
+            pB      <- liftE $ printExpression fmlB
+            liftIO $ writeFile "fmlB" pB
 
-        both    <- liftE $ conjunctTemp 0 [fmlA, fmlB]
-        rBoth   <- satSolve gt' Nothing both
+            both    <- liftE $ conjunctTemp 0 [fmlA, fmlB]
+            rBoth   <- satSolve gt' Nothing both
 
-        liftIO $ putStrLn (show (satisfiable rBoth))
-        when (satisfiable rBoth) $ throwError "Interpolation formulas are satisfiable"
+---            liftIO $ putStrLn (show (satisfiable rBoth))
+            when (satisfiable rBoth) $ throwError "Interpolation formulas are satisfiable"
 
-        ir      <- interpolate 0 fmlA fmlB
-        when (not (success ir)) $ throwError "Interpolation failed"
+            ir      <- interpolate 0 fmlA fmlB
+            when (not (success ir)) $ throwError "Interpolation failed"
 
-        ls <- get
-        let cube = fromJust (interpolant ir)
-        liftIO $ putStrLn "CUBE"
-        liftIO $ mapM (putStrLn . printMove spec . Just) cube
-        liftIO $ putStrLn "CUBE"
-        put $ ls { winningMay = Map.alter (\s -> Just ((foldl (flip Set.insert) (fromMaybe (Set.empty) s) cube))) rank (winningMay ls) }
+            ls <- get
+            let cube = fromJust (interpolant ir)
+---            liftIO $ putStrLn "CUBE"
+            liftIO $ mapM (putStrLn . printMove spec . Just) cube
+---            liftIO $ putStrLn "CUBE"
+            put $ ls { winningMay = Map.alter (\s -> Just ((foldl (flip Set.insert) (fromMaybe (Set.empty) s) cube))) rank (winningMay ls) }
 
-        next    <- interpolateTree spec player s gt'
+            next    <- interpolateTree spec player s gt'
 
-        return $ ir : next
+            return $ ir : next
     else return []
 
 printLearnedStates spec player = do

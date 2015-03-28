@@ -71,18 +71,18 @@ makeFml spec player s ogt = do
     return (map (map snd) es, fml', gt')
 
 makeSplitFmls :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT (Maybe (GameTree, Int, Expression, Expression))
-makeSplitFmls _ _ _ (gtEmpty -> True) = return Nothing
+makeSplitFmls _ _ _ (gtEmpty -> True)       = return Nothing
+makeSplitFmls _ _ _ (gtIsPrefix -> True)    = return Nothing
 makeSplitFmls spec player s gt' = do
     let gt          = normaliseCopies gt'
     let maxCopy     = gtMaxCopy gt
     let root        = gtRoot gt
     let rank        = gtRank root
-    let (t1, t2')   = gtSplit gt
-    let t2          = gtStripMoves t2'
+    let (t1, t2)    = gtSplit gt
 
-    liftIO $ putStrLn (printTree spec gt)
-    liftIO $ putStrLn (printTree spec t1)
-    liftIO $ putStrLn (printTree spec t2)
+---    liftIO $ putStrLn (printTree spec gt)
+---    liftIO $ putStrLn (printTree spec t1)
+---    liftIO $ putStrLn (printTree spec t2)
 
     liftE $ clearTempExpressions
     liftE $ initCopyMaps 0
@@ -205,7 +205,7 @@ instance Constructible Construct where
     cRank (Construct x)             = cRank x
 
 getMoves :: Int -> Player -> GameTree -> (Move, Move, Maybe GameTree) -> [CMove]
-getMoves rank player gt (m1, m2, c) = m ++ next
+getMoves rank player gt (m1, m2, c) = m1' ++ m2' ++ next --m ++ next
     where
         m           = if player == first then m2' else m1'
         m1'         = maybe [] (\m -> [CMove rank parentCopy copy1 first m]) m1
