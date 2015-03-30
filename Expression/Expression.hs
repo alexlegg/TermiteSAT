@@ -321,9 +321,9 @@ insertExpression' c e = do
         mgr <- get
         let maxCopies = IMap.size (copyManagers mgr)
 
-        when (c+1 < maxCopies) $ do
-            liftIO $ putStrLn ("Flushing managers: " ++ show (c+1) ++ " - " ++ show maxCopies)
-            --analyseManagers
+---        when (c+1 < maxCopies) $ do
+---            liftIO $ putStrLn ("Flushing managers: " ++ show (c+1) ++ " - " ++ show maxCopies)
+---            --analyseManagers
 
         let copyManagers' = IMap.filterWithKey (\k _ -> k <= c) (copyManagers mgr)
         when (copyManagers mgr /= copyManagers') $ do
@@ -631,10 +631,14 @@ falseExpr = addExpression 0 EFalse
 literal :: MonadIO m => ExprVar -> ExpressionT m Expression
 literal = addExpression 0 . ELit
 
-getMaxId :: MonadIO m => ExpressionT m Int
-getMaxId = do
+getMaxId :: MonadIO m => Int -> ExpressionT m Int
+getMaxId mc = do
     ExprManager{..} <- get
-    return $ fromJust tempMaxIndex  
+    case tempMaxIndex of
+        Nothing     -> do
+            cm <- getCopyManager mc
+            return $ nextIndex cm
+        (Just tmi)  -> return tmi
 
 getChildren :: MonadIO m => Expression -> ExpressionT m [Expression]
 getChildren e = do

@@ -33,11 +33,10 @@ unsatisfiable = not . satisfiable
 var (Var _ v)   = v
 sign (Var s _)  = s
 
-satSolve :: GameTree -> Maybe [Assignment] -> Expression -> SolverT SatResult
-satSolve gt a e = do
-    maxId       <- liftE $ getMaxId
-    let mc      = gtMaxCopy gt
-    clauses     <- toDimacs gt e
+satSolve :: Int -> Maybe [Assignment] -> Expression -> SolverT SatResult
+satSolve mc a e = do
+    maxId       <- liftE $ getMaxId mc
+    clauses     <- toDimacs mc e
     assumptions <- liftE $ maybeM [] (mapM (assignmentToVar mc)) a
     let as      = map (\a -> if sign a == Pos then var a else -(var a)) assumptions
     res <- liftIO $ callSolver maxId as clauses
@@ -77,14 +76,14 @@ callSolver max assumptions clauses = do
         conflicts = fmap (map fromIntegral) conflicts
         }
 
-toDimacs gt e = do
-    dimacs <- liftE $ getCachedStepDimacs (gtMaxCopy gt) e
+toDimacs mc e = do
+    dimacs <- liftE $ getCachedStepDimacs mc e
     return (SV.singleton (fromIntegral (exprIndex e)) : dimacs)
 
 minimiseCore :: GameTree -> Maybe [Assignment] -> Expression -> SolverT (Maybe [Int])
 minimiseCore gt a e = do
-    maxId       <- liftE $ getMaxId
-    clauses     <- toDimacs gt e
+    maxId       <- liftE $ getMaxId (gtMaxCopy gt)
+    clauses     <- toDimacs (gtMaxCopy gt) e
     assumptions <- liftE $ maybeM [] (mapM (assignmentToVar (gtMaxCopy gt))) a
     let as      = map (\a -> if sign a == Pos then var a else -(var a)) assumptions
 

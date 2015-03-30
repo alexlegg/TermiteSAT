@@ -2,6 +2,7 @@
 module Synthesise.Solver (
       checkRank
     , checkStrategy
+    , checkInit
     , LearnedStates(..)
     , LearningType(..)
     , emptyLearnedStates
@@ -36,8 +37,16 @@ checkRank :: CompiledSpec -> Int -> Expression -> SolverT Bool
 checkRank spec rnk s = do
     --testInterpolants
     r <- solveAbstract Universal spec s (gtNew Existential rnk)
-    liftE $ analyseManagers
+    --liftE $ analyseManagers
     return (isNothing r)
+
+checkInit :: Int -> Expression -> [[Assignment]] -> Expression -> SolverT Bool
+checkInit k init must goal = do
+    fml     <- makeInitCheckFml k init must goal
+    fmlp    <- liftE $ printExpression fml
+    liftIO $ putStrLn fmlp
+    r       <- satSolve 0 Nothing fml
+    return $ satisfiable r
 
 testInterpolants :: SolverT ()
 testInterpolants = do
@@ -108,7 +117,7 @@ refinementLoop player spec s (Just cand) origGT absGT = do
 findCandidate :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Maybe GameTree)
 findCandidate player spec s gt = do
     (es, f, gt')    <- makeFml spec player s gt
-    res             <- satSolve gt' Nothing f
+    res             <- satSolve (gtMaxCopy gt') Nothing f
 
     if satisfiable res
     then do
@@ -158,8 +167,8 @@ interpolateTree spec player s gt = do
     then do
         let Just (gt', rank, fmlA, fmlB) = fmls
 
-        rA      <- satSolve gt' Nothing fmlA
-        rB      <- satSolve gt' Nothing fmlB
+        rA      <- satSolve (gtMaxCopy gt') Nothing fmlA
+        rB      <- satSolve (gtMaxCopy gt') Nothing fmlB
 
         if (not (satisfiable rA && satisfiable rB))
         then do
@@ -178,7 +187,7 @@ interpolateTree spec player s gt = do
             liftIO $ writeFile "fmlB" pB
 
             both    <- liftE $ conjunctTemp (gtMaxCopy gt) [fmlA, fmlB]
-            rBoth   <- satSolve gt Nothing both
+            rBoth   <- satSolve (gtMaxCopy gt) Nothing both
 
 ---            liftIO $ putStrLn (show (satisfiable rBoth))
             when (satisfiable rBoth) $ do
@@ -295,7 +304,7 @@ shortenLeaf gt (fml, m) (e:es) = do
     let maxCopy = gtMaxCopy gt
     ne          <- liftE $ negationTemp maxCopy e
     fml'        <- liftE $ conjunctTemp maxCopy [fml, ne]
-    res         <- satSolve gt Nothing fml'
+    res         <- satSolve (gtMaxCopy gt) Nothing fml'
     if satisfiable res
     then do
         shortenLeaf gt (fml', model res) es

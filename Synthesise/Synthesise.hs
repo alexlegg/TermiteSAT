@@ -38,13 +38,17 @@ unbounded k spec = do
 
 unboundedLoop :: ParsedSpec -> Int -> SolverT Bool
 unboundedLoop spec k = do
-    when (k == 5) $ lift $ lift $ left "stop here"
     (init, cspec) <- liftE $ loadFmls k spec
     liftIO $ putStrLn $ "Unbounded Loop " ++ show k
-    r <- checkRank cspec k init
-    if r
-    then return r
-    else unboundedLoop spec (k+1)
+
+    ls <- get
+    exWins <- checkInit k init (winningMust ls) (head (cg cspec))
+
+    if exWins
+    then return True
+    else do
+        checkRank cspec k init
+        unboundedLoop spec (k+1)
 
 synthesise' k spec learning = do
     (init, cspec) <- loadFmls k spec

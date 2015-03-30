@@ -2,7 +2,7 @@
 module Synthesise.GameFormula (
       makeFml
     , makeSplitFmls
----    , getStepExpressions
+    , makeInitCheckFml
     ) where
 
 import qualified Data.Map as Map
@@ -118,6 +118,17 @@ makeSplitFmls spec player s gt' = do
     fmlB        <- liftE $ conjunctTemp maxCopy (fmlB' : exprsB)
 
     return (Just (t1, gtBaseRank t2, fmlA, fmlB))
+
+makeInitCheckFml :: Int -> Expression -> [[Assignment]] -> Expression -> SolverT Expression
+makeInitCheckFml rank init must goal = do
+    liftE $ clearTempExpressions
+    liftE $ initCopyMaps 0
+
+    let must'   = map (map (\a -> setAssignmentRankCopy a rank 0)) must
+    g'          <- liftE $ setRank rank goal
+    ms          <- liftE $ mapM (assignmentToExpression 0) must'
+    d           <- liftE $ disjunctC 0 (g' : ms)
+    liftE $ conjunctC 0 [d, init]
 
 getConstructsFor :: GameTree -> Player -> Int -> SolverT [Construct]
 getConstructsFor gt player toRank = do
