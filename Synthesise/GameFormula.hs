@@ -43,8 +43,6 @@ makeFml spec player s ogt = do
     block'      <- getBlockedStates player rank maxCopy
     let block   = map Construct block'
 
----    liftIO $ mapM (putStrLn . show) block'
-
     -- Construct everything in order
     exprs       <- mapM (construct spec player (gtFirstPlayer gt)) (sortConstructibles (trans ++ moves ++ goals ++ block))
 
@@ -58,7 +56,7 @@ makeFml spec player s ogt = do
             (es, step)  <- leafTo spec 0 maxCopy player rank 0
             return ([(Just (gtNodeId root), step) : es], step)
         scs -> do
-            steps       <- mapM (makeSteps rank spec player True root) scs
+            steps       <- mapM (makeSteps rank spec player Nothing root) scs
             step        <- liftE $ conjunctTemp maxCopy (map snd steps)
             return (map ((Just (gtNodeId root), step) :) (concatMap fst steps), step)
 
@@ -78,11 +76,11 @@ makeSplitFmls spec player s gt' = do
     let maxCopy     = gtMaxCopy gt
     let root        = gtRoot gt
     let rank        = gtRank root
-    let (t1, t2)    = gtSplit gt
+    let (t1, t2')   = gtSplit gt
+    let t2          = head (gtChildren t2')
 
----    liftIO $ putStrLn (printTree spec gt)
----    liftIO $ putStrLn (printTree spec t1)
----    liftIO $ putStrLn (printTree spec t2)
+    let nRank   = gtRank t2
+    let nCopy   = gtCopyId t2
 
     liftE $ clearTempExpressions
     liftE $ initCopyMaps 0
@@ -95,7 +93,7 @@ makeSplitFmls spec player s gt' = do
     exprs       <- mapM (mapSndM (construct spec player (gtFirstPlayer gt))) sorted
     let exprsA  = catMaybes $ map snd (filter fst exprs)
     let exprsB  = catMaybes $ map snd (filter (not . fst) exprs)
-
+    
     -- Construct init expression
     initMove    <- liftE $ moveToExpression maxCopy (gtMove root)
     let s'      = s : catMaybes [initMove]
@@ -105,7 +103,7 @@ makeSplitFmls spec player s gt' = do
         []  -> do
             liftE $ trueExpr
         scs -> do
-            steps <- mapM (makeSteps (gtRank (gtRoot t1)) spec player False (gtRoot t1)) scs
+            steps <- mapM (makeSteps (gtRank (gtRoot t1)) spec player (Just (nRank, nCopy)) (gtRoot t1)) scs
             liftE $ conjunctTemp maxCopy (map snd steps)
 
     fmlA        <- liftE $ conjunctTemp maxCopy (fmlA' : s' ++ exprsA)
@@ -114,7 +112,7 @@ makeSplitFmls spec player s gt' = do
         []  -> do
             liftE $ trueExpr
         scs -> do
-            steps <- mapM (makeSteps (gtRank (gtRoot t2)) spec player True (gtRoot t2)) scs
+            steps <- mapM (makeSteps (gtRank (gtRoot t2)) spec player Nothing (gtRoot t2)) scs
             liftE $ conjunctTemp maxCopy (map snd steps)
 
     fmlB        <- liftE $ conjunctTemp maxCopy (fmlB' : exprsB)
@@ -134,9 +132,6 @@ getConstructsFor gt player toRank = do
     let moves   = map Construct $ concatMap (getMoves rank player root) cs
     block'      <- getBlockedStates player rank maxCopy
     let block   = map Construct $ filter (\b -> cbRank b > toRank && cbRank b <= gtBaseRank gt) block'
----    liftIO $ putStrLn "-----"
----    liftIO $ mapM (putStrLn . show) block
----    liftIO $ putStrLn "-----"
     return $ trans ++ goals ++ moves ++ block
 
 class Constructible a where
@@ -259,7 +254,10 @@ getBlockedStates Existential rank copy = do
         blockAllRanks r c as  = map (\x -> CBlocked x c as) [1..r]
 getBlockedStates Universal rank copy = do
     LearnedStates{..} <- get
-    return $ [CBlocked r c a | r <- [0..rank], c <- [0..copy], a <- winningEx]
+    let blockingStates = case learningType of
+                BoundedLearning     -> winningEx
+                UnboundedLearning   -> winningMust
+    return [CBlocked r c a | r <- [0..rank], c <- [0..copy], a <- blockingStates]
 
 blockExpression CBlocked{..} = do
     let as = map (\a -> setAssignmentRankCopy a cbRank cbCopy) cbAssignment
@@ -301,7 +299,7 @@ makeTransition spec first CTransition{..} = do
     else do
         return Nothing
 
-makeSteps :: Int -> CompiledSpec -> Player -> Bool -> GameTree -> GameTree -> SolverT ([[(Maybe Int, Expression)]], Expression)
+makeSteps :: Int -> CompiledSpec -> Player -> Maybe (Int, Int) -> GameTree -> GameTree -> SolverT ([[(Maybe Int, Expression)]], Expression)
 makeSteps rank spec player extend gt c = do
     let parentCopy          = gtCopyId gt 
     let copy1               = gtCopyId (gtParent c)
@@ -310,19 +308,15 @@ makeSteps rank spec player extend gt c = do
 
     (es, next) <- case gtStepChildren c of
         [] -> do
-            if extend
-            then do
-                (es, step) <- leafTo spec copy2 maxCopy player (rank-1) 0
-                return ([(Just (gtNodeId c), step) : es], step)
+            if extend == Just (rank-1, copy2)
+            then return ([], Nothing)
             else do
-                next <- if player == Existential
-                    then liftE $ trueExpr
-                    else liftE $ trueExpr
-                return ([], next)
+                (es, step) <- leafTo spec copy2 maxCopy player (rank-1) 0
+                return ([(Just (gtNodeId c), step) : es], Just step)
         cs -> do
             steps <- mapM (makeSteps (rank-1) spec player extend c) cs
             conj <- liftE $ conjunctTemp maxCopy (map snd steps)
-            return (map ((Just (gtNodeId c), conj) :) (concatMap fst steps), conj)
+            return (map ((Just (gtNodeId c), conj) :) (concatMap fst steps), Just conj)
 
     s <- singleStep spec rank maxCopy player parentCopy copy1 copy2 next
     return (es, s)
@@ -358,18 +352,21 @@ singleStep spec rank maxCopy player parentCopy copy1 copy2 next = do
     let i                   = rank - 1
     let CompiledSpec{..}    = spec
 
-    let goal    = goalFor player spec i
-    cg          <- liftE $ getCached i copy2 copy2 copy2 (exprIndex goal)
-    when (isNothing cg) $ throwError $ "Goal was not created in advance: " ++ show (i, copy2)
-
-    goal <- if player == Existential
-        then liftE $ disjunctTemp maxCopy [next, fromJust cg]
-        else liftE $ conjunctTemp maxCopy [next, fromJust cg]
-
     step <- liftE $ getCached rank parentCopy copy1 copy2 (exprIndex (t !! i))
     when (isNothing step) $ throwError $ "Transition was not created in advance: " ++ show (rank, parentCopy, copy1, copy2)
 
-    liftE $ conjunctTemp maxCopy [fromJust step, goal]
+    case next of
+        Nothing -> return $ fromJust step
+        Just n  -> do
+            let goal    = goalFor player spec i
+            cg          <- liftE $ getCached i copy2 copy2 copy2 (exprIndex goal)
+            when (isNothing cg) $ throwError $ "Goal was not created in advance: " ++ show (i, copy2)
+
+            goal <- if player == Existential
+                then liftE $ disjunctTemp maxCopy [n, fromJust cg]
+                else liftE $ conjunctTemp maxCopy [n, fromJust cg]
+
+            liftE $ conjunctTemp maxCopy [fromJust step, goal]
 
 moveToExpression mc Nothing    = return Nothing
 moveToExpression mc (Just a)   = do
@@ -393,10 +390,10 @@ leafTo spec copy maxCopy player rank rankTo = do
     else do
         (es, next) <- leafTo spec copy maxCopy player (rank - 1) rankTo
 
-        step <- singleStep spec rank maxCopy player copy copy copy next
+        step <- singleStep spec rank maxCopy player copy copy copy (Just next)
         return ((Nothing, step) : es, step)
 
-leafToNoGoal :: CompiledSpec -> Int -> Int -> Player -> Int -> Int -> SolverT ([(Maybe Int, Expression)], Expression)
+leafToNoGoal :: CompiledSpec -> Int -> Int -> Player -> Int -> Int -> SolverT ([(Maybe Int, Expression)], Maybe Expression)
 leafToNoGoal spec copy maxCopy player rank rankTo = do
     let CompiledSpec{..}    = spec
     let i                   = rank - 1
@@ -404,12 +401,12 @@ leafToNoGoal spec copy maxCopy player rank rankTo = do
     if rank == rankTo
     then do
         g <- liftE $ trueExpr
-        return ([], g)
+        return ([], Nothing)
     else do
         (es, next) <- leafToNoGoal spec copy maxCopy player (rank - 1) rankTo
 
         step <- singleStep spec rank maxCopy player copy copy copy next
-        return ((Nothing, step) : es, step)
+        return ((Nothing, step) : es, Just step)
 
 playerToSection :: Player -> Section
 playerToSection Existential = ContVar

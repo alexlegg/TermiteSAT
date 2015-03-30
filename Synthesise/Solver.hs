@@ -149,12 +149,9 @@ learnStates spec player ogt = do
 
 learnWinning :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ()
 learnWinning spec player s gt = do
-    when (player == Existential) $ do
-        interpolateTree spec player s (gtExtend gt)
-        return ()
-    return ()
+    interpolateTree spec player s (gtExtend gt)
 
-interpolateTree :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT [InterpolantResult]
+interpolateTree :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ()
 interpolateTree spec player s gt = do
     fmls <- makeSplitFmls spec player s gt
     if (isJust fmls)
@@ -165,10 +162,14 @@ interpolateTree spec player s gt = do
         rB      <- satSolve gt' Nothing fmlB
 
         if (not (satisfiable rA && satisfiable rB))
-        then return []
-        else do
+        then do
+---            liftIO $ putStrLn "--res--"
+---            liftIO $ putStrLn (printTree spec gt)
 ---            liftIO $ putStrLn (show (satisfiable rA))
 ---            liftIO $ putStrLn (show (satisfiable rB))
+---            liftIO $ putStrLn "--res--"
+            return ()
+        else do
 
             pA      <- liftE $ printExpression fmlA
             liftIO $ writeFile "fmlA" pA
@@ -176,26 +177,33 @@ interpolateTree spec player s gt = do
             pB      <- liftE $ printExpression fmlB
             liftIO $ writeFile "fmlB" pB
 
-            both    <- liftE $ conjunctTemp 0 [fmlA, fmlB]
-            rBoth   <- satSolve gt' Nothing both
+            both    <- liftE $ conjunctTemp (gtMaxCopy gt) [fmlA, fmlB]
+            rBoth   <- satSolve gt Nothing both
 
 ---            liftIO $ putStrLn (show (satisfiable rBoth))
-            when (satisfiable rBoth) $ throwError "Interpolation formulas are satisfiable"
+            when (satisfiable rBoth) $ do
+                gtMoves <- setMoves player spec (fromJust (model rBoth)) (gtRoot gt)
+                liftIO $ putStrLn (printTree spec gt)
+                liftIO $ putStrLn (printTree spec gtMoves)
+                throwError "Interpolation formulas are satisfiable"
 
-            ir      <- interpolate 0 fmlA fmlB
+            ir      <- interpolate (gtMaxCopy gt) fmlA fmlB
             when (not (success ir)) $ throwError "Interpolation failed"
 
             ls <- get
             let cube = fromJust (interpolant ir)
----            liftIO $ putStrLn "CUBE"
+            liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
             liftIO $ mapM (putStrLn . printMove spec . Just) cube
----            liftIO $ putStrLn "CUBE"
-            put $ ls { winningMay = Map.alter (\s -> Just ((foldl (flip Set.insert) (fromMaybe (Set.empty) s) cube))) rank (winningMay ls) }
+            liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
+            when (any ((/=) StateVar) (concatMap (map (\(Assignment _ v) -> varsect v)) cube)) $ do
+                throwError "Non-state variable in interpolant"
 
-            next    <- interpolateTree spec player s gt'
+            if player == Existential
+            then put $ ls { winningMay = Map.alter (\s -> Just ((foldl (flip Set.insert) (fromMaybe (Set.empty) s) cube))) rank (winningMay ls) }
+            else put $ ls { winningMust = winningMust ls ++ cube }
 
-            return $ ir : next
-    else return []
+            interpolateTree spec player s gt'
+    else return ()
 
 printLearnedStates spec player = do
     LearnedStates{..} <- get

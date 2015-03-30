@@ -624,8 +624,8 @@ printTree spec gt = "---\n" ++ printNode spec (2*(gtBaseRank gt)) 0 (Just (crumb
 
 printNode :: CompiledSpec -> Int -> Int -> Maybe [Int] -> SNode -> String
 printNode spec r t cs n = tab t 
----    ++ (if maybe False null cs then "*" else "")
-    ++ show (r `div` 2) ++ " "
+    ++ (if maybe False null cs then "*" else "")
+---    ++ show (r `div` 2) ++ " "
     ++ printNodeType n 
 ---    ++ show (copy n) ++ " "
 ---    ++ show (nodeId n) ++ " "
@@ -700,12 +700,13 @@ gtEmpty :: GameTree -> Bool
 gtEmpty gt = null (children (root gt))
     
 gtSplit :: GameTree -> (GameTree, GameTree)
-gtSplit gt = (gtSetChildren (gtParent maxDepthLeaf) [], gtRebase maxDepthLeaf)
+gtSplit gt = (updateGTCrumb (gtParent maxDepthLeaf) (\x -> setChildren x cs'), gtRebase maxDepthLeaf)
     where
         leaves          = gtLeaves gt
         leaves'         = map (\l -> if (isUNode (followGTCrumb l)) then gtParent l else l) leaves
         leafDepth       = map (length . gtCrumb) leaves'
         maxDepthLeaf    = fst $ maximumBy (\x y -> compare (snd x) (snd y)) (zip leaves' leafDepth)
+        cs'             = delete (followGTCrumb maxDepthLeaf) (children (followGTCrumb (gtParent maxDepthLeaf)))
 
 gtStripMoves :: GameTree -> GameTree
 gtStripMoves gt = setRoot gt (stripMoves (root gt))
