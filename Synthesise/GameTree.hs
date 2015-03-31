@@ -627,7 +627,7 @@ printNode spec r t cs n = tab t
     ++ (if maybe False null cs then "*" else "")
 ---    ++ show (r `div` 2) ++ " "
     ++ printNodeType n 
----    ++ show (copy n) ++ " "
+    ++ show (copy n) ++ " "
 ---    ++ show (nodeId n) ++ " "
 ---    ++ "(" ++ show (exprId n) ++ ") "
 ---    ++ show (isChanged n) ++ " "

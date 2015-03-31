@@ -4,6 +4,7 @@ module SatSolver.SatSolver (
     , unsatisfiable
     , satSolve
     , minimiseCore
+    , dumpDimacs
     ) where
 
 import Foreign
@@ -41,6 +42,14 @@ satSolve mc a e = do
     let as      = map (\a -> if sign a == Pos then var a else -(var a)) assumptions
     res <- liftIO $ callSolver maxId as clauses
     return res
+
+dumpDimacs :: Int -> Expression -> FilePath -> SolverT ()
+dumpDimacs mc e fp = do
+    maxId       <- liftE $ getMaxId mc
+    clauses     <- toDimacs mc e
+    let d       = interMap "\n" (interMap " " show . SV.toList) clauses
+    liftIO $ writeFile fp d
+    
 
 callSolver max assumptions clauses = do
     solver <- c_glucose_new

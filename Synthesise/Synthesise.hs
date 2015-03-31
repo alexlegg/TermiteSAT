@@ -38,6 +38,7 @@ unbounded k spec = do
 
 unboundedLoop :: ParsedSpec -> Int -> SolverT Bool
 unboundedLoop spec k = do
+    when (k == 7) $ throwError "stop"
     (init, cspec) <- liftE $ loadFmls k spec
     liftIO $ putStrLn $ "Unbounded Loop " ++ show k
 

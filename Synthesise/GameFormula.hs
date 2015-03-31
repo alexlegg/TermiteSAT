@@ -68,11 +68,11 @@ makeFml spec player s ogt = do
 
     return (map (map snd) es, fml', gt')
 
-makeSplitFmls :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT (Maybe (GameTree, Int, Expression, Expression))
+makeSplitFmls :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT (Maybe (GameTree, GameTree, Expression, Expression))
 makeSplitFmls _ _ _ (gtEmpty -> True)       = return Nothing
 makeSplitFmls _ _ _ (gtIsPrefix -> True)    = return Nothing
-makeSplitFmls spec player s gt' = do
-    let gt          = normaliseCopies gt'
+makeSplitFmls spec player s gt = do
+    --Assume GT already normalised
     let maxCopy     = gtMaxCopy gt
     let root        = gtRoot gt
     let rank        = gtRank root
@@ -83,10 +83,10 @@ makeSplitFmls spec player s gt' = do
     let nCopy   = gtCopyId t2
 
     liftE $ clearTempExpressions
-    liftE $ initCopyMaps 0
+    liftE $ initCopyMaps maxCopy
 
-    constA <- liftM (zip (repeat True)) $ getConstructsFor t1 player (gtBaseRank t2)
-    constB <- liftM (zip (repeat False)) $ getConstructsFor t2 player 0
+    constA <- liftM (zip (repeat True)) $ getConstructsFor maxCopy t1 player (gtBaseRank t2)
+    constB <- liftM (zip (repeat False)) $ getConstructsFor maxCopy t2 player 0
     let sorted = sortBy (\x y -> compare (sortIndex (snd x)) (sortIndex (snd y))) (constA ++ constB)
 
     -- Construct everything in order
@@ -117,7 +117,7 @@ makeSplitFmls spec player s gt' = do
 
     fmlB        <- liftE $ conjunctTemp maxCopy (fmlB' : exprsB)
 
-    return (Just (t1, gtBaseRank t2, fmlA, fmlB))
+    return (Just (t1, t2, fmlA, fmlB))
 
 makeInitCheckFml :: Int -> Expression -> [[Assignment]] -> Expression -> SolverT Expression
 makeInitCheckFml rank init must goal = do
@@ -130,11 +130,10 @@ makeInitCheckFml rank init must goal = do
     d           <- liftE $ disjunctC 0 (g' : ms)
     liftE $ conjunctC 0 [d, init]
 
-getConstructsFor :: GameTree -> Player -> Int -> SolverT [Construct]
-getConstructsFor gt player toRank = do
+getConstructsFor :: Int -> GameTree -> Player -> Int -> SolverT [Construct]
+getConstructsFor maxCopy gt player toRank = do
     let root    = gtRoot gt
     let rank    = gtRank root
-    let maxCopy = gtMaxCopy gt
     let cs      = gtSteps root
     let trans   = map Construct $ if null cs
                     then getTransitions rank root (Nothing, Nothing, Nothing)

@@ -43,8 +43,6 @@ checkRank spec rnk s = do
 checkInit :: Int -> Expression -> [[Assignment]] -> Expression -> SolverT Bool
 checkInit k init must goal = do
     fml     <- makeInitCheckFml k init must goal
-    fmlp    <- liftE $ printExpression fml
-    liftIO $ putStrLn fmlp
     r       <- satSolve 0 Nothing fml
     return $ satisfiable r
 
@@ -161,39 +159,25 @@ learnWinning spec player s gt = do
     interpolateTree spec player s (gtExtend gt)
 
 interpolateTree :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ()
-interpolateTree spec player s gt = do
+interpolateTree spec player s gt' = do
+    let gt = normaliseCopies gt'
     fmls <- makeSplitFmls spec player s gt
     if (isJust fmls)
     then do
-        let Just (gt', rank, fmlA, fmlB) = fmls
+        let Just (gtA, gtB, fmlA, fmlB) = fmls
 
-        rA      <- satSolve (gtMaxCopy gt') Nothing fmlA
-        rB      <- satSolve (gtMaxCopy gt') Nothing fmlB
+        rA      <- satSolve (gtMaxCopy gt) Nothing fmlA
+        rB      <- satSolve (gtMaxCopy gt) Nothing fmlB
 
         if (not (satisfiable rA && satisfiable rB))
         then do
----            liftIO $ putStrLn "--res--"
----            liftIO $ putStrLn (printTree spec gt)
----            liftIO $ putStrLn (show (satisfiable rA))
----            liftIO $ putStrLn (show (satisfiable rB))
----            liftIO $ putStrLn "--res--"
-            return ()
+            -- We lose in the prefix, so just keep going
+            interpolateTree spec player s gtA
         else do
-
-            pA      <- liftE $ printExpression fmlA
-            liftIO $ writeFile "fmlA" pA
-
-            pB      <- liftE $ printExpression fmlB
-            liftIO $ writeFile "fmlB" pB
-
             both    <- liftE $ conjunctTemp (gtMaxCopy gt) [fmlA, fmlB]
             rBoth   <- satSolve (gtMaxCopy gt) Nothing both
 
----            liftIO $ putStrLn (show (satisfiable rBoth))
             when (satisfiable rBoth) $ do
-                gtMoves <- setMoves player spec (fromJust (model rBoth)) (gtRoot gt)
-                liftIO $ putStrLn (printTree spec gt)
-                liftIO $ putStrLn (printTree spec gtMoves)
                 throwError "Interpolation formulas are satisfiable"
 
             ir      <- interpolate (gtMaxCopy gt) fmlA fmlB
@@ -208,10 +192,10 @@ interpolateTree spec player s gt = do
                 throwError "Non-state variable in interpolant"
 
             if player == Existential
-            then put $ ls { winningMay = Map.alter (\s -> Just ((foldl (flip Set.insert) (fromMaybe (Set.empty) s) cube))) rank (winningMay ls) }
+            then put $ ls { winningMay = Map.alter (\s -> Just ((foldl (flip Set.insert) (fromMaybe (Set.empty) s) cube))) (gtBaseRank gtB) (winningMay ls) }
             else put $ ls { winningMust = winningMust ls ++ cube }
 
-            interpolateTree spec player s gt'
+            interpolateTree spec player s gtA
     else return ()
 
 printLearnedStates spec player = do
