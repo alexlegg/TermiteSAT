@@ -11,6 +11,7 @@ import Control.Monad.Loops
 import Data.Functor
 import Data.Maybe
 import Data.Tree
+import qualified Data.Map as Map
 import qualified Data.Traversable as T
 import Data.List.Split
 import System.IO
@@ -45,11 +46,16 @@ unboundedLoop spec k = do
     ls <- get
     exWins <- checkInit k init (winningMust ls) (head (cg cspec))
 
+    let unWins = any isNothing $ map (\i -> Map.lookup i (winningMay ls)) [1..k-1]
+
     if exWins
     then return True
     else do
-        checkRank cspec k init
-        unboundedLoop spec (k+1)
+        if unWins
+        then return False
+        else do
+            checkRank cspec k init
+            unboundedLoop spec (k+1)
 
 synthesise' k spec learning = do
     (init, cspec) <- loadFmls k spec

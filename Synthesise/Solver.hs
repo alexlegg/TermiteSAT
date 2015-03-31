@@ -185,9 +185,9 @@ interpolateTree spec player s gt' = do
 
             ls <- get
             let cube = fromJust (interpolant ir)
-            liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
-            liftIO $ mapM (putStrLn . printMove spec . Just) cube
-            liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
+---            liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
+---            liftIO $ mapM (putStrLn . printMove spec . Just) cube
+---            liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
             when (any ((/=) StateVar) (concatMap (map (\(Assignment _ v) -> varsect v)) cube)) $ do
                 throwError "Non-state variable in interpolant"
 
