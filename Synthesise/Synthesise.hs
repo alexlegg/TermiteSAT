@@ -26,10 +26,11 @@ import Synthesise.SolverT
 import Expression.AST
 import SatSolver.Interpolator
 
-synthesise :: Int -> ParsedSpec -> EitherT String (LoggerT IO) Bool
-synthesise k spec = evalStateT (synthesise' k spec BoundedLearning) emptyManager
+synthesise :: Int -> ParsedSpec -> EitherT String (LoggerT IO) (Maybe Int)
+synthesise k spec = do
+    evalStateT (synthesise' k spec BoundedLearning) emptyManager
 
-unboundedSynthesis :: ParsedSpec -> EitherT String (LoggerT IO) Bool
+unboundedSynthesis :: ParsedSpec -> EitherT String (LoggerT IO) (Maybe Int)
 unboundedSynthesis spec = do
     liftIO $ putStrLn "unbounded"
     evalStateT (unbounded 1 spec) emptyManager
@@ -37,31 +38,36 @@ unboundedSynthesis spec = do
 unbounded k spec = do
     evalStateT (unboundedLoop spec k) (emptyLearnedStates UnboundedLearning)
 
-unboundedLoop :: ParsedSpec -> Int -> SolverT Bool
+unboundedLoop :: ParsedSpec -> Int -> SolverT (Maybe Int)
 unboundedLoop spec k = do
-    when (k == 7) $ throwError "stop"
     (init, cspec) <- liftE $ loadFmls k spec
     liftIO $ putStrLn $ "Unbounded Loop " ++ show k
 
     ls <- get
     exWins <- checkInit k init (winningMust ls) (head (cg cspec))
 
-    let unWins = any isNothing $ map (\i -> Map.lookup i (winningMay ls)) [1..k-1]
+    let wm1     = map (\i -> Map.lookup i (winningMay ls)) [1..k-1]
+    let wm2     = map (\i -> Map.lookup i (winningMay ls)) [2..k-1]
+
+    let unWins  = or (zipWith (==) wm1 wm2)
 
     if exWins
-    then return True
+    then return (Just (k-1))
     else do
         if unWins
-        then return False
+        then return Nothing
         else do
-            checkRank cspec k init
-            unboundedLoop spec (k+1)
+            r <- checkRank cspec k init
+            if r
+            then return (Just k) --Counterexample exists for Universal player
+            else unboundedLoop spec (k+1)
 
 synthesise' k spec learning = do
     (init, cspec) <- loadFmls k spec
-    evalStateT (checkRank cspec k init) (emptyLearnedStates learning)
+    r <- evalStateT (checkRank cspec k init) (emptyLearnedStates learning)
+    return $ if r then (Just k) else Nothing
 
-playStrategy :: Int -> ParsedSpec -> FilePath -> EitherT String (LoggerT IO) Bool
+playStrategy :: Int -> ParsedSpec -> FilePath -> EitherT String (LoggerT IO) (Maybe Int)
 playStrategy k spec sFile = evalStateT (playStrategy' k spec sFile) emptyManager
 
 playStrategy' k spec sFile = do
@@ -71,7 +77,8 @@ playStrategy' k spec sFile = do
     let varTree     = unfoldTree makeStrategy vars
     let assTree     = fmap (\(vs, r) -> map (\(var, val) -> makeAssignmentValue (map (setVarRank (r+1)) var) val) vs) varTree
 
-    evalStateT (checkStrategy cspec k init player assTree) (emptyLearnedStates BoundedLearning)
+    r <- evalStateT (checkStrategy cspec k init player assTree) (emptyLearnedStates BoundedLearning)
+    return $ if r then (Just k) else Nothing
 
 makeStrategy :: [(a, Int)] -> ((a, Int), [[(a, Int)]])
 makeStrategy ((x, r):xrs) = ((x, r), children xrs)

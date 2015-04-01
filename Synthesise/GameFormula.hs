@@ -23,8 +23,8 @@ import Utils.Logger
 import Utils.Utils
 import qualified Data.Vector.Storable as SV
 
-makeFml :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ([[Expression]], Expression, GameTree)
-makeFml spec player s ogt = do
+makeFml :: CompiledSpec -> Player -> Expression -> GameTree -> Bool -> SolverT ([[Expression]], Expression, GameTree)
+makeFml spec player s ogt useBlocking = do
     let gt      = normaliseCopies ogt
     let maxCopy = gtMaxCopy gt
     let root    = gtRoot gt
@@ -40,8 +40,12 @@ makeFml spec player s ogt = do
                     else concatMap (getTransitions rank root) cs
     let goals   = map Construct $ getGoals rank maxCopy player
     let moves   = map Construct $ concatMap (getMoves rank player root) cs
-    block'      <- getBlockedStates player rank maxCopy
-    let block   = map Construct block'
+    block       <- if useBlocking
+                    then (liftM (map Construct)) $ getBlockedStates player rank maxCopy
+                    else return []
+---                    
+---    block'      <- getBlockedStates player rank maxCopy
+---    let block   = map Construct block'
 
     -- Construct everything in order
     exprs       <- mapM (construct spec player (gtFirstPlayer gt)) (sortConstructibles (trans ++ moves ++ goals ++ block))

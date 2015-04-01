@@ -71,9 +71,9 @@ mainTimed = do
             printLog (debugMode config) log
 
     case res of
-        Left s      -> putStrLn s
-        Right True  -> putStrLn "Realisable"
-        Right False -> putStrLn "Unrealisable"
+        Left s          -> putStrLn s
+        Right (Just k)  -> putStrLn $ "Realisable in " ++ (show k)
+        Right Nothing   -> putStrLn "Unrealisable"
 
     putStrLn "------------------------------------"
 

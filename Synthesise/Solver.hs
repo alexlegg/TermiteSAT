@@ -114,7 +114,7 @@ refinementLoop player spec s (Just cand) origGT absGT = do
 
 findCandidate :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Maybe GameTree)
 findCandidate player spec s gt = do
-    (es, f, gt')    <- makeFml spec player s gt
+    (es, f, gt')    <- makeFml spec player s gt True
     res             <- satSolve (gtMaxCopy gt') Nothing f
 
     if satisfiable res
@@ -139,7 +139,7 @@ learnStates spec player ogt = do
     let s           = map (\x -> setAssignmentRankCopy x rank 0) as
 
     fakes           <- liftE $ trueExpr
-    (es, f, gt)     <- makeFml spec player fakes gt'
+    (es, f, gt)     <- makeFml spec player fakes gt' True
     core            <- minimiseCore gt (Just s) f
 
     when (isJust core) $ do
@@ -171,6 +171,12 @@ interpolateTree spec player s gt' = do
 
         if (not (satisfiable rA && satisfiable rB))
         then do
+---            liftIO $ putStrLn (show player)
+---            liftIO $ putStrLn (printTree spec gt)
+---            (_, fml', gtA') <- makeFml spec player s gtA False
+---            rF <- satSolve (gtMaxCopy gtA') Nothing fml'
+---            liftIO $ putStrLn (show (satisfiable rF))
+---            liftIO $ putStrLn (show s)
             -- We lose in the prefix, so just keep going
             interpolateTree spec player s gtA
         else do
