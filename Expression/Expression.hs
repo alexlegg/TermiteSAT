@@ -248,6 +248,7 @@ getCopyManager c = do
             let (Just cm) = IMap.lookup c (copyManagers mgr')
             return cm
             
+fillCopyManagers :: MonadIO m => Int -> ExpressionT m Int
 fillCopyManagers c = do
     prevIndex <- if c == 0
         then return 3

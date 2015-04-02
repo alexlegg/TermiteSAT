@@ -169,6 +169,11 @@ interpolateTree spec player s gt' = do
         rA      <- satSolve (gtMaxCopy gt) Nothing fmlA
         rB      <- satSolve (gtMaxCopy gt) Nothing fmlB
 
+---        fmlAp <- liftE $ printExpression fmlA
+---        fmlBp <- liftE $ printExpression fmlB
+---        liftIO $ writeFile "fmlA" fmlAp
+---        liftIO $ writeFile "fmlB" fmlBp
+
         if (not (satisfiable rA && satisfiable rB))
         then do
 ---            liftIO $ putStrLn (show player)
@@ -204,6 +209,7 @@ interpolateTree spec player s gt' = do
             interpolateTree spec player s gtA
     else return ()
 
+printLearnedStates :: CompiledSpec -> Player -> SolverT [String]
 printLearnedStates spec player = do
     LearnedStates{..} <- get
     if player == Existential
