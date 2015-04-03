@@ -63,7 +63,7 @@ module Expression.Expression (
 
 import Control.Monad.State
 import Control.Monad.Trans.Either
-import Control.Monad.ST.Safe
+import Control.Monad.ST
 import qualified Data.Map.Strict as Map
 import qualified Data.IntMap as IMap
 import qualified Data.Set as Set
@@ -486,13 +486,6 @@ insertParent mc p i = do
     mapMUntilJust (insertParentC i p) [0..mc]
     return ()
 
-foldExpression :: MonadIO m => Int -> (Int -> Expr -> [(Sign, a)] -> a) -> Expression -> ExpressionT m a
-foldExpression mc f e = do
-    let cs  = children (expr e)
-    ces     <- mapM (lookupExpression mc) (map var cs)
-    fes     <- mapM (foldExpression mc f) (catMaybes ces)
-    return $ f (eindex e) (expr e) (zip (map sign cs) fes)
-
 foldExpressionM :: (MonadIO m) => Int -> (Int -> Expr -> [(Sign, a)] -> m a) -> Expression -> ExpressionT m a
 foldExpressionM mc f e = do
     let cs  = children (expr e)
@@ -500,12 +493,37 @@ foldExpressionM mc f e = do
     fes     <- mapM (foldExpressionM mc f) (catMaybes ces)
     lift $ lift $ f (eindex e) (expr e) (zip (map sign cs) fes)
 
+foldExpression :: MonadIO m => Int -> (Int -> Expr -> [(Sign, a)] -> a) -> Expression -> ExpressionT m a
+foldExpression mc f e = do
+    ds <- getDependencies mc (eindex e)
+    when (ISet.null ds) $ throwError "Empty dependencies"
+
+    es <- (liftM catMaybes) $ mapM (lookupExpression mc) (ISet.toList ds)
+    done <- applyFold mc f es Map.empty
+    let (Just r) = Map.lookup (eindex e) done
+    return r
+
+applyFold :: MonadIO m => Int -> (Int -> Expr -> [(Sign, a)] -> a) -> [Expression] -> Map.Map Int a -> ExpressionT m (Map.Map Int a)
+applyFold mc _ [] done = return done
+applyFold mc f pool done = do
+    (pool', done') <- foldM (tryToApply' mc f) ([], done) pool
+    applyFold mc f pool' done'
+
+tryToApply' :: MonadIO m => Int -> (Int -> Expr -> [(Sign, a)] -> a) -> ([Expression], Map.Map Int a) -> Expression -> ExpressionT m ([Expression], Map.Map Int a)
+tryToApply' mc f (pool, doneMap) e = do
+    let cs = children (expr e)
+    let ds = map (\v -> Map.lookup (var v) doneMap) cs
+    if (all isJust ds)
+    then do
+        let ds' = zipWith (\(Just x) (Var s _) -> (s, x)) ds cs
+        let x = f (eindex e) (expr e) ds'
+        return (pool, Map.insert (eindex e) x doneMap)
+    else return (e : pool, doneMap)
+
 traverseExpression :: MonadIO m => Int -> (ExprVar -> ExprVar) -> Expression -> ExpressionT m Expression
 traverseExpression mc f e = do
     ds  <- getDependencies mc (eindex e)
-    when (ISet.null ds) $ do
-        liftIO $ putStrLn (show e)
-        throwError "Empty dependencies"
+    when (ISet.null ds) $ throwError "Empty dependencies"
     es  <- (liftM catMaybes) $ mapM (lookupExpression mc) (ISet.toList ds)
     done <- applyTraverse mc f es Map.empty
     let (Just e') = Map.lookup (eindex e) done

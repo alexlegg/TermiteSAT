@@ -75,7 +75,6 @@ expandNots []               = []
 expandNots ((Pos, x):xs)    = x : expandNots xs
 expandNots ((Neg, x):xs)    = EnodeExpr EnodeNot Nothing [x] : expandNots xs
     
-
 enodeExprToExpr :: MonadIO m => Int -> EnodeExpr -> ExpressionT m Expression
 enodeExprToExpr mc e = do
     case (exprEType e) of
