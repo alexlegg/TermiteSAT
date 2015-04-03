@@ -2,6 +2,7 @@
 module SatSolver.Interpolator (
       InterpolantResult(..)
     , interpolate
+    , timeInInterpolate
     ) where
 
 import Foreign
@@ -11,6 +12,9 @@ import qualified Data.Vector.Storable as SV
 import Expression.Expression
 import SatSolver.Enode
 import Synthesise.SolverT
+import System.TimeIt
+import Data.IORef
+import System.IO.Unsafe
 
 data PeriploSolver
 
@@ -22,14 +26,22 @@ data InterpolantResult = InterpolantResult {
 foreign import ccall safe "periplo_wrapper/periplo_wrapper.h interpolate"
     c_interpolate :: Ptr EnodeStruct -> Ptr EnodeStruct -> IO (Ptr (Ptr AssignmentStruct))
 
+totalTime :: IORef Double
+{-# NOINLINE totalTime #-}
+totalTime = unsafePerformIO (newIORef 0)
+
+timeInInterpolate :: IO Double
+timeInInterpolate = readIORef totalTime
+
 interpolate mc a b = do
     a'  <- lift $ foldExpression mc exprToEnodeExpr a
     b'  <- lift $ foldExpression mc exprToEnodeExpr b
 
-    pa  <- liftIO $ enodeToStruct a'
-    pb  <- liftIO $ enodeToStruct b'
+    (t1, pa)  <- liftIO $ timeItT $ enodeToStruct a'
+    (t2, pb)  <- liftIO $ timeItT $ enodeToStruct b'
 
-    r   <- liftIO $ c_interpolate pa pb
+    (t, r) <- liftIO $ timeItT $ c_interpolate pa pb
+    liftIO $ modifyIORef totalTime (\total -> t + t1 + t2 + total)
 
     let succ = (r /= nullPtr)
     i   <- if succ 

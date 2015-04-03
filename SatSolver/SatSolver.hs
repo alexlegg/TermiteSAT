@@ -5,6 +5,7 @@ module SatSolver.SatSolver (
     , satSolve
     , minimiseCore
     , dumpDimacs
+    , timeInSAT
     ) where
 
 import Foreign
@@ -19,6 +20,9 @@ import Expression.Expression
 import Synthesise.SolverT
 import Synthesise.GameTree
 import Utils.Utils
+import System.TimeIt
+import Data.IORef
+import System.IO.Unsafe
 
 data GlucoseSolver
 
@@ -27,6 +31,13 @@ data SatResult = SatResult {
     model           :: Maybe [Int],
     conflicts       :: Maybe [Int]
     } deriving (Show, Eq)
+
+totalTime :: IORef Double
+{-# NOINLINE totalTime #-}
+totalTime = unsafePerformIO (newIORef 0)
+
+timeInSAT :: IO Double
+timeInSAT = readIORef totalTime
 
 unsatisfiable :: SatResult -> Bool
 unsatisfiable = not . satisfiable
@@ -40,7 +51,8 @@ satSolve mc a e = do
     clauses     <- toDimacs mc e
     assumptions <- liftE $ maybeM [] (mapM (assignmentToVar mc)) a
     let as      = map (\a -> if sign a == Pos then var a else -(var a)) assumptions
-    res <- liftIO $ callSolver maxId as clauses
+    (time, res) <- liftIO $ timeItT $ callSolver maxId as clauses
+    liftIO $ modifyIORef totalTime (time +)
     return res
 
 dumpDimacs :: Int -> Expression -> FilePath -> SolverT ()

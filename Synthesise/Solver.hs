@@ -38,6 +38,10 @@ checkRank spec rnk s = do
     --testInterpolants
     r <- solveAbstract Universal spec s (gtNew Existential rnk)
     --liftE $ analyseManagers
+    satTime <- liftIO $ timeInSAT
+    intTime <- liftIO $ timeInInterpolate
+    liftIO $ putStrLn $ "timeInSAT = " ++ (show satTime)
+    liftIO $ putStrLn $ "timeInInterpolate = " ++ (show intTime)
     return (isNothing r)
 
 checkInit :: Int -> Expression -> [[Assignment]] -> Expression -> SolverT Bool

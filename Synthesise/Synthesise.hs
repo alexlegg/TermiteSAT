@@ -32,7 +32,6 @@ synthesise k spec = do
 
 unboundedSynthesis :: ParsedSpec -> EitherT String (LoggerT IO) (Maybe Int)
 unboundedSynthesis spec = do
-    liftIO $ putStrLn "unbounded"
     evalStateT (unbounded spec) emptyManager
 
 unbounded spec = do
@@ -61,11 +60,8 @@ unboundedLoop init spec k = do
             if r
             then return (Just k) --Counterexample exists for Universal player
             else do
-                liftIO $ putStrLn "spec'"
                 spec' <- liftE $ unrollSpec spec
-                liftIO $ putStrLn "init'"
                 init' <- liftE $ setRank (k+1) init
-                liftIO $ putStrLn "loop"
                 unboundedLoop init' spec' (k+1)
 
 synthesise' k spec learning = do
