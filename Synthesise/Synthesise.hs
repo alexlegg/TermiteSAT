@@ -33,18 +33,18 @@ synthesise k spec = do
 unboundedSynthesis :: ParsedSpec -> EitherT String (LoggerT IO) (Maybe Int)
 unboundedSynthesis spec = do
     liftIO $ putStrLn "unbounded"
-    evalStateT (unbounded 1 spec) emptyManager
+    evalStateT (unbounded spec) emptyManager
 
-unbounded k spec = do
-    evalStateT (unboundedLoop spec k) (emptyLearnedStates UnboundedLearning)
+unbounded spec = do
+    (init, cspec) <- loadFmls 1 spec
+    evalStateT (unboundedLoop init cspec 1) (emptyLearnedStates UnboundedLearning)
 
-unboundedLoop :: ParsedSpec -> Int -> SolverT (Maybe Int)
-unboundedLoop spec k = do
-    (init, cspec) <- liftE $ loadFmls k spec
+unboundedLoop :: Expression -> CompiledSpec -> Int -> SolverT (Maybe Int)
+unboundedLoop init spec k = do
     liftIO $ putStrLn $ "Unbounded Loop " ++ show k
 
     ls <- get
-    exWins <- checkInit k init (winningMust ls) (head (cg cspec))
+    exWins <- checkInit k init (winningMust ls) (head (cg spec))
 
     let wm1     = map (\i -> Map.lookup i (winningMay ls)) [1..k-1]
     let wm2     = map (\i -> Map.lookup i (winningMay ls)) [2..k-1]
@@ -57,10 +57,16 @@ unboundedLoop spec k = do
         if unWins
         then return Nothing
         else do
-            r <- checkRank cspec k init
+            r <- checkRank spec k init
             if r
             then return (Just k) --Counterexample exists for Universal player
-            else unboundedLoop spec (k+1)
+            else do
+                liftIO $ putStrLn "spec'"
+                spec' <- liftE $ unrollSpec spec
+                liftIO $ putStrLn "init'"
+                init' <- liftE $ setRank (k+1) init
+                liftIO $ putStrLn "loop"
+                unboundedLoop init' spec' (k+1)
 
 synthesise' k spec learning = do
     (init, cspec) <- loadFmls k spec
@@ -157,6 +163,27 @@ loadFmls k spec = do
 
     initManager (map exprIndex (steps ++ cgs ++ ugs ++ us ++ vcs ++ vus))
     return (init, cspec)
+
+unrollSpec spec = do
+    
+    t'  <- unrollExpression (last (t spec))
+    cg' <- unrollExpression (last (cg spec))
+    ug' <- unrollExpression (last (ug spec))
+    u'  <- unrollExpression (last (u spec))
+    vc' <- unrollExpression (last (vc spec))
+    vu' <- unrollExpression (last (vu spec))
+
+    let spec' = spec {
+          t   = t spec ++ [t']
+        , cg  = cg spec ++ [cg']
+        , ug  = ug spec ++ [ug']
+        , u   = u spec ++ [u']
+        , vc  = vc spec ++ [vc']
+        , vu  = vu spec ++ [vu']
+    }
+
+    initManager (map exprIndex ((t spec') ++ (cg spec') ++ (ug spec') ++ (u spec') ++ (vc spec') ++ (vu spec')))
+    return spec'
 
 iterateNM :: Monad m => Int -> (a -> m a) -> a -> m [a]
 iterateNM 0 f x = return [x]

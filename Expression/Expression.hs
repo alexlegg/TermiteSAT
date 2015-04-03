@@ -218,9 +218,9 @@ initManager save = do
     put $ m { mgrMaxIndices = 100 }
     setCopyManager 0 (c0 { maxIndex = ceiling ((fromIntegral (maxIndex c0)) * 1.5) })
 
-    forM (IMap.toList (parentMap c0)) $ \(i, ps) -> do
-        when ((not (i `elem` save)) && ISet.null ps) $ do
-            freeIndex 0 i
+---    forM (IMap.toList (parentMap c0)) $ \(i, ps) -> do
+---        when ((not (i `elem` save)) && ISet.null ps) $ do
+---            freeIndex 0 i
 
     return ()
 
@@ -503,7 +503,9 @@ foldExpressionM mc f e = do
 traverseExpression :: MonadIO m => Int -> (ExprVar -> ExprVar) -> Expression -> ExpressionT m Expression
 traverseExpression mc f e = do
     ds  <- getDependencies mc (eindex e)
-    when (ISet.null ds) $ throwError "Empty dependencies"
+    when (ISet.null ds) $ do
+        liftIO $ putStrLn (show e)
+        throwError "Empty dependencies"
     es  <- (liftM catMaybes) $ mapM (lookupExpression mc) (ISet.toList ds)
     done <- applyTraverse mc f es Map.empty
     let (Just e') = Map.lookup (eindex e) done
