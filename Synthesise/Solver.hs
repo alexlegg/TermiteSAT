@@ -193,6 +193,11 @@ interpolateTree spec player s gt' = do
             rBoth   <- satSolve (gtMaxCopy gt) Nothing both
 
             when (satisfiable rBoth) $ do
+                gtSat <- setMoves player spec (fromJust (model rBoth)) (gtRoot gt)
+                liftIO $ putStrLn (printTree spec gtSat)
+                liftIO $ putStrLn (printTree spec gt)
+                liftIO $ putStrLn (printTree spec gtA)
+                liftIO $ putStrLn (printTree spec gtB)
                 throwError "Interpolation formulas are satisfiable"
 
             ir      <- interpolate (gtMaxCopy gt) fmlA fmlB

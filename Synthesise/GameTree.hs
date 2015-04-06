@@ -382,11 +382,17 @@ prevStateNode gt cr = case followCrumb (root gt) cr of
 
 -- |Creates a new tree with the current node as its base
 gtRebase :: GameTree -> GameTree
-gtRebase gt = updateRoot (gtNew Existential newrank) (`setChildren` [newroot])
+gtRebase gt = updateRoot (gtNew Existential newrank) (`setChildren` [newroot'])
     where
         newcrumb    = alignCrumb (crumb gt)
         newroot     = followCrumb (root gt) newcrumb
+        newroot'    = if (crumbAligned (crumb gt))
+                        then newroot
+                        else setChildren newroot [followCrumb (root gt) (crumb gt)]
         newrank     = baseRank gt - (length newcrumb `quot` 2)
+
+crumbAligned :: [Int] -> Bool
+crumbAligned cr = alignCrumb cr == cr
 
 -- |Makes a crumb start at the beginning of a step
 alignCrumb :: [Int] -> [Int]
@@ -699,11 +705,13 @@ gtExtend gt = case filter (not . gtAtBottom) (gtLeaves gt) of
 gtEmpty :: GameTree -> Bool
 gtEmpty gt = null (children (root gt))
     
-gtSplit :: GameTree -> (GameTree, GameTree)
-gtSplit gt = (updateGTCrumb (gtParent maxDepthLeaf) (\x -> setChildren x cs'), gtRebase maxDepthLeaf)
+gtSplit :: Player -> GameTree -> (GameTree, GameTree)
+gtSplit player gt = (updateGTCrumb (gtParent maxDepthLeaf) (\x -> setChildren x cs'), gtRebase maxDepthLeaf)
     where
         leaves          = gtLeaves gt
-        leaves'         = map (\l -> if (isUNode (followGTCrumb l)) then gtParent l else l) leaves
+        leaves'         = if player == Universal
+                            then map (\l -> if (isUNode (followGTCrumb l)) then gtParent l else l) leaves
+                            else leaves
         leafDepth       = map (length . gtCrumb) leaves'
         maxDepthLeaf    = fst $ maximumBy (\x y -> compare (snd x) (snd y)) (zip leaves' leafDepth)
         cs'             = delete (followGTCrumb maxDepthLeaf) (children (followGTCrumb (gtParent maxDepthLeaf)))

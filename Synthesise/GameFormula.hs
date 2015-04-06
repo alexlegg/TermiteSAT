@@ -80,7 +80,7 @@ makeSplitFmls spec player s gt = do
     let maxCopy     = gtMaxCopy gt
     let root        = gtRoot gt
     let rank        = gtRank root
-    let (t1, t2')   = gtSplit gt
+    let (t1, t2')   = gtSplit player gt
     let t2          = head (gtChildren t2')
 
     let nRank   = gtRank t2
