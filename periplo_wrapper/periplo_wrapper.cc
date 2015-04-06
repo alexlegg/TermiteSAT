@@ -33,33 +33,44 @@ extern "C" {
     DdNode *enodeToDdNode(DdManager *mgr, map<string, int> vars, Enode *f, bool &success);
     VarAssignment **reduceCubes(DdManager *mgr, DdNode *dd, map<int, int> rvars);
 
+    PeriploContext  *ctx;
+    set<int>        variables;
+
+    void initInterpolator()
+    {
+        ctx = new PeriploContext();
+        ctx->SetLogic("QF_BOOL");
+        ctx->SetOption(":produce-interpolants", "true");
+        ctx->setVerbosity(0);
+    }
+
+    void deleteInterpolator()
+    {
+        for (auto v = variables.begin(); v != variables.end(); ++v)
+        {
+            cout << *v << " ";
+        }
+        cout << endl;
+        variables.clear();
+        ctx->Reset();
+        ctx->Exit();
+        delete ctx;
+    }
+
     VarAssignment **interpolate(EnodeExpr *a, EnodeExpr *b)
     {
         VarAssignment **interp = NULL;
         Enode *ea, *eb;
-        PeriploContext *ctx = new PeriploContext();
-
-        ctx->SetLogic("QF_BOOL");
-        ctx->SetOption(":produce-interpolants", "true");
-        ctx->setVerbosity(0);
 
         set<int> *varsAll = new set<int>();
         set<int> *varsA = new set<int>();
         set<int> *varsB = new set<int>();
 
         ea = expr_to_enode(ctx, varsAll, varsA, a);
+        cout << "ea" << endl;
         eb = expr_to_enode(ctx, varsAll, varsB, b);
+        cout << "eb" << endl;
 
-        ofstream fEnodeA;
-        fEnodeA.open("enodeA");
-        ea->print(fEnodeA);
-        fEnodeA.close();
-
-        ofstream fEnodeB;
-        fEnodeB.open("enodeB");
-        eb->print(fEnodeB);
-        fEnodeB.close();
-        
         vector<int> project;
         for (auto va = varsA->begin(); va != varsA->end(); ++va)
         {
@@ -72,12 +83,17 @@ extern "C" {
         delete varsA;
         delete varsB;
         
+        cout << "assert1" << endl;
         ctx->Assert(ea);
+        cout << "assert2" << endl;
         ctx->Assert(eb);
-        ctx->CheckSATStatic();
+        cout << "assert3" << endl;
+        ctx->CheckSATIncrementalForInterpolation();
+        cout << "check" << endl;
 
         lbool r = ctx->getStatus();
         if (r == l_False) {
+            cout << "l_False" << endl;
             ctx->createProofGraph();
             ctx->setNumReductionLoops(2);
             ctx->setNumGraphTraversals(2);
@@ -92,15 +108,16 @@ extern "C" {
                 bool success;
                 interp = enodeToBDD(interpolants[0], project, success);
                 if (!success) {
-                    cout << "Error reducing cubes" << endl;
+                    //cout << "Error reducing cubes" << endl;
                     interp = NULL;
                 }
             }
+        } else {
+            cout << "l_True" << endl;
         }
 
         ctx->deleteProofGraph();
         ctx->Reset();
-        delete ctx;
 
         return interp;
     }
@@ -114,11 +131,15 @@ extern "C" {
 
         switch (e->enodeType) {
             case ENODEVAR:
-                new_vars->insert(abs(id));
+                new_vars->insert(id);
                 if (vars->find(id) == vars->end())
                 {
-                    ctx->DeclareFun(str.c_str(), NULL, ctx->mkSortBool());
-                    vars->insert(abs(id));
+                    if (variables.find(id) == variables.end())
+                    {
+                        variables.insert(id);
+                        ctx->DeclareFun(str.c_str(), NULL, ctx->mkSortBool());
+                    }
+                    vars->insert(id);
                 }
 
                 r = ctx->mkVar(str.c_str());

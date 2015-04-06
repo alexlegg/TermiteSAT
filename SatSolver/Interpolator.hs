@@ -3,6 +3,9 @@ module SatSolver.Interpolator (
       InterpolantResult(..)
     , interpolate
     , timeInInterpolate
+    , resetInterpolateTime
+    , initInterpolator
+    , deleteInterpolator
     ) where
 
 import Foreign
@@ -26,12 +29,21 @@ data InterpolantResult = InterpolantResult {
 foreign import ccall safe "periplo_wrapper/periplo_wrapper.h interpolate"
     c_interpolate :: Ptr EnodeStruct -> Ptr EnodeStruct -> IO (Ptr (Ptr AssignmentStruct))
 
+foreign import ccall safe "periplo_wrapper/periplo_wrapper.h initInterpolator"
+    initInterpolator :: IO ()
+
+foreign import ccall safe "periplo_wrapper/periplo_wrapper.h deleteInterpolator"
+    deleteInterpolator :: IO ()
+
 totalTime :: IORef Double
 {-# NOINLINE totalTime #-}
 totalTime = unsafePerformIO (newIORef 0)
 
 timeInInterpolate :: IO Double
 timeInInterpolate = readIORef totalTime
+
+resetInterpolateTime :: IO ()
+resetInterpolateTime = writeIORef totalTime 0
 
 interpolate mc a b = do
     a'  <- lift $ foldExpression mc exprToEnodeExpr a

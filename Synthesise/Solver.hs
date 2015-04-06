@@ -35,13 +35,15 @@ import Utils.Utils
 
 checkRank :: CompiledSpec -> Int -> Expression -> SolverT Bool
 checkRank spec rnk s = do
-    --testInterpolants
+    liftIO $ initInterpolator
+    liftIO $ resetInterpolateTime
     r <- solveAbstract Universal spec s (gtNew Existential rnk)
     --liftE $ analyseManagers
     satTime <- liftIO $ timeInSAT
     intTime <- liftIO $ timeInInterpolate
     liftIO $ putStrLn $ "timeInSAT = " ++ (show satTime)
     liftIO $ putStrLn $ "timeInInterpolate = " ++ (show intTime)
+    liftIO $ deleteInterpolator
     return (isNothing r)
 
 checkInit :: Int -> Expression -> [[Assignment]] -> Expression -> SolverT Bool
@@ -133,6 +135,7 @@ findCandidate player spec s gt = do
             mapM_ (learnStates spec player) (gtUnsetNodes gt)
         else do
             learnWinning spec player s gt
+            mapM_ (learnStates spec player) (gtUnsetNodes gt)
         return Nothing
 
 learnStates :: CompiledSpec -> Player -> GameTree -> SolverT ()
@@ -170,34 +173,12 @@ interpolateTree spec player s gt' = do
     then do
         let Just (gtA, gtB, fmlA, fmlB) = fmls
 
-        rA      <- satSolve (gtMaxCopy gt) Nothing fmlA
-        rB      <- satSolve (gtMaxCopy gt) Nothing fmlB
-
----        fmlAp <- liftE $ printExpression fmlA
----        fmlBp <- liftE $ printExpression fmlB
----        liftIO $ writeFile "fmlA" fmlAp
----        liftIO $ writeFile "fmlB" fmlBp
-
-        if (not (satisfiable rA && satisfiable rB))
+        ir <- interpolate (gtMaxCopy gt) fmlA fmlB
+        if (not (success ir))
         then do
----            liftIO $ putStrLn (show player)
----            liftIO $ putStrLn (printTree spec gt)
----            (_, fml', gtA') <- makeFml spec player s gtA False
----            rF <- satSolve (gtMaxCopy gtA') Nothing fml'
----            liftIO $ putStrLn (show (satisfiable rF))
----            liftIO $ putStrLn (show s)
             -- We lose in the prefix, so just keep going
             interpolateTree spec player s gtA
         else do
-            both    <- liftE $ conjunctTemp (gtMaxCopy gt) [fmlA, fmlB]
-            rBoth   <- satSolve (gtMaxCopy gt) Nothing both
-
-            when (satisfiable rBoth) $ do
-                throwError "Interpolation formulas are satisfiable"
-
-            ir      <- interpolate (gtMaxCopy gt) fmlA fmlB
-            when (not (success ir)) $ throwError "Interpolation failed"
-
             ls <- get
             let cube = fromJust (interpolant ir)
 ---            liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
