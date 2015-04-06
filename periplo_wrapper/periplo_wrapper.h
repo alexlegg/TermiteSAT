@@ -35,9 +35,6 @@ struct VarAssignment_t {
 
 VarAssignment **interpolate(EnodeExpr *a, EnodeExpr *b);
 
-void initInterpolator();
-void deleteInterpolator();
-
 void print_expr(EnodeExpr *e);
 
 #endif

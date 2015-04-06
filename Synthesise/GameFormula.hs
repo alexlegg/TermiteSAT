@@ -43,6 +43,9 @@ makeFml spec player s ogt useBlocking = do
     block       <- if useBlocking
                     then (liftM (map Construct)) $ getBlockedStates player rank maxCopy
                     else return []
+---                    
+---    block'      <- getBlockedStates player rank maxCopy
+---    let block   = map Construct block'
 
     -- Construct everything in order
     exprs       <- mapM (construct spec player (gtFirstPlayer gt)) (sortConstructibles (trans ++ moves ++ goals ++ block))
