@@ -221,12 +221,19 @@ initManager save = do
     let (Just c0) = IMap.lookup 0 copyManagers
     put $ m { mgrMaxIndices = 100 }
     setCopyManager 0 (c0 { maxIndex = ceiling ((fromIntegral (maxIndex c0)) * 1.5) })
+    clearCopyManagers
 
 ---    forM (IMap.toList (parentMap c0)) $ \(i, ps) -> do
 ---        when ((not (i `elem` save)) && ISet.null ps) $ do
 ---            freeIndex 0 i
 
     return ()
+
+clearCopyManagers :: MonadIO m => ExpressionT m ()
+clearCopyManagers = do
+    mgr <- get
+    let copyManagers' = IMap.filterWithKey (\k _ -> k == 0) (copyManagers mgr)
+    put $ mgr { copyManagers = copyManagers' }
 
 -- |Call this function with the max copy you will use before constructing expressions
 initCopyMaps :: MonadIO m => Int -> ExpressionT m ()

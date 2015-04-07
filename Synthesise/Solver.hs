@@ -40,8 +40,8 @@ checkRank spec rnk s = do
     --liftE $ analyseManagers
     satTime <- liftIO $ timeInSAT
     intTime <- liftIO $ timeInInterpolate
-    liftIO $ putStrLn $ "timeInSAT = " ++ (show satTime)
-    liftIO $ putStrLn $ "timeInInterpolate = " ++ (show intTime)
+    liftIO $ putStrLn $ "timeInSAT = " ++ (show ((fromInteger $ round $ (satTime * 10)) / 10.0))
+    liftIO $ putStrLn $ "timeInInterpolate = " ++ (show ((fromInteger $ round $ (intTime * 10)) / 10.0))
     return (isNothing r)
 
 checkInit :: Int -> Expression -> [[Assignment]] -> Expression -> SolverT Bool
@@ -169,7 +169,6 @@ interpolateTree spec player s gt' = do
     if (isJust fmls)
     then do
         let Just (gtA, gtB, fmlA, fmlB) = fmls
-
         rA      <- satSolve (gtMaxCopy gt) Nothing fmlA
         rB      <- satSolve (gtMaxCopy gt) Nothing fmlB
 
@@ -187,6 +186,7 @@ interpolateTree spec player s gt' = do
             rBoth   <- satSolve (gtMaxCopy gt) Nothing both
 
             when (satisfiable rBoth) $ do
+                liftLog $ logDumpLog
                 gtSat <- setMoves player spec (fromJust (model rBoth)) (gtRoot gt)
                 liftIO $ putStrLn (printTree spec gtSat)
                 liftIO $ putStrLn (printTree spec gt)
@@ -197,7 +197,7 @@ interpolateTree spec player s gt' = do
             ir      <- interpolate (gtMaxCopy gt) fmlA fmlB
             when (not (success ir)) $ throwError "Interpolation failed"
 
-            let cube = map (filter (((/=) StateVar) . assignmentSection)) (fromJust (interpolant ir))
+            let cube = map (filter (((==) StateVar) . assignmentSection)) (fromJust (interpolant ir))
 ---            liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
 ---            liftIO $ mapM (putStrLn . printMove spec . Just) cube
 ---            liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
