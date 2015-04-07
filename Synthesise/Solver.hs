@@ -197,14 +197,12 @@ interpolateTree spec player s gt' = do
             ir      <- interpolate (gtMaxCopy gt) fmlA fmlB
             when (not (success ir)) $ throwError "Interpolation failed"
 
-            ls <- get
-            let cube = fromJust (interpolant ir)
+            let cube = map (filter (((/=) StateVar) . assignmentSection)) (fromJust (interpolant ir))
 ---            liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
 ---            liftIO $ mapM (putStrLn . printMove spec . Just) cube
 ---            liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
-            when (any ((/=) StateVar) (concatMap (map (\(Assignment _ v) -> varsect v)) cube)) $ do
-                throwError "Non-state variable in interpolant"
 
+            ls <- get
             if player == Existential
             then put $ ls { winningMay = Map.alter (\s -> Just ((foldl (flip Set.insert) (fromMaybe (Set.empty) s) cube))) (gtBaseRank gtB) (winningMay ls) }
             else put $ ls { winningMust = winningMust ls ++ cube }

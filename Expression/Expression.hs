@@ -10,7 +10,6 @@ module Expression.Expression (
     , MoveCacheType(..)
     , Expr(..)
 
-    , getDependencies
     , clearTempExpressions
     , initManager
     , initCopyMaps
@@ -60,6 +59,7 @@ module Expression.Expression (
     , getCachedStepDimacs
     , analyseManagers
     , flipAssignment
+    , assignmentSection
     ) where
 
 import Control.Monad.State
@@ -110,6 +110,9 @@ flipSign Pos = Neg
 flipSign Neg = Pos
 
 flipAssignment (Assignment s v) = Assignment (flipSign s) v
+
+assignmentSection :: Assignment -> Section
+assignmentSection (Assignment _ v) = varsect v
 
 data Expr   = ETrue
             | EFalse
