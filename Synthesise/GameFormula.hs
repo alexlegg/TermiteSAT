@@ -60,7 +60,7 @@ makeFml spec player s ogt useBlocking = do
             (es, step)  <- leafTo spec 0 maxCopy player rank 0
             return ([(Just (gtNodeId root), step) : es], step)
         scs -> do
-            steps       <- mapM (makeSteps rank spec player Nothing root) scs
+            steps       <- mapM (makeSteps maxCopy rank spec player Nothing root) scs
             step        <- liftE $ conjunctTemp maxCopy (map snd steps)
             return (map ((Just (gtNodeId root), step) :) (concatMap fst steps), step)
 
@@ -107,7 +107,7 @@ makeSplitFmls spec player s gt = do
         []  -> do
             liftE $ trueExpr
         scs -> do
-            steps <- mapM (makeSteps (gtRank (gtRoot t1)) spec player (Just (nRank, nCopy)) (gtRoot t1)) scs
+            steps <- mapM (makeSteps maxCopy (gtRank (gtRoot t1)) spec player (Just (nRank, nCopy)) (gtRoot t1)) scs
             liftE $ conjunctTemp maxCopy (map snd steps)
 
     fmlA        <- liftE $ conjunctTemp maxCopy (fmlA' : s' ++ exprsA)
@@ -116,7 +116,7 @@ makeSplitFmls spec player s gt = do
         []  -> do
             liftE $ trueExpr
         scs -> do
-            steps <- mapM (makeSteps (gtRank (gtRoot t2)) spec player Nothing (gtRoot t2)) scs
+            steps <- mapM (makeSteps maxCopy (gtRank (gtRoot t2)) spec player Nothing (gtRoot t2)) scs
             liftE $ conjunctTemp maxCopy (map snd steps)
 
     fmlB        <- liftE $ conjunctTemp maxCopy (fmlB' : exprsB)
@@ -313,12 +313,11 @@ makeTransition spec first CTransition{..} = do
     else do
         return Nothing
 
-makeSteps :: Int -> CompiledSpec -> Player -> Maybe (Int, Int) -> GameTree -> GameTree -> SolverT ([[(Maybe Int, Expression)]], Expression)
-makeSteps rank spec player extend gt c = do
+makeSteps :: Int -> Int -> CompiledSpec -> Player -> Maybe (Int, Int) -> GameTree -> GameTree -> SolverT ([[(Maybe Int, Expression)]], Expression)
+makeSteps maxCopy rank spec player extend gt c = do
     let parentCopy          = gtCopyId gt 
     let copy1               = gtCopyId (gtParent c)
     let copy2               = gtCopyId c
-    let maxCopy             = gtMaxCopy gt
 
     (es, next) <- case gtStepChildren c of
         [] -> do
@@ -328,7 +327,7 @@ makeSteps rank spec player extend gt c = do
                 (es, step) <- leafTo spec copy2 maxCopy player (rank-1) 0
                 return ([(Just (gtNodeId c), step) : es], Just step)
         cs -> do
-            steps <- mapM (makeSteps (rank-1) spec player extend c) cs
+            steps <- mapM (makeSteps maxCopy (rank-1) spec player extend c) cs
             conj <- liftE $ conjunctTemp maxCopy (map snd steps)
             return (map ((Just (gtNodeId c), conj) :) (concatMap fst steps), Just conj)
 

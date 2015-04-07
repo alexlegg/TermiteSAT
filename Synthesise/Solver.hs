@@ -180,12 +180,6 @@ interpolateTree spec player s gt' = do
 
         if (not (satisfiable rA && satisfiable rB))
         then do
----            liftIO $ putStrLn (show player)
----            liftIO $ putStrLn (printTree spec gt)
----            (_, fml', gtA') <- makeFml spec player s gtA False
----            rF <- satSolve (gtMaxCopy gtA') Nothing fml'
----            liftIO $ putStrLn (show (satisfiable rF))
----            liftIO $ putStrLn (show s)
             -- We lose in the prefix, so just keep going
             interpolateTree spec player s gtA
         else do

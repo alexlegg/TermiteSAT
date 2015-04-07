@@ -10,6 +10,7 @@ module Expression.Expression (
     , MoveCacheType(..)
     , Expr(..)
 
+    , getDependencies
     , clearTempExpressions
     , initManager
     , initCopyMaps
@@ -596,14 +597,14 @@ disjunct = disjunctC 0
 disjunctC :: MonadIO m => Int -> [Expression] -> ExpressionT m Expression
 disjunctC c []      = addExpression c ETrue
 disjunctC c (e:[])  = return e
-disjunctC c es      = case (concatMap liftDisjuncts es) of
+disjunctC c es      = case (nub (concatMap liftDisjuncts es)) of
     ((Var Pos i):[])    -> return $ fromJust $ find ((==) i . exprIndex) es
     es'                 -> addExpression c (EDisjunct es')
 
 disjunctTemp :: MonadIO m => Int -> [Expression] -> ExpressionT m Expression
 disjunctTemp mc []      = addTempExpression mc ETrue
 disjunctTemp mc (e:[])  = return e
-disjunctTemp mc es      = case (concatMap liftDisjuncts es) of
+disjunctTemp mc es      = case (nub (concatMap liftDisjuncts es)) of
     ((Var Pos i):[])    -> return $ fromJust $ find ((==) i . exprIndex) es
     es'                 -> addTempExpression mc (EDisjunct es')
 
