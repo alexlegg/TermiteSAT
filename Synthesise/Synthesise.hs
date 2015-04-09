@@ -45,11 +45,7 @@ unboundedLoop init spec k = do
     ls <- get
     exWins <- checkInit k init (winningMust ls) (head (cg spec))
 
-    let wm1     = map (\i -> Map.lookup i (winningMay ls)) [1..k-1]
-    let wm2     = map (\i -> Map.lookup i (winningMay ls)) [2..k-1]
-
-    let unWins  = or (zipWith (==) wm1 wm2)
-
+    unWins <- checkUniversalWin k
 ---    liftIO $ putStrLn (show (winningMay ls))
 
     if exWins

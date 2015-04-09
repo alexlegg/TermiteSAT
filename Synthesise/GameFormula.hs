@@ -3,6 +3,7 @@ module Synthesise.GameFormula (
       makeFml
     , makeSplitFmls
     , makeInitCheckFml
+    , makeUniversalWinCheckFml
     ) where
 
 import qualified Data.Map as Map
@@ -130,6 +131,21 @@ makeInitCheckFml rank init must goal = do
     ms          <- liftE $ mapM (assignmentToExpression 0) must'
     d           <- liftE $ disjunctC 0 (g' : ms)
     liftE $ conjunctC 0 [d, init]
+
+makeUniversalWinCheckFml :: [[Assignment]] -> [[Assignment]] -> SolverT Expression
+makeUniversalWinCheckFml wm1 wm2 = do
+    liftE $ clearTempExpressions
+    liftE $ initCopyMaps 0
+
+    wm1' <- liftE $ mapM (blockAssignment 0) wm1
+    wm2' <- liftE $ mapM (blockAssignment 0) wm2
+
+    wm1'' <- liftE $ conjunct wm1'
+    wm2'' <- liftE $ conjunct wm2'
+
+    e <- liftE $ equate wm1'' wm2''
+    liftE $ negation e
+
 
 getConstructsFor :: Int -> GameTree -> Player -> Maybe (Int, Int) -> SolverT [Construct]
 getConstructsFor maxCopy gt player stopAt = do

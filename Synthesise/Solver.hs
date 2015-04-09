@@ -3,6 +3,7 @@ module Synthesise.Solver (
       checkRank
     , checkStrategy
     , checkInit
+    , checkUniversalWin
     , LearnedStates(..)
     , LearningType(..)
     , emptyLearnedStates
@@ -49,6 +50,21 @@ checkInit k init must goal = do
     fml     <- makeInitCheckFml k init must goal
     r       <- satSolve 0 Nothing fml
     return $ satisfiable r
+
+checkUniversalWin :: Int -> SolverT Bool
+checkUniversalWin k = do
+    ls <- get
+    let wm1     = map (\i -> Map.lookup i (winningMay ls)) [1..k-1]
+    let wm2     = map (\i -> Map.lookup i (winningMay ls)) [2..k-1]
+
+    let unWins  = or (zipWith (==) wm1 wm2)
+
+    rs <- forM (zip wm1 wm2) $ \(wmA, wmB) -> do
+        let f   = maybe [] Set.toList
+        fml     <- makeUniversalWinCheckFml (f wmA) (f wmB)
+        satSolve 0 Nothing fml
+
+    return $ any (not . satisfiable) rs
 
 testInterpolants :: SolverT ()
 testInterpolants = do
