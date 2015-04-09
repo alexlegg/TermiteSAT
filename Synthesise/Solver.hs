@@ -188,18 +188,7 @@ interpolateTree spec player s gt' = do
             when (satisfiable rBoth) $ do
                 liftLog $ logDumpLog
                 gtSat <- setMoves player spec (fromJust (model rBoth)) (gtRoot gt)
-                liftIO $ putStrLn (show player)
                 liftIO $ putStrLn (printTree spec gtSat)
-                liftIO $ putStrLn (printTree spec gt)
-                liftIO $ putStrLn (printTree spec gtA)
-                liftIO $ putStrLn (printTree spec gtB)
-                liftIO $ putStrLn (show (gtCopiesAndRanks gt))
-                liftIO $ putStrLn (show (gtCopiesAndRanks gtA))
-                liftIO $ putStrLn (show (gtCopiesAndRanks gtB))
-                fmlAp <- liftE $ printExpression fmlA
-                fmlBp <- liftE $ printExpression fmlB
-                liftIO $ writeFile "fmlA" fmlAp
-                liftIO $ writeFile "fmlB" fmlBp
                 throwError "Interpolation formulas are satisfiable"
 
             ir      <- interpolate (gtMaxCopy gt) fmlA fmlB
@@ -211,9 +200,20 @@ interpolateTree spec player s gt' = do
 ---            liftIO $ mapM (putStrLn . printMove spec . Just) cube'
 ---            liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
 
+            when (any (\cs -> not $ all (\a -> assignmentRank a == assignmentRank (head cs)) cs) cube') $ do
+                throwError "Not all cubes of the same rank"
+
+            when (any (\cs -> not $ all (\a -> assignmentCopy a == assignmentCopy (head cs)) cs) cube') $ do
+                throwError "Not all cubes of the same copy"
+
 ---            liftIO $ putStrLn (printTree spec gt)
 ---            liftIO $ putStrLn (printTree spec gtA)
 ---            liftIO $ putStrLn (printTree spec gtB)
+
+---            fmlAp <- liftE $ printExpression fmlA
+---            fmlBp <- liftE $ printExpression fmlB
+---            liftIO $ writeFile "fmlA" fmlAp
+---            liftIO $ writeFile "fmlB" fmlBp
 
             ls <- get
             if player == Existential

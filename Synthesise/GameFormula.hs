@@ -86,8 +86,8 @@ makeSplitFmls spec player s gt = do
     liftE $ clearTempExpressions
     liftE $ initCopyMaps maxCopy
 
-    constA <- liftM (zip (repeat True)) $ getConstructsFor maxCopy t1 player (gtBaseRank t2)
-    constB <- liftM (zip (repeat False)) $ getConstructsFor maxCopy t2 player 0
+    constA <- liftM (zip (repeat True)) $ getConstructsFor maxCopy t1 player (Just (nRank, nCopy))
+    constB <- liftM (zip (repeat False)) $ getConstructsFor maxCopy t2 player Nothing
     let sorted = sortBy (\x y -> compare (sortIndex (snd x)) (sortIndex (snd y))) (constA ++ constB)
 
     -- Construct everything in order
@@ -131,8 +131,8 @@ makeInitCheckFml rank init must goal = do
     d           <- liftE $ disjunctC 0 (g' : ms)
     liftE $ conjunctC 0 [d, init]
 
-getConstructsFor :: Int -> GameTree -> Player -> Int -> SolverT [Construct]
-getConstructsFor maxCopy gt player toRank = do
+getConstructsFor :: Int -> GameTree -> Player -> Maybe (Int, Int) -> SolverT [Construct]
+getConstructsFor maxCopy gt player stopAt = do
     let root    = gtRoot gt
     let rank    = gtRank root
     let cs      = gtSteps root
@@ -142,8 +142,11 @@ getConstructsFor maxCopy gt player toRank = do
     let goals   = map Construct $ getGoals rank maxCopy player
     let moves   = map Construct $ concatMap (getMoves rank player root) cs
     block'      <- getBlockedStates player gt rank maxCopy
-    let block = map Construct block'
+    let block   = case stopAt of
+                Just (stopRank, stopCopy)   -> map Construct $ filter (\b -> not (cbRank b <= stopRank && cbCopy b == stopCopy)) block'
+                Nothing                     -> map Construct block'
 ---    let block   = map Construct $ filter (\b -> cbRank b > toRank && cbRank b <= gtBaseRank gt) block'
+---    let block = map Construct block'
     return $ trans ++ goals ++ moves ++ block
 
 class Constructible a where

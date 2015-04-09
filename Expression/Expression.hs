@@ -60,6 +60,8 @@ module Expression.Expression (
     , analyseManagers
     , flipAssignment
     , assignmentSection
+    , assignmentRank
+    , assignmentCopy
     ) where
 
 import Control.Monad.State
@@ -112,7 +114,13 @@ flipSign Neg = Pos
 flipAssignment (Assignment s v) = Assignment (flipSign s) v
 
 assignmentSection :: Assignment -> Section
-assignmentSection (Assignment _ v) = varsect v
+assignmentSection (Assignment _ v)  = varsect v
+
+assignmentRank :: Assignment -> Int
+assignmentRank (Assignment _ v)     = rank v
+
+assignmentCopy :: Assignment -> Int
+assignmentCopy (Assignment _ v)     = ecopy v
 
 data Expr   = ETrue
             | EFalse
