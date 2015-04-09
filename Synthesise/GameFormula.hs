@@ -41,11 +41,8 @@ makeFml spec player s ogt useBlocking = do
     let goals   = map Construct $ getGoals rank maxCopy player
     let moves   = map Construct $ concatMap (getMoves rank player root) cs
     block       <- if useBlocking
-                    then (liftM (map Construct)) $ getBlockedStates player rank maxCopy
+                    then (liftM (map Construct)) $ getBlockedStates player gt rank maxCopy
                     else return []
----                    
----    block'      <- getBlockedStates player rank maxCopy
----    let block   = map Construct block'
 
     -- Construct everything in order
     exprs       <- mapM (construct spec player (gtFirstPlayer gt)) (sortConstructibles (trans ++ moves ++ goals ++ block))
@@ -144,8 +141,9 @@ getConstructsFor maxCopy gt player toRank = do
                     else concatMap (getTransitions rank root) cs
     let goals   = map Construct $ getGoals rank maxCopy player
     let moves   = map Construct $ concatMap (getMoves rank player root) cs
-    block'      <- getBlockedStates player rank maxCopy
-    let block   = map Construct $ filter (\b -> cbRank b > toRank && cbRank b <= gtBaseRank gt) block'
+    block'      <- getBlockedStates player gt rank maxCopy
+    let block = map Construct block'
+---    let block   = map Construct $ filter (\b -> cbRank b > toRank && cbRank b <= gtBaseRank gt) block'
     return $ trans ++ goals ++ moves ++ block
 
 class Constructible a where
@@ -256,22 +254,24 @@ makeGoal spec player CGoal{..} = do
         liftE $ cacheStep cgRank cgCopy cgCopy cgCopy (exprIndex g) cg
     return Nothing
 
-getBlockedStates :: Player -> Int -> Int -> SolverT [CBlocked]
-getBlockedStates Existential rank copy = do
+getBlockedStates :: Player -> GameTree -> Int -> Int -> SolverT [CBlocked]
+getBlockedStates Existential gt rank copy = do
+    let copyRanks = sort $ gtCopiesAndRanks gt
     LearnedStates{..} <- get
     let blockingStates = case learningType of
                 BoundedLearning     -> winningUn
                 UnboundedLearning   -> winningMay
-    return $ concatMap (\r -> concatMap (blockAtRank blockingStates r) [0..copy]) [1..rank]
+    return $ concatMap (\(c, r) -> blockAtRank blockingStates r c) copyRanks
     where
         blockAtRank block r c = concatMap (blockAllRanks r c) (maybe [] Set.toList (Map.lookup r block))
         blockAllRanks r c as  = map (\x -> CBlocked x c as) [1..r]
-getBlockedStates Universal rank copy = do
+getBlockedStates Universal gt rank copy = do
     LearnedStates{..} <- get
+    let copyRanks = sort $ gtCopiesAndRanks gt
     let blockingStates = case learningType of
                 BoundedLearning     -> winningEx
                 UnboundedLearning   -> winningMust
-    return [CBlocked r c a | r <- [0..rank], c <- [0..copy], a <- blockingStates]
+    return [CBlocked r c a | (c, r) <- copyRanks, a <- blockingStates]
 
 blockExpression CBlocked{..} = do
     let as = map (\a -> setAssignmentRankCopy a cbRank cbCopy) cbAssignment

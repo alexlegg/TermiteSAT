@@ -35,6 +35,7 @@ module Synthesise.GameTree (
     , gtRebase
     , printTree
     , gtIsPrefix
+    , gtCopiesAndRanks
 
     -- Modifiers
     , gtNew
@@ -320,6 +321,11 @@ gtBaseRank = baseRank
 gtMaxCopy :: GameTree -> Int
 gtMaxCopy = maxCopy
 
+gtCopiesAndRanks :: GameTree -> [(Int, Int)]
+gtCopiesAndRanks gt = nub $ concatMap (\(c, r) -> [(c, r') | r' <- [1..r]]) $ nub $ gtCopiesAndRanks' (gtRoot gt)
+
+gtCopiesAndRanks' gt = (gtCopyId gt, gtRank gt) : concatMap gtCopiesAndRanks' (gtChildren gt)
+
 -- |Returns the first player of the tree (i.e. ETree or UTree)
 gtFirstPlayer :: GameTree -> Player
 gtFirstPlayer (ETree{}) = Existential
@@ -381,8 +387,8 @@ prevStateNode gt cr = case followCrumb (root gt) cr of
     (SNode (U{}))   -> init (init cr)
 
 -- |Creates a new tree with the current node as its base
-gtRebase :: GameTree -> GameTree
-gtRebase gt = updateRoot (gtNew Existential newrank) (`setChildren` [newroot'])
+gtRebase :: Int -> GameTree -> GameTree
+gtRebase c gt = updateRoot (gtNew Existential newrank) (\r -> setNodeCopy c (setChildren r [newroot']))
     where
         newcrumb    = alignCrumb (crumb gt)
         newroot     = followCrumb (root gt) newcrumb
@@ -664,7 +670,7 @@ printMove spec (Just as) = interMap ", " (printVar spec) vs
         f (Assignment _ x) (Assignment _ y) = varname x == varname y
 
 printVar :: CompiledSpec -> [Assignment] -> String
-printVar spec as = vname ++ show vrank ++ {- "_" ++ show vcopy ++ -} " = " ++ valsToEnums vi vals
+printVar spec as = vname ++ show vrank ++ "_" ++ show vcopy ++ " = " ++ valsToEnums vi vals
     where
         vname       = let (Assignment _ v) = (head as) in varname v
         vrank       = let (Assignment _ v) = (head as) in rank v
@@ -706,13 +712,14 @@ gtEmpty :: GameTree -> Bool
 gtEmpty gt = null (children (root gt))
     
 gtSplit :: Player -> GameTree -> (GameTree, GameTree)
-gtSplit player gt = (updateGTCrumb (gtParent maxDepthLeaf) (\x -> setChildren x cs'), gtRebase maxDepthLeaf)
+gtSplit player gt = (updateGTCrumb (gtParent maxDepthLeaf) (\x -> setChildren x cs'), gtRebase parentCopy maxDepthLeaf)
     where
         leaves          = gtLeaves gt
         leaves'         = map (\l -> if (isUNode (followGTCrumb l)) then gtParent l else l) leaves
         leafDepth       = map (length . gtCrumb) leaves'
         maxDepthLeaf    = fst $ maximumBy (\x y -> compare (snd x) (snd y)) (zip leaves' leafDepth)
         cs'             = delete (followGTCrumb maxDepthLeaf) (children (followGTCrumb (gtParent maxDepthLeaf)))
+        parentCopy      = gtCopyId (gtParent maxDepthLeaf)
 
 gtStripMoves :: GameTree -> GameTree
 gtStripMoves gt = setRoot gt (stripMoves (root gt))

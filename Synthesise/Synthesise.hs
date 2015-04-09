@@ -50,6 +50,8 @@ unboundedLoop init spec k = do
 
     let unWins  = or (zipWith (==) wm1 wm2)
 
+---    liftIO $ putStrLn (show (winningMay ls))
+
     if exWins
     then return (Just (k-1))
     else do

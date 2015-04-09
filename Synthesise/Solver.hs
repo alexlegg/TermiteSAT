@@ -137,7 +137,7 @@ findCandidate player spec s gt = do
 
 learnStates :: CompiledSpec -> Player -> GameTree -> SolverT ()
 learnStates spec player ogt = do
-    let gt'         = gtRebase ogt
+    let gt'         = gtRebase 0 ogt
     let (Just as)   = gtPrevState ogt
     let rank        = gtBaseRank gt'
     let s           = map (\x -> setAssignmentRankCopy x rank 0) as
@@ -188,19 +188,32 @@ interpolateTree spec player s gt' = do
             when (satisfiable rBoth) $ do
                 liftLog $ logDumpLog
                 gtSat <- setMoves player spec (fromJust (model rBoth)) (gtRoot gt)
+                liftIO $ putStrLn (show player)
                 liftIO $ putStrLn (printTree spec gtSat)
                 liftIO $ putStrLn (printTree spec gt)
                 liftIO $ putStrLn (printTree spec gtA)
                 liftIO $ putStrLn (printTree spec gtB)
+                liftIO $ putStrLn (show (gtCopiesAndRanks gt))
+                liftIO $ putStrLn (show (gtCopiesAndRanks gtA))
+                liftIO $ putStrLn (show (gtCopiesAndRanks gtB))
+                fmlAp <- liftE $ printExpression fmlA
+                fmlBp <- liftE $ printExpression fmlB
+                liftIO $ writeFile "fmlA" fmlAp
+                liftIO $ writeFile "fmlB" fmlBp
                 throwError "Interpolation formulas are satisfiable"
 
             ir      <- interpolate (gtMaxCopy gt) fmlA fmlB
             when (not (success ir)) $ throwError "Interpolation failed"
 
-            let cube = map (filter (((==) StateVar) . assignmentSection)) (fromJust (interpolant ir))
+            let cube' = map (filter (((==) StateVar) . assignmentSection)) (fromJust (interpolant ir))
+            let cube = map (map (\a -> setAssignmentRankCopy a 0 0)) cube'
 ---            liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
----            liftIO $ mapM (putStrLn . printMove spec . Just) cube
+---            liftIO $ mapM (putStrLn . printMove spec . Just) cube'
 ---            liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
+
+---            liftIO $ putStrLn (printTree spec gt)
+---            liftIO $ putStrLn (printTree spec gtA)
+---            liftIO $ putStrLn (printTree spec gtB)
 
             ls <- get
             if player == Existential
