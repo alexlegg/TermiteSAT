@@ -1,0 +1,6 @@
+#!/usr/bin/python3
+
+from mako.template import Template
+
+t = Template(filename='./specs/queue_fails.mako')
+print(t.render(param=2))
