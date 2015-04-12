@@ -196,6 +196,9 @@ interpolateTree spec player s gt' = do
         if (not (satisfiable rA && satisfiable rB))
         then do
             -- We lose in the prefix, so just keep going
+            liftIO $ putStrLn (show player)
+            liftIO $ putStrLn (printTree spec gt)
+            throwError $ "Lose in prefix?"
             interpolateTree spec player s gtA
         else do
             both    <- liftE $ conjunctTemp (gtMaxCopy gt) [fmlA, fmlB]
@@ -203,8 +206,26 @@ interpolateTree spec player s gt' = do
 
             when (satisfiable rBoth) $ do
                 liftLog $ logDumpLog
-                gtSat <- setMoves player spec (fromJust (model rBoth)) (gtRoot gt)
+                liftIO $ putStrLn (show player)
+                liftIO $ putStrLn (printTree spec gt)
+                liftIO $ putStrLn (printTree spec gtA)
+                liftIO $ putStrLn (printTree spec gtB)
+
+                fmlAp <- liftE $ printExpression fmlA
+                fmlBp <- liftE $ printExpression fmlB
+                liftIO $ writeFile "fmlA" fmlAp
+                liftIO $ writeFile "fmlB" fmlBp
+
+                dumpDimacs (gtMaxCopy gt) fmlA "fmlADimacs"
+                dumpDimacs (gtMaxCopy gt) fmlB "fmlBDimacs"
+
+                gtSat <- setMoves player spec (fromJust (model rBoth)) (gtRoot (gtExtend gt))
                 liftIO $ putStrLn (printTree spec gtSat)
+
+                (_, f, gtBlah) <- makeFml spec player s gtA True
+                rBlah <- satSolve (gtMaxCopy gtBlah) Nothing f
+                liftIO $ putStrLn (show (satisfiable rBlah))
+
                 throwError "Interpolation formulas are satisfiable"
 
             ir      <- interpolate (gtMaxCopy gt) fmlA fmlB

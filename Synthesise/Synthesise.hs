@@ -12,6 +12,7 @@ import Data.Functor
 import Data.Maybe
 import Data.Tree
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import qualified Data.Traversable as T
 import Data.List.Split
 import System.IO
@@ -23,6 +24,7 @@ import Expression.Compile
 import Expression.Expression
 import Synthesise.Solver
 import Synthesise.SolverT
+import Synthesise.GameTree
 import Expression.AST
 import SatSolver.Interpolator
 
@@ -42,11 +44,17 @@ unboundedLoop :: Expression -> CompiledSpec -> Int -> SolverT (Maybe Int)
 unboundedLoop init spec k = do
     liftIO $ putStrLn $ "Unbounded Loop " ++ show k
 
-    ls <- get
+    ls <-get
+
+---    forM (Map.toList (winningMay ls)) $ \(r, wm) -> do
+---        liftIO $ putStrLn (show r)
+---        forM (Set.toList wm) $ \s ->
+---            liftIO $ putStrLn (printMove spec (Just s))
+---        liftIO $ putStrLn "--"
+
     exWins <- checkInit k init (winningMust ls) (head (cg spec))
 
     unWins <- checkUniversalWin k
----    liftIO $ putStrLn (show (winningMay ls))
 
     if exWins
     then return (Just (k-1))
@@ -129,8 +137,8 @@ loadFmls k spec = do
     vu  <- conjunct (vu' : catMaybes uev)
 
     ts  <- iterateNM (k-1) unrollExpression t
-    cgs <- iterateNM (k-1) unrollExpression cg
-    ugs <- iterateNM (k-1) unrollExpression ug
+    cgs <- iterateNM k unrollExpression cg
+    ugs <- iterateNM k unrollExpression ug
     us  <- iterateNM (k-1) unrollExpression u
     vcs <- iterateNM (k-1) unrollExpression vc
     vus <- iterateNM (k-1) unrollExpression vu

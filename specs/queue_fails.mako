@@ -93,14 +93,19 @@ rdy${i} := case {
 % endfor
 
 
-% for i in range(0, qlen-1):
+% for i in range(0, qlen):
 fin${i} := case {
+    \
+% for j in range(0, qlen):
+% if not (i == j):
+fin${j} == 1 && \
+% endif
+% endfor
+true : fin${i};
     rdy${i} == 1 && tail == ${i} && (utag == send_ok_pass || utag == send_ok_nopass): 1;
     true : fin${i};
 };
 % endfor
-
-fin${qlen-1} := 0;
 
 tail  := case {
     % for i in range(0, qlen):

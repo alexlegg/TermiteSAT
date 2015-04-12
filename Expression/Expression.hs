@@ -601,12 +601,16 @@ conjunct = conjunctC 0
 conjunctC :: MonadIO m => Int -> [Expression] -> ExpressionT m Expression
 conjunctC c []      = addExpression c EFalse
 conjunctC c (e:[])  = return e
-conjunctC c es      = addExpression c (EConjunct (concatMap liftConjuncts es))
+conjunctC c es      = case (nub (concatMap liftConjuncts es)) of
+    ((Var Pos i):[])    -> (liftM fromJust) $ lookupExpression c i
+    es'                 -> addExpression c (EConjunct es')
 
 conjunctTemp :: MonadIO m => Int -> [Expression] -> ExpressionT m Expression
 conjunctTemp mc []      = addTempExpression mc EFalse
 conjunctTemp mc (e:[])  = return e
-conjunctTemp mc es      = addTempExpression mc (EConjunct (concatMap liftConjuncts es))
+conjunctTemp mc es      = case (nub (concatMap liftConjuncts es)) of
+    ((Var Pos i):[])    -> return $ fromJust $ find ((==) i . exprIndex) es
+    es'                 -> addTempExpression mc (EConjunct es')
 
 -- |The 'disjunct' function takes a list of Expressions and produces one disjunction Expression
 disjunct :: MonadIO m => [Expression] -> ExpressionT m Expression
