@@ -196,9 +196,6 @@ interpolateTree spec player s gt' = do
         if (not (satisfiable rA && satisfiable rB))
         then do
             -- We lose in the prefix, so just keep going
-            liftIO $ putStrLn (show player)
-            liftIO $ putStrLn (printTree spec gt)
-            throwError $ "Lose in prefix?"
             interpolateTree spec player s gtA
         else do
             both    <- liftE $ conjunctTemp (gtMaxCopy gt) [fmlA, fmlB]
@@ -231,8 +228,9 @@ interpolateTree spec player s gt' = do
             ir      <- interpolate (gtMaxCopy gt) fmlA fmlB
             when (not (success ir)) $ throwError "Interpolation failed"
 
-            let cube' = map (filter (((==) StateVar) . assignmentSection)) (fromJust (interpolant ir))
-            let cube = map (map (\a -> setAssignmentRankCopy a 0 0)) cube'
+            let cube'   = map (filter (((==) StateVar) . assignmentSection)) (fromJust (interpolant ir))
+            let cube''  = filter (all (\a -> assignmentRank a == gtRank gtB)) cube'
+            let cube    = map (map (\a -> setAssignmentRankCopy a 0 0)) cube''
 ---            liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
 ---            liftIO $ mapM (putStrLn . printMove spec . Just) cube'
 ---            liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
@@ -254,11 +252,19 @@ interpolateTree spec player s gt' = do
 
             ls <- get
             if player == Existential
-            then put $ ls { winningMay = Map.alter (\s -> Just ((foldl (flip Set.insert) (fromMaybe (Set.empty) s) cube))) (gtBaseRank gtB) (winningMay ls) }
+            then put $ ls { winningMay = alterAll (insertIntoSet cube) [1..gtBaseRank gtB] (winningMay ls) }
             else put $ ls { winningMust = winningMust ls ++ cube }
 
             interpolateTree spec player s gtA
     else return ()
+
+alterAll :: Ord k => (Maybe a -> Maybe a) -> [k] -> Map.Map k a -> Map.Map k a
+alterAll f (k:[]) m = Map.alter f k m
+alterAll f (k:ks) m = Map.alter f k (alterAll f ks m)
+
+insertIntoSet :: Ord a => [a] -> Maybe (Set.Set a) -> Maybe (Set.Set a)
+insertIntoSet x (Just s)    = Just $ Set.union s (Set.fromList x)
+insertIntoSet x Nothing     = Just $ Set.fromList x
 
 printLearnedStates :: CompiledSpec -> Player -> SolverT [String]
 printLearnedStates spec player = do

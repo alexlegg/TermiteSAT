@@ -637,7 +637,7 @@ printTree spec gt = "---\n" ++ printNode spec (2*(gtBaseRank gt)) 0 (Just (crumb
 printNode :: CompiledSpec -> Int -> Int -> Maybe [Int] -> SNode -> String
 printNode spec r t cs n = tab t 
     ++ (if maybe False null cs then "*" else "")
----    ++ show (r `div` 2) ++ " "
+    ++ show (r `div` 2) ++ " "
     ++ printNodeType n 
     ++ show (copy n) ++ " "
 ---    ++ show (nodeId n) ++ " "
@@ -712,14 +712,18 @@ gtEmpty :: GameTree -> Bool
 gtEmpty gt = null (children (root gt))
     
 gtSplit :: Player -> GameTree -> (GameTree, GameTree)
-gtSplit player gt = (updateGTCrumb (gtParent maxDepthLeaf) (\x -> setChildren x cs'), gtRebase parentCopy maxDepthLeaf)
+gtSplit player gt = (updateGTCrumb (gtParent splitAt) (\x -> setChildren x cs'), rebase)
     where
         leaves          = gtLeaves gt
-        leaves'         = map (\l -> if (isUNode (followGTCrumb l)) then gtParent l else l) leaves
-        leafDepth       = map (length . gtCrumb) leaves'
-        maxDepthLeaf    = fst $ maximumBy (\x y -> compare (snd x) (snd y)) (zip leaves' leafDepth)
-        cs'             = delete (followGTCrumb maxDepthLeaf) (children (followGTCrumb (gtParent maxDepthLeaf)))
-        parentCopy      = gtCopyId (gtParent maxDepthLeaf)
+        leafDepth       = map (length . gtCrumb) leaves
+        maxDepthLeaf    = fst $ maximumBy (\x y -> compare (snd x) (snd y)) (zip leaves leafDepth)
+        splitAt         = if isUNode (followGTCrumb maxDepthLeaf) then gtParent maxDepthLeaf else maxDepthLeaf
+        cs'             = case (length (gtChildren splitAt)) of
+            0   -> delete (followGTCrumb splitAt) (children (followGTCrumb (gtParent splitAt)))
+            1   -> delete (followGTCrumb splitAt) (children (followGTCrumb (gtParent splitAt)))
+            _   -> map (\x -> if x == (followGTCrumb splitAt) then (setChildren x (delete (followGTCrumb maxDepthLeaf) (children x))) else x) (children (followGTCrumb (gtParent splitAt)))
+        parentCopy      = gtCopyId (gtParent splitAt)
+        rebase          = gtRebase parentCopy $ updateGTCrumb splitAt (\x -> setChildren x [followGTCrumb maxDepthLeaf])
 
 gtStripMoves :: GameTree -> GameTree
 gtStripMoves gt = setRoot gt (stripMoves (root gt))

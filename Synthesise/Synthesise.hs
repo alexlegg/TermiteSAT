@@ -44,8 +44,7 @@ unboundedLoop :: Expression -> CompiledSpec -> Int -> SolverT (Maybe Int)
 unboundedLoop init spec k = do
     liftIO $ putStrLn $ "Unbounded Loop " ++ show k
 
-    ls <-get
-
+    ls <-get 
 ---    forM (Map.toList (winningMay ls)) $ \(r, wm) -> do
 ---        liftIO $ putStrLn (show r)
 ---        forM (Set.toList wm) $ \s ->
