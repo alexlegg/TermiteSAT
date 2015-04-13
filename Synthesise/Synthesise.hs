@@ -53,7 +53,7 @@ unboundedLoop init spec k = do
 
     exWins <- checkInit k init (winningMust ls) (head (cg spec))
 
-    unWins <- checkUniversalWin k
+    unWins <- checkUniversalWin spec k
 
     if exWins
     then return (Just (k-1))

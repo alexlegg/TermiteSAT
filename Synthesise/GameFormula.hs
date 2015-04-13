@@ -155,13 +155,15 @@ makeUniversalWinCheckFml wm1 wm2 = do
     liftE $ clearTempExpressions
     liftE $ initCopyMaps 0
 
-    wm1' <- liftE $ mapM (blockAssignment 0) wm1
-    wm2' <- liftE $ mapM (blockAssignment 0) wm2
+    wm1' <- liftE $ mapM (assignmentToExpression 0) wm1
+    wm2' <- liftE $ mapM (assignmentToExpression 0) wm2
 
-    wm1'' <- liftE $ conjunct wm1'
-    wm2'' <- liftE $ conjunct wm2'
+    wm1'' <- liftE $ disjunct wm1'
+    wm2'' <- liftE $ disjunct wm2'
 
     e <- liftE $ equate wm1'' wm2''
+    ep <- liftE $ printExpression e
+    liftIO $ writeFile "checkUnWin" ep
     liftE $ negation e
 
 data Construct where

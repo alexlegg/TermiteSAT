@@ -51,8 +51,8 @@ checkInit k init must goal = do
     r       <- satSolve 0 Nothing fml
     return $ satisfiable r
 
-checkUniversalWin :: Int -> SolverT Bool
-checkUniversalWin k = do
+checkUniversalWin :: CompiledSpec -> Int -> SolverT Bool
+checkUniversalWin spec k = do
     ls <- get
     let wm1     = map (\i -> Map.lookup i (winningMay ls)) [1..k-1]
     let wm2     = map (\i -> Map.lookup i (winningMay ls)) [2..k-1]
@@ -62,7 +62,15 @@ checkUniversalWin k = do
     rs <- forM (zip wm1 wm2) $ \(wmA, wmB) -> do
         let f   = maybe [] Set.toList
         fml     <- makeUniversalWinCheckFml (f wmA) (f wmB)
-        satSolve 0 Nothing fml
+        r <- satSolve 0 Nothing fml
+---        when (not (satisfiable r)) $ do
+---            forM (f wmA) $ \s ->
+---                liftIO $ putStrLn (printMove spec (Just s))
+---            liftIO $ putStrLn "=="
+---            forM (f wmB) $ \s ->
+---                liftIO $ putStrLn (printMove spec (Just s))
+---            return ()
+        return r
 
     return $ any (not . satisfiable) rs
 
