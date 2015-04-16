@@ -63,6 +63,11 @@ checkUniversalWin spec k = do
         let f   = maybe [] Set.toList
         fml     <- makeUniversalWinCheckFml (f wmA) (f wmB)
         r <- satSolve 0 Nothing fml
+
+        when (satisfiable r) $ do
+            vars <- getVarsAtRank (svars spec) (fromJust (model r)) 0 0
+            liftIO $ putStrLn (printMove spec (Just vars))
+
 ---        when (not (satisfiable r)) $ do
 ---            forM (f wmA) $ \s ->
 ---                liftIO $ putStrLn (printMove spec (Just s))
@@ -156,6 +161,7 @@ findCandidate player spec s gt = do
         then do
             mapM_ (learnStates spec player) (gtUnsetNodes gt)
         else do
+---            mapM_ (learnStates spec player) (gtUnsetNodes gt)
             learnWinning spec player s gt
         return Nothing
 
@@ -184,6 +190,7 @@ learnStates spec player ogt = do
 
 learnWinning :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ()
 learnWinning spec player s gt = do
+    liftIO $ putStrLn "learnWinning"
     interpolateTree spec player s (gtExtend gt)
 
 interpolateTree :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ()
@@ -196,6 +203,12 @@ interpolateTree spec player s gt' = do
         rA      <- satSolve (gtMaxCopy gt) Nothing fmlA
         rB      <- satSolve (gtMaxCopy gt) Nothing fmlB
 
+        liftIO $ putStrLn "interpolateTree"
+        liftIO $ putStrLn (printTree spec gt)
+        liftIO $ putStrLn (printTree spec gtA)
+        liftIO $ putStrLn (printTree spec gtB)
+        liftIO $ putStrLn "done!!interpolateTree"
+
 ---        fmlAp <- liftE $ printExpression fmlA
 ---        fmlBp <- liftE $ printExpression fmlB
 ---        liftIO $ writeFile "fmlA" fmlAp
@@ -203,6 +216,26 @@ interpolateTree spec player s gt' = do
 
         if (not (satisfiable rA && satisfiable rB))
         then do
+            when (not (satisfiable rB)) $ do
+                throwError "gtB is unsat"
+
+---            when (player == Existential) $ do
+---                fmlAp <- liftE $ printExpression fmlA
+---                fmlBp <- liftE $ printExpression fmlB
+---                liftIO $ writeFile "fmlA" fmlAp
+---                liftIO $ writeFile "fmlB" fmlBp
+
+---                ls <- get
+---                liftIO $ withFile "winningMay" WriteMode $ \h -> do
+---                    forM (Map.toList (winningMay ls)) $ \(r, wm) -> do
+---                        hPutStrLn h (show r)
+---                        forM (Set.toList wm) $ \s ->
+---                            hPutStrLn h (printMove spec (Just s))
+---                        hPutStrLn h "--"
+---                    return ()
+
+---                throwError "Lose in prefix as Existential?"
+
             -- We lose in the prefix, so just keep going
             interpolateTree spec player s gtA
         else do
@@ -227,9 +260,19 @@ interpolateTree spec player s gt' = do
                 gtSat <- setMoves player spec (fromJust (model rBoth)) (gtRoot (gtExtend gt))
                 liftIO $ putStrLn (printTree spec gtSat)
 
-                (_, f, gtBlah) <- makeFml spec player s gtA True
-                rBlah <- satSolve (gtMaxCopy gtBlah) Nothing f
+                (_, f, gtBlah) <- makeFml spec player s gt True
+                rBlah <- satSolve (gtMaxCopy gt) Nothing f
                 liftIO $ putStrLn (show (satisfiable rBlah))
+
+                
+                ls <- get
+                liftIO $ withFile "winningMay" WriteMode $ \h -> do
+                    forM (Map.toList (winningMay ls)) $ \(r, wm) -> do
+                        hPutStrLn h (show r)
+                        forM (Set.toList wm) $ \s ->
+                            hPutStrLn h (printMove spec (Just s))
+                        hPutStrLn h "--"
+                    return ()
 
                 throwError "Interpolation formulas are satisfiable"
 
@@ -239,9 +282,9 @@ interpolateTree spec player s gt' = do
             let cube'   = map (filter (((==) StateVar) . assignmentSection)) (fromJust (interpolant ir))
             let cube''  = filter (all (\a -> assignmentRank a == gtRank gtB)) cube'
             let cube    = map (map (\a -> setAssignmentRankCopy a 0 0)) cube''
----            liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
----            liftIO $ mapM (putStrLn . printMove spec . Just) cube'
----            liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
+            liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
+            liftIO $ mapM (putStrLn . printMove spec . Just) cube'
+            liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
 
             when (any (\cs -> not $ all (\a -> assignmentRank a == assignmentRank (head cs)) cs) cube') $ do
                 throwError "Not all cubes of the same rank"

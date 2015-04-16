@@ -332,7 +332,7 @@ makeSteps maxCopy rank spec player extend gt c = do
 
     (es, next) <- case gtStepChildren c of
         [] -> do
-            if extend == Just (rank-1, copy2)
+            if isJust extend -- == Just (rank-1, copy2)
             then return ([], Nothing)
             else do
                 (es, step) <- leafTo spec copy2 maxCopy player (rank-1) 0

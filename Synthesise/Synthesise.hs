@@ -45,11 +45,15 @@ unboundedLoop init spec k = do
     liftIO $ putStrLn $ "Unbounded Loop " ++ show k
 
     ls <-get 
----    forM (Map.toList (winningMay ls)) $ \(r, wm) -> do
----        liftIO $ putStrLn (show r)
----        forM (Set.toList wm) $ \s ->
----            liftIO $ putStrLn (printMove spec (Just s))
----        liftIO $ putStrLn "--"
+    
+    when (k == 6) $ do
+        liftIO $ withFile "winningMay" WriteMode $ \h -> do
+            forM (Map.toList (winningMay ls)) $ \(r, wm) -> do
+                hPutStrLn h (show r)
+                forM (Set.toList wm) $ \s ->
+                    hPutStrLn h (printMove spec (Just s))
+                hPutStrLn h "--"
+            return ()
 
     exWins <- checkInit k init (winningMust ls) (head (cg spec))
 

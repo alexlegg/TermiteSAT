@@ -23,7 +23,7 @@ FAMILIES        = [
     ]
 
 M4FILE          = {
-                  "spi" : "spi.m4"
+                  "spi" : "spi_unbounded.m4"
                 , "queue" : "queue.m4"
                 , "queue_fails" : "queue_fails.mako"
                 , "ide"  : "ide.m4"
@@ -41,7 +41,7 @@ M4PARAM         = {
 MAX_K_F = {
            "spi"            : 4
          , "queue"          : 4
-         , "queue_fails"    : 10
+         , "queue_fails"    : 4
          , "ide"            : 4
          , "uart"           : 4
          }
