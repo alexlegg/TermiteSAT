@@ -50,16 +50,6 @@ extern "C" {
         ea = expr_to_enode(ctx, varsAll, varsA, a);
         eb = expr_to_enode(ctx, varsAll, varsB, b);
 
-        ofstream fEnodeA;
-        fEnodeA.open("enodeA");
-        ea->print(fEnodeA);
-        fEnodeA.close();
-
-        ofstream fEnodeB;
-        fEnodeB.open("enodeB");
-        eb->print(fEnodeB);
-        fEnodeB.close();
-        
         vector<int> project;
         for (auto va = varsA->begin(); va != varsA->end(); ++va)
         {
@@ -73,32 +63,39 @@ extern "C" {
         delete varsB;
         
         ctx->Assert(ea);
-        ctx->Assert(eb);
-        ctx->CheckSATStatic();
 
-        lbool r = ctx->getStatus();
-        if (r == l_False) {
-            ctx->createProofGraph();
-            ctx->setNumReductionLoops(2);
-            ctx->setNumGraphTraversals(2);
-            ctx->reduceProofGraph();
-            ctx->setMcMillanInterpolation();
-            ctx->enableRestructuringForStrongerInterpolant();
+        //Make sure A is not UNSAT
+        ctx->CheckSATIncrementalForInterpolation();
+        lbool rA = ctx->getStatus();
+        if (rA != l_False)
+        {
+            ctx->Assert(eb);
+            ctx->CheckSATStatic();
 
-            vector<Enode*> interpolants;
-            ctx->getSingleInterpolant(interpolants);
+            lbool r = ctx->getStatus();
+            if (r == l_False) {
+                ctx->createProofGraph();
+                ctx->setNumReductionLoops(2);
+                ctx->setNumGraphTraversals(2);
+                ctx->reduceProofGraph();
+                ctx->setMcMillanInterpolation();
+                ctx->enableRestructuringForStrongerInterpolant();
 
-            if (interpolants.size() == 1) {
-                bool success;
-                interp = enodeToBDD(interpolants[0], project, success);
-                if (!success) {
-                    cout << "Error reducing cubes" << endl;
-                    interp = NULL;
+                vector<Enode*> interpolants;
+                ctx->getSingleInterpolant(interpolants);
+
+                if (interpolants.size() == 1) {
+                    bool success;
+                    interp = enodeToBDD(interpolants[0], project, success);
+                    if (!success) {
+                        cout << "Error reducing cubes" << endl;
+                        interp = NULL;
+                    }
                 }
+                ctx->deleteProofGraph();
             }
         }
 
-        ctx->deleteProofGraph();
         ctx->Reset();
         delete ctx;
 

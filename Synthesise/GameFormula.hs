@@ -287,16 +287,13 @@ getBlockedStates Universal copyRanks = do
 
 blockExpression CBlocked{..} = do
     let as = map (\a -> setAssignmentRankCopy a cbRank cbCopy) cbAssignment
-    b <- liftE $ blockAssignment cbCopy as
-    return (Just b)
----    cached <- liftE $ getCachedMove cbCopy (BlockedState, as)
----    case cached of
----        (Just b)    -> return (Just b)
----        Nothing     -> do
----            b <- liftE $ blockAssignment cbCopy as
----            be <- liftE $ printExpression b
----            liftE $ cacheMove cbCopy (BlockedState, as) b
----            return (Just b)
+    cached <- liftE $ getCachedMove cbCopy (BlockedState, as)
+    case cached of
+        (Just b)    -> return (Just b)
+        Nothing     -> do
+            b <- liftE $ blockAssignment cbCopy as
+            liftE $ cacheMove cbCopy (BlockedState, as) b
+            return (Just b)
 
 makeTransition :: CompiledSpec -> Player -> Construct -> SolverT (Maybe Expression)
 makeTransition spec first CTransition{..} = do
@@ -351,19 +348,26 @@ makeMove spec player CMove{..} = do
     let vh                  = if cmPlayer == Universal then vu else vc
     let i                   = cmRank - 1
     let isHatMove           = player /= cmPlayer
+    let moveType            = (if isHatMove then HatMove else RegularMove) cmParentCopy
 
-    move <- if isHatMove
-        then liftE $ makeHatMove cmCopy (vh !! i) cmAssignment
-        else liftE $ assignmentToExpression cmCopy cmAssignment
+    cached <- liftE $ getCachedMove cmCopy (moveType, cmAssignment)
+    case cached of
+        (Just m)    -> return (Just m)
+        Nothing     -> do
+            move <- if isHatMove
+                then liftE $ makeHatMove cmCopy (vh !! i) cmAssignment
+                else liftE $ assignmentToExpression cmCopy cmAssignment
 
-    let cMap = Map.fromList [
-              ((playerToSection cmPlayer, cmRank), cmCopy)
-            , ((HatVar, cmRank), cmCopy)
-            , ((StateVar, cmRank), cmParentCopy)
-            ]
+            let cMap = Map.fromList [
+                      ((playerToSection cmPlayer, cmRank), cmCopy)
+                    , ((HatVar, cmRank), cmCopy)
+                    , ((StateVar, cmRank), cmParentCopy)
+                    ]
 
-    mc <- liftE $ setCopy cMap move
-    return (Just mc)
+            mc <- liftE $ setCopy cMap move
+            liftE $ cacheMove cmCopy (moveType, cmAssignment) mc
+
+            return (Just mc)
 
 makeHatMove c valid m = do
     move        <- assignmentToExpression c m

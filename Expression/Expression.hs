@@ -161,7 +161,7 @@ setChildren (ENot _) []         = error $ "ENot of empty list"
 setChildren (EConjunct _) vs    = EConjunct vs
 setChildren (EDisjunct _) vs    = EDisjunct vs
 
-data MoveCacheType = RegularMove | HatMove | BlockedState deriving (Show, Eq, Ord)
+data MoveCacheType = RegularMove Int | HatMove Int | BlockedState deriving (Show, Eq, Ord)
 
 data ExprManager = ExprManager {
       copyManagers  :: IMap.IntMap CopyManager
