@@ -59,8 +59,9 @@ dumpDimacs :: Int -> Expression -> FilePath -> SolverT ()
 dumpDimacs mc e fp = do
     maxId       <- liftE $ getMaxId mc
     clauses     <- toDimacs mc e
-    let d       = interMap "\n" (interMap " " show . SV.toList) clauses
-    liftIO $ writeFile fp d
+    let p       = "p cnf " ++ (show maxId) ++ " " ++ (show (length clauses)) ++ "\n"
+    let d       = concatMap (\cs -> (interMap " " show (SV.toList cs)) ++ " 0\n") clauses
+    liftIO $ writeFile fp (p ++ d)
     
 
 callSolver max assumptions clauses = do

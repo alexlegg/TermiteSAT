@@ -200,6 +200,9 @@ interpolateTree spec player s gt' = do
 ---            liftIO $ mapM (putStrLn . printMove spec . Just) cube'
 ---            liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
 
+            both <- liftE $ conjunctTemp (gtMaxCopy gt) [fmlA, fmlB]
+            dumpDimacs (gtMaxCopy gt) both "somedimacs"
+
             when (any (\cs -> not $ all (\a -> assignmentRank a == assignmentRank (head cs)) cs) cube') $ do
                 throwError "Not all cubes of the same rank"
 

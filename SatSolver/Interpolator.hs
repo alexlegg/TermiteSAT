@@ -23,8 +23,11 @@ data InterpolantResult = InterpolantResult {
     , interpolant   :: Maybe [[Assignment]]
 } deriving (Show, Eq)
 
+foreign import ccall safe "periplo_wrapper/periplo_wrapper.h newSolver"
+    c_newSolver :: IO (Ptr PeriploSolver)
+
 foreign import ccall safe "periplo_wrapper/periplo_wrapper.h interpolate"
-    c_interpolate :: Ptr EnodeStruct -> Ptr EnodeStruct -> IO (Ptr (Ptr AssignmentStruct))
+    c_interpolate :: Ptr PeriploSolver -> Ptr EnodeStruct -> Ptr EnodeStruct -> IO (Ptr (Ptr AssignmentStruct))
 
 totalTime :: IORef Double
 {-# NOINLINE totalTime #-}
@@ -34,13 +37,15 @@ timeInInterpolate :: IO Double
 timeInInterpolate = readIORef totalTime
 
 interpolate mc a b = do
+    ctx <- liftIO $ c_newSolver
+    
     a'  <- lift $ foldExpression mc exprToEnodeExpr a
     b'  <- lift $ foldExpression mc exprToEnodeExpr b
 
     (t1, pa)  <- liftIO $ timeItT $ enodeToStruct a'
     (t2, pb)  <- liftIO $ timeItT $ enodeToStruct b'
 
-    (t, r) <- liftIO $ timeItT $ c_interpolate pa pb
+    (t, r) <- liftIO $ timeItT $ c_interpolate ctx pa pb
     liftIO $ modifyIORef totalTime (\total -> t + t1 + t2 + total)
 
     let succ = (r /= nullPtr)

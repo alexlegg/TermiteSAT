@@ -23,32 +23,42 @@ struct VarState {
 	 }
 };
 
+struct PeriploSolver_t : public PeriploContext {
+    set<int> vars;
+};
+
 extern "C" {
 #include "periplo_wrapper.h"
 
     //Helper functions
-    Enode *expr_to_enode(PeriploContext *ctx, set<int> *vars, set<int> *new_vars, EnodeExpr *e);
+    Enode *expr_to_enode(PeriploSolver *ctx, set<int> *new_vars, EnodeExpr *e);
     EnodeExpr *enode_to_expr(Enode *e);
     VarAssignment **enodeToBDD(Enode *e, vector<int> project, bool &success);
     DdNode *enodeToDdNode(DdManager *mgr, map<string, int> vars, Enode *f, bool &success);
     VarAssignment **reduceCubes(DdManager *mgr, DdNode *dd, map<int, int> rvars);
 
-    VarAssignment **interpolate(EnodeExpr *a, EnodeExpr *b)
-    {
-        VarAssignment **interp = NULL;
-        Enode *ea, *eb;
-        PeriploContext *ctx = new PeriploContext();
+
+    PeriploSolver *newSolver()
+    { 
+        PeriploSolver *ctx = new PeriploSolver_t();
 
         ctx->SetLogic("QF_BOOL");
         ctx->SetOption(":produce-interpolants", "true");
         ctx->setVerbosity(0);
 
-        set<int> *varsAll = new set<int>();
+        return ctx;
+    }
+
+    VarAssignment **interpolate(PeriploSolver *ctx, EnodeExpr *a, EnodeExpr *b)
+    {
+        VarAssignment **interp = NULL;
+        Enode *ea, *eb;
+
         set<int> *varsA = new set<int>();
         set<int> *varsB = new set<int>();
 
-        ea = expr_to_enode(ctx, varsAll, varsA, a);
-        eb = expr_to_enode(ctx, varsAll, varsB, b);
+        ea = expr_to_enode(ctx, varsA, a);
+        eb = expr_to_enode(ctx, varsB, b);
 
         vector<int> project;
         for (auto va = varsA->begin(); va != varsA->end(); ++va)
@@ -58,7 +68,6 @@ extern "C" {
             }
         }
 
-        delete varsAll;
         delete varsA;
         delete varsB;
         
@@ -70,7 +79,8 @@ extern "C" {
         if (rA != l_False)
         {
             ctx->Assert(eb);
-            ctx->CheckSATStatic();
+            //ctx->CheckSATStatic();
+            ctx->CheckSATIncrementalForInterpolation();
 
             lbool r = ctx->getStatus();
             if (r == l_False) {
@@ -102,7 +112,7 @@ extern "C" {
         return interp;
     }
 
-    Enode *expr_to_enode(PeriploContext *ctx, set<int> *vars, set<int> *new_vars, EnodeExpr *e)
+    Enode *expr_to_enode(PeriploSolver *ctx, set<int> *new_vars, EnodeExpr *e)
     {
         Enode *r;
         int id = abs(e->enodeVarId);
@@ -112,10 +122,10 @@ extern "C" {
         switch (e->enodeType) {
             case ENODEVAR:
                 new_vars->insert(abs(id));
-                if (vars->find(id) == vars->end())
+                if (ctx->vars.find(id) == ctx->vars.end())
                 {
                     ctx->DeclareFun(str.c_str(), NULL, ctx->mkSortBool());
-                    vars->insert(abs(id));
+                    ctx->vars.insert(abs(id));
                 }
 
                 r = ctx->mkVar(str.c_str());
@@ -126,7 +136,7 @@ extern "C" {
             case ENODENOT:
                 for (int i = 0; i != e->enodeArity; ++i)
                 {
-                    Enode *c = expr_to_enode(ctx, vars, new_vars, e->enodeChildren[i]);
+                    Enode *c = expr_to_enode(ctx, new_vars, e->enodeChildren[i]);
                     lits.push_back(c);
                 }
 

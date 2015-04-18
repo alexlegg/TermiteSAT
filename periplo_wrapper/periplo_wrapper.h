@@ -33,7 +33,11 @@ struct VarAssignment_t {
     int id;
 };
 
-VarAssignment **interpolate(EnodeExpr *a, EnodeExpr *b);
+typedef struct PeriploSolver_t PeriploSolver;
+
+PeriploSolver *newSolver();
+
+VarAssignment **interpolate(PeriploSolver *ctx, EnodeExpr *a, EnodeExpr *b);
 
 void print_expr(EnodeExpr *e);
 
