@@ -6,7 +6,7 @@ INC_PER=-I${BASE_PER}/src/ -I${BASE_PER}/src/api/ -I${BASE_PER}/src/cnfizers/ -I
 		-I${BASE_PER}/src/minisat/utils/ -I${BASE_CUDD}/include
 	
 all: periplo_wrapper.h periplo_wrapper.cc
-	g++ -std=c++11 -c $(INC_PER) -o periplo_wrapper.o periplo_wrapper.cc -DPRODUCE_PROOF
+	g++ -std=c++11 -c $(INC_PER) -o periplo_wrapper.o periplo_wrapper.cc -DPRODUCE_PROOF -DPERIPLO_WRAPPER_GHC_ONLY
 	ar x ../periplo/build/src/.libs/libperiplolibrary.a
 	ar x ${BASE_CUDD}/cudd/libcudd.a
 	ar x ${BASE_CUDD}/epd/libepd.a

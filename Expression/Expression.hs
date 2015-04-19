@@ -28,6 +28,7 @@ module Expression.Expression (
     , unrollExpression
     , foldExpression
     , foldExpressionM
+    , foldExpressionIO
     , setRank
     , setHatVar
     , conjunct
@@ -522,11 +523,27 @@ foldExpression mc f e = do
     let (Just r) = Map.lookup (eindex e) done
     return r
 
+foldExpressionIO :: MonadIO m => Int -> (Int -> Expr -> [(Sign, a)] -> IO a) -> Expression -> ExpressionT m a
+foldExpressionIO mc f e = do
+    ds <- getDependencies mc (eindex e)
+    when (ISet.null ds) $ throwError "Empty dependencies"
+
+    es <- (liftM catMaybes) $ mapM (lookupExpression mc) (ISet.toList ds)
+    done <- applyFoldIO mc f es Map.empty
+    let (Just r) = Map.lookup (eindex e) done
+    return r
+
 applyFold :: MonadIO m => Int -> (Int -> Expr -> [(Sign, a)] -> a) -> [Expression] -> Map.Map Int a -> ExpressionT m (Map.Map Int a)
 applyFold mc _ [] done = return done
 applyFold mc f pool done = do
     (pool', done') <- foldM (tryToApply' mc f) ([], done) pool
     applyFold mc f pool' done'
+
+applyFoldIO :: MonadIO m => Int -> (Int -> Expr -> [(Sign, a)] -> IO a) -> [Expression] -> Map.Map Int a -> ExpressionT m (Map.Map Int a)
+applyFoldIO mc _ [] done = return done
+applyFoldIO mc f pool done = do
+    (pool', done') <- foldM (tryToApplyIO' mc f) ([], done) pool
+    applyFoldIO mc f pool' done'
 
 tryToApply' :: MonadIO m => Int -> (Int -> Expr -> [(Sign, a)] -> a) -> ([Expression], Map.Map Int a) -> Expression -> ExpressionT m ([Expression], Map.Map Int a)
 tryToApply' mc f (pool, doneMap) e = do
@@ -536,6 +553,17 @@ tryToApply' mc f (pool, doneMap) e = do
     then do
         let ds' = zipWith (\(Just x) (Var s _) -> (s, x)) ds cs
         let x = f (eindex e) (expr e) ds'
+        return (pool, Map.insert (eindex e) x doneMap)
+    else return (e : pool, doneMap)
+
+tryToApplyIO' :: MonadIO m => Int -> (Int -> Expr -> [(Sign, a)] -> IO a) -> ([Expression], Map.Map Int a) -> Expression -> ExpressionT m ([Expression], Map.Map Int a)
+tryToApplyIO' mc f (pool, doneMap) e = do
+    let cs = children (expr e)
+    let ds = map (\v -> Map.lookup (var v) doneMap) cs
+    if (all isJust ds)
+    then do
+        let ds' = zipWith (\(Just x) (Var s _) -> (s, x)) ds cs
+        x <- liftIO $ f (eindex e) (expr e) ds'
         return (pool, Map.insert (eindex e) x doneMap)
     else return (e : pool, doneMap)
 

@@ -33,11 +33,26 @@ struct VarAssignment_t {
     int id;
 };
 
+//This is a dirty hack
+#ifndef PERIPLO_WRAPPER_GHC_ONLY
+typedef Enode;
+#endif
+
 typedef struct PeriploSolver_t PeriploSolver;
 
 PeriploSolver *newSolver();
+void *deleteSolver(PeriploSolver *ctx);
 
-VarAssignment **interpolate(PeriploSolver *ctx, EnodeExpr *a, EnodeExpr *b);
+Enode *mkConjunct(PeriploSolver *ctx, int size, Enode **cs);
+Enode *mkDisjunct(PeriploSolver *ctx, int size, Enode **cs);
+Enode *mkNegation(PeriploSolver *ctx, Enode *e);
+Enode *mkVariable(PeriploSolver *ctx, int var);
+Enode *mkTrue(PeriploSolver *ctx);
+Enode *mkFalse(PeriploSolver *ctx);
+
+int checkFml(PeriploSolver *ctx, Enode *fml);
+
+VarAssignment **interpolate(PeriploSolver *ctx, int *ps, int szPs, Enode *a, Enode *b);
 
 void print_expr(EnodeExpr *e);
 

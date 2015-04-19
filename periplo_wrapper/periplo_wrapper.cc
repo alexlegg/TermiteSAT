@@ -49,65 +49,113 @@ extern "C" {
         return ctx;
     }
 
-    VarAssignment **interpolate(PeriploSolver *ctx, EnodeExpr *a, EnodeExpr *b)
+    void *deleteSolver(PeriploSolver *ctx)
     {
-        VarAssignment **interp = NULL;
-        Enode *ea, *eb;
-
-        set<int> *varsA = new set<int>();
-        set<int> *varsB = new set<int>();
-
-        ea = expr_to_enode(ctx, varsA, a);
-        eb = expr_to_enode(ctx, varsB, b);
-
-        vector<int> project;
-        for (auto va = varsA->begin(); va != varsA->end(); ++va)
-        {
-            if (varsB->find(*va) != varsB->end()) {
-                project.push_back(*va);
-            }
-        }
-
-        delete varsA;
-        delete varsB;
-        
-        ctx->Assert(ea);
-
-        //Make sure A is not UNSAT
-        ctx->CheckSATIncrementalForInterpolation();
-        lbool rA = ctx->getStatus();
-        if (rA != l_False)
-        {
-            ctx->Assert(eb);
-            //ctx->CheckSATStatic();
-            ctx->CheckSATIncrementalForInterpolation();
-
-            lbool r = ctx->getStatus();
-            if (r == l_False) {
-                ctx->createProofGraph();
-                ctx->setNumReductionLoops(2);
-                ctx->setNumGraphTraversals(2);
-                ctx->reduceProofGraph();
-                ctx->setMcMillanInterpolation();
-                ctx->enableRestructuringForStrongerInterpolant();
-
-                vector<Enode*> interpolants;
-                ctx->getSingleInterpolant(interpolants);
-
-                if (interpolants.size() == 1) {
-                    bool success;
-                    interp = enodeToBDD(interpolants[0], project, success);
-                    if (!success) {
-                        cout << "Error reducing cubes" << endl;
-                        interp = NULL;
-                    }
-                }
-                ctx->deleteProofGraph();
-            }
-        }
-
         ctx->Reset();
         delete ctx;
+    }
+
+    list<Enode*> mkLits(int size, Enode **enodes)
+    {
+        list<Enode*> lits;
+        for (int i = 0; i != size; ++i)
+        {
+            lits.push_back(enodes[i]);
+        }
+        return lits;
+    }
+
+    Enode *mkConjunct(PeriploSolver *ctx, int size, Enode **cs)
+    {
+        list<Enode*> lits = mkLits(size, cs);
+        return ctx->mkAnd(ctx->mkCons(lits));
+    }
+
+    Enode *mkDisjunct(PeriploSolver *ctx, int size, Enode **cs)
+    {
+        list<Enode*> lits = mkLits(size, cs);
+        return ctx->mkOr(ctx->mkCons(lits));
+    }
+
+    Enode *mkNegation(PeriploSolver *ctx, Enode *e)
+    {
+        list<Enode*> lits;
+        lits.push_back(e);
+        return ctx->mkNot(ctx->mkCons(lits));
+    }
+
+    Enode *mkVariable(PeriploSolver *ctx, int var)
+    {
+        int id = abs(var);
+        string str = std::to_string(id);
+        if (ctx->vars.find(id) == ctx->vars.end())
+        {
+            ctx->DeclareFun(str.c_str(), NULL, ctx->mkSortBool());
+            ctx->vars.insert(abs(id));
+        }
+
+        Enode *v = ctx->mkVar(str.c_str());
+        
+        if (var < 0)
+        {
+            return mkNegation(ctx, v);
+        } else {
+            return v;
+        }
+    }
+
+    Enode *mkTrue(PeriploSolver *ctx)
+    {
+        return ctx->mkTrue();
+    }
+
+    Enode *mkFalse(PeriploSolver *ctx)
+    {
+        return ctx->mkFalse();
+    }
+
+    int checkFml(PeriploSolver *ctx, Enode *fml)
+    {
+        ctx->Assert(fml);
+        ctx->CheckSATIncrementalForInterpolation();
+        lbool r = ctx->getStatus();
+        if (r == l_False) {
+            return 0;
+        } else {
+            return 1;
+        }
+    }
+
+    VarAssignment **interpolate(PeriploSolver *ctx, int *ps, int szPs, Enode *a, Enode *b)
+    {
+        VarAssignment **interp = NULL;
+        vector<int> project;
+        
+        for (int i = 0; i != szPs; ++i)
+        {
+            project.push_back(ps[i]);
+        }
+
+        ctx->createProofGraph();
+        ctx->setNumReductionLoops(2);
+        ctx->setNumGraphTraversals(2);
+        ctx->reduceProofGraph();
+        ctx->setMcMillanInterpolation();
+        ctx->enableRestructuringForStrongerInterpolant();
+
+        vector<Enode*> interpolants;
+        ctx->getSingleInterpolant(interpolants);
+
+        if (interpolants.size() == 1) {
+            bool success;
+            interp = enodeToBDD(interpolants[0], project, success);
+            if (!success) {
+                cout << "Error reducing cubes" << endl;
+                interp = NULL;
+            }
+        }
+
+        ctx->deleteProofGraph();
 
         return interp;
     }

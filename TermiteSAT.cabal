@@ -119,7 +119,8 @@ executable TermiteSAT-prof
                         , SatSolver.Enode
                         , SatSolver.SatSolver
 
-  include-dirs:         periplo_wrapper
+  include-dirs:           periplo_wrapper
+                        , periplo/src/api/
   includes:             periplo_wrapper.h
 
   ghc-options:          -O2

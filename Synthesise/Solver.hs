@@ -66,24 +66,6 @@ checkUniversalWin spec k = do
 
     return $ any (not . satisfiable) rs
 
-testInterpolants :: SolverT ()
-testInterpolants = do
-    v1  <- liftE $ literal $ ExprVar "testInterp1" StateVar 0 0 0
-    v2  <- liftE $ literal $ ExprVar "testInterp2" StateVar 0 0 0
-    v3  <- liftE $ literal $ ExprVar "testInterp3" StateVar 0 0 0
-    v4  <- liftE $ literal $ ExprVar "testInterp4" StateVar 0 0 0
-
-    nv4 <- liftE $ negation v4
-    a'  <- liftE $ conjunct [v1, v2]
-    a   <- liftE $ disjunct [nv4, a']
-    b'  <- liftE $ implicate v2 v3
-    nv3 <- liftE $ negation v3
-    b   <- liftE $ conjunct [b', nv3, v4]
-
-    interpolate 0 a b
-
-    return ()
-
 checkStrategy :: CompiledSpec -> Int -> Expression -> String -> Tree [[Assignment]] -> SolverT Bool
 checkStrategy spec rnk s player strat = do
     let p       = if player == "universal" then Universal else Existential
@@ -187,7 +169,12 @@ interpolateTree spec player s gt' = do
     then do
         let Just (gtA, gtB, fmlA, fmlB) = fmls
 
-        ir <- interpolate (gtMaxCopy gt) fmlA fmlB
+        let vRank   = gtRank gtB
+        let vCopy   = gtCopyId (gtRoot gtB)
+        let vars    = map (\v -> v {rank = vRank, ecopy = vCopy}) (svars spec)
+        project     <- liftE $ mapM (fmap (exprIndex . fromJust) . lookupVar) vars
+
+        ir <- interpolate (gtMaxCopy gt) project fmlA fmlB
         if (not (success ir))
         then do
             -- We lose in the prefix, so just keep going
@@ -199,6 +186,8 @@ interpolateTree spec player s gt' = do
 ---            liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
 ---            liftIO $ mapM (putStrLn . printMove spec . Just) cube'
 ---            liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
+
+            
 
             both <- liftE $ conjunctTemp (gtMaxCopy gt) [fmlA, fmlB]
             dumpDimacs (gtMaxCopy gt) both "somedimacs"

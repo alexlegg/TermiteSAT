@@ -14,9 +14,11 @@ import SatSolver.Enode
 import Synthesise.SolverT
 import System.TimeIt
 import Data.IORef
+import Data.List
 import System.IO.Unsafe
 
 data PeriploSolver
+data Enode
 
 data InterpolantResult = InterpolantResult {
       success       :: Bool
@@ -26,8 +28,33 @@ data InterpolantResult = InterpolantResult {
 foreign import ccall safe "periplo_wrapper/periplo_wrapper.h newSolver"
     c_newSolver :: IO (Ptr PeriploSolver)
 
+foreign import ccall safe "periplo_wrapper/periplo_wrapper.h deleteSolver"
+    c_deleteSolver :: (Ptr PeriploSolver) -> IO ()
+
 foreign import ccall safe "periplo_wrapper/periplo_wrapper.h interpolate"
-    c_interpolate :: Ptr PeriploSolver -> Ptr EnodeStruct -> Ptr EnodeStruct -> IO (Ptr (Ptr AssignmentStruct))
+    c_interpolate :: Ptr PeriploSolver -> Ptr CInt -> CInt -> Ptr Enode -> Ptr Enode -> IO (Ptr (Ptr AssignmentStruct))
+
+foreign import ccall safe "periplo_wrapper/periplo_wrapper.h mkConjunct"
+    c_mkConjunct :: Ptr PeriploSolver -> CInt -> Ptr (Ptr Enode) -> IO (Ptr Enode)
+
+foreign import ccall safe "periplo_wrapper/periplo_wrapper.h mkDisjunct"
+    c_mkDisjunct :: Ptr PeriploSolver -> CInt -> Ptr (Ptr Enode) -> IO (Ptr Enode)
+
+foreign import ccall safe "periplo_wrapper/periplo_wrapper.h mkNegation"
+    c_mkNegation :: Ptr PeriploSolver -> Ptr Enode -> IO (Ptr Enode)
+
+foreign import ccall safe "periplo_wrapper/periplo_wrapper.h mkVariable"
+    c_mkVariable :: Ptr PeriploSolver -> CInt -> IO (Ptr Enode)
+
+foreign import ccall safe "periplo_wrapper/periplo_wrapper.h mkTrue"
+    c_mkTrue :: Ptr PeriploSolver -> IO (Ptr Enode)
+
+foreign import ccall safe "periplo_wrapper/periplo_wrapper.h mkFalse"
+    c_mkFalse :: Ptr PeriploSolver -> IO (Ptr Enode)
+
+foreign import ccall safe "periplo_wrapper/periplo_wrapper.h checkFml"
+    c_checkFml :: Ptr PeriploSolver -> Ptr Enode -> IO CInt
+
 
 totalTime :: IORef Double
 {-# NOINLINE totalTime #-}
@@ -36,45 +63,79 @@ totalTime = unsafePerformIO (newIORef 0)
 timeInInterpolate :: IO Double
 timeInInterpolate = readIORef totalTime
 
-interpolate mc a b = do
+interpolate :: Int -> [Int] -> Expression -> Expression -> SolverT InterpolantResult
+interpolate mc project a b = do
     ctx <- liftIO $ c_newSolver
-    
-    a'  <- lift $ foldExpression mc exprToEnodeExpr a
-    b'  <- lift $ foldExpression mc exprToEnodeExpr b
 
-    (t1, pa)  <- liftIO $ timeItT $ enodeToStruct a'
-    (t2, pb)  <- liftIO $ timeItT $ enodeToStruct b'
+    enodeA  <- lift $ foldExpressionIO mc (exprToEnode ctx) a
+    rA      <- liftIO $ c_checkFml ctx enodeA
 
-    (t, r) <- liftIO $ timeItT $ c_interpolate ctx pa pb
-    liftIO $ modifyIORef totalTime (\total -> t + t1 + t2 + total)
+    if (rA == 0)
+    then do
+        liftIO $ c_deleteSolver ctx
+        return $ InterpolantResult {
+            success = False,
+            interpolant = Nothing
+            }
+    else do
+        enodeB  <- lift $ foldExpressionIO mc (exprToEnode ctx) b
+        rB      <- liftIO $ c_checkFml ctx enodeB
 
-    let succ = (r /= nullPtr)
-    i   <- if succ 
-        then do 
-            assignments <- liftIO $ cubesToAssignments r
-            liftM Just $ forM assignments $ \vs -> do
-                let (ss, vars)  = unzip vs
-                es              <- liftE $ mapM (lookupExpression mc) vars
-                let vars'       = map (\(Just v) -> (\(ELit var) -> var) (exprType v)) es
-                return $ zipWith Assignment ss vars'
-        else return Nothing
+        if (rB == 1)
+        then do
+            liftIO $ c_deleteSolver ctx
+            return $ InterpolantResult {
+                success = False,
+                interpolant = Nothing
+                }
+        else do
+            let pv = SV.fromList (map fromIntegral project) :: SV.Vector CInt
+            (t, r) <- liftIO $ timeItT $ SV.unsafeWith pv (\ps -> c_interpolate ctx ps (fromIntegral (SV.length pv)) enodeA enodeB)
+            liftIO $ modifyIORef totalTime (\total -> t + total)
+            liftIO $ c_deleteSolver ctx
 
-    liftIO $ freeEnodeStruct pa
-    liftIO $ freeEnodeStruct pb
-    when (r /= nullPtr) $ liftIO $ freeCubes r
+            let succ = (r /= nullPtr)
+            i   <- if succ 
+                then do 
+                    assignments <- liftIO $ cubesToAssignments r
+                    liftM Just $ forM assignments $ \vs -> do
+                        let (ss, vars)  = unzip vs
+                        es              <- liftE $ mapM (lookupExpression mc) vars
+                        let vars'       = map (\(Just v) -> (\(ELit var) -> var) (exprType v)) es
+                        return $ zipWith Assignment ss vars'
+                else return Nothing
 
-    return $ InterpolantResult {
-        success     = succ,
-        interpolant = i
-    }
+            when (r /= nullPtr) $ liftIO $ freeCubes r
 
-exprToEnodeExpr :: Int -> Expr -> [(Sign, EnodeExpr)] -> EnodeExpr
-exprToEnodeExpr i (ELit _) []       = EnodeExpr EnodeVar (Just i) []
-exprToEnodeExpr i (ENot _) cs       = EnodeExpr EnodeNot Nothing (expandNots cs)
-exprToEnodeExpr i (EConjunct _) cs  = EnodeExpr EnodeAnd Nothing (expandNots cs)
-exprToEnodeExpr i (EDisjunct _) cs  = EnodeExpr EnodeOr Nothing (expandNots cs)
-exprToEnodeExpr i (ETrue) _         = EnodeExpr EnodeTrue Nothing []
-exprToEnodeExpr i (EFalse) _        = EnodeExpr EnodeFalse Nothing []
+            return $ InterpolantResult {
+                success     = succ,
+                interpolant = i
+            }
+
+exprToEnode :: Ptr PeriploSolver -> Int -> Expr -> [(Sign, Ptr Enode)] -> IO (Ptr Enode)
+exprToEnode ctx i (ELit _) []       = c_mkVariable ctx (fromIntegral i)
+exprToEnode ctx i (ENot _) (c:[])   = c_mkNegation ctx (snd c)
+exprToEnode ctx i (EConjunct _) cs  = do
+    let (ps, ns) = partition ((==) Pos . fst) cs
+    ns' <- mapM (c_mkNegation ctx) (map snd ns)
+    let lits = map snd ps ++ ns'
+    SV.unsafeWith (SV.fromList lits) (c_mkConjunct ctx (fromIntegral (length lits)))
+exprToEnode ctx i (EDisjunct _) cs  = do
+    let (ps, ns) = partition ((==) Pos . fst) cs
+    ns' <- mapM (c_mkNegation ctx) (map snd ns)
+    let lits = map snd ps ++ ns'
+    SV.unsafeWith (SV.fromList lits) (c_mkDisjunct ctx (fromIntegral (length lits)))
+exprToEnode ctx i (ETrue) _         = c_mkTrue ctx
+exprToEnode ctx i (EFalse) _        = c_mkFalse ctx
+
+
+exprToEnodeExpr :: Int -> Expr -> [(Sign, EnodeExpr)] -> IO EnodeExpr
+exprToEnodeExpr i (ELit _) []       = return $ EnodeExpr EnodeVar (Just i) []
+exprToEnodeExpr i (ENot _) cs       = return $ EnodeExpr EnodeNot Nothing (expandNots cs)
+exprToEnodeExpr i (EConjunct _) cs  = return $ EnodeExpr EnodeAnd Nothing (expandNots cs)
+exprToEnodeExpr i (EDisjunct _) cs  = return $ EnodeExpr EnodeOr Nothing (expandNots cs)
+exprToEnodeExpr i (ETrue) _         = return $ EnodeExpr EnodeTrue Nothing []
+exprToEnodeExpr i (EFalse) _        = return $ EnodeExpr EnodeFalse Nothing []
 
 expandNots []               = []
 expandNots ((Pos, x):xs)    = x : expandNots xs
