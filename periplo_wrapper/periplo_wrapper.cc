@@ -24,7 +24,10 @@ struct VarState {
 };
 
 struct PeriploSolver_t : public PeriploContext {
-    set<int> vars;
+    set<int>    vars;
+    set<int>    varsInA;
+    set<int>    varsInB;
+    int         partition;
 };
 
 extern "C" {
@@ -45,6 +48,8 @@ extern "C" {
         ctx->SetLogic("QF_BOOL");
         ctx->SetOption(":produce-interpolants", "true");
         ctx->setVerbosity(0);
+
+        ctx->partition = 0;
 
         return ctx;
     }
@@ -91,7 +96,13 @@ extern "C" {
         if (ctx->vars.find(id) == ctx->vars.end())
         {
             ctx->DeclareFun(str.c_str(), NULL, ctx->mkSortBool());
-            ctx->vars.insert(abs(id));
+            ctx->vars.insert(id);
+        }
+
+        if (ctx->partition == 0) {
+            ctx->varsInA.insert(id);
+        } else if (ctx->partition == 1) {
+            ctx->varsInB.insert(id);
         }
 
         Enode *v = ctx->mkVar(str.c_str());
@@ -119,6 +130,7 @@ extern "C" {
         ctx->Assert(fml);
         ctx->CheckSATIncrementalForInterpolation();
         lbool r = ctx->getStatus();
+        ctx->partition++;
         if (r == l_False) {
             return 0;
         } else {
@@ -131,9 +143,12 @@ extern "C" {
         VarAssignment **interp = NULL;
         vector<int> project;
         
-        for (int i = 0; i != szPs; ++i)
+        for (auto aVar = ctx->varsInA.begin(); aVar != ctx->varsInA.end(); ++aVar)
         {
-            project.push_back(ps[i]);
+            if (ctx->varsInB.find(*aVar) != ctx->varsInB.end())
+            {
+                project.push_back(*aVar);
+            }
         }
 
         ctx->createProofGraph();
