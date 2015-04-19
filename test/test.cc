@@ -15,6 +15,11 @@ int main()
     Egraph egraph = Egraph(config, store);
     SimpSATSolver solver(egraph, config);
 
+    config.logic = QF_BOOL;
+    config.setProduceInter();
+
+    egraph.initializeStore();
+    solver.initialize();
 
     egraph.initializeSolver(&solver);
 
