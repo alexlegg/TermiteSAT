@@ -130,7 +130,7 @@ findCandidate player spec s gt = do
         then do
             mapM_ (learnStates spec player) (gtUnsetNodes gt)
         else do
----            mapM_ (learnStates spec player) (gtUnsetNodes gt)
+            mapM_ (learnStates spec player) (gtUnsetNodes gt)
             learnWinning spec player s gt
         return Nothing
 
@@ -174,36 +174,41 @@ interpolateTree spec player s gt' = do
         let vars    = map (\v -> v {rank = vRank, ecopy = vCopy}) (svars spec)
         project     <- liftE $ mapM (fmap (exprIndex . fromJust) . lookupVar) vars
 
-        ir <- interpolate (gtMaxCopy gt) project fmlA fmlB
-        if (not (success ir))
+        rA <- satSolve (gtMaxCopy gt) Nothing fmlA
+
+        if (not (satisfiable rA))
         then do
             -- We lose in the prefix, so just keep going
             interpolateTree spec player s gtA
         else do
-            let cube'   = map (filter (((==) StateVar) . assignmentSection)) (fromJust (interpolant ir))
-            let cube''  = filter (all (\a -> assignmentRank a == gtRank gtB)) cube'
-            let cube    = map (map (\a -> setAssignmentRankCopy a 0 0)) cube''
----            liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
----            liftIO $ mapM (putStrLn . printMove spec . Just) cube'
----            liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
+            ir <- interpolate (gtMaxCopy gt) project fmlA fmlB
+            if (not (success ir))
+            then do
+                -- We lose in the prefix, so just keep going
+                interpolateTree spec player s gtA
+            else do
+                let cube'   = map (filter (((==) StateVar) . assignmentSection)) (fromJust (interpolant ir))
+                let cube''  = filter (all (\a -> assignmentRank a == gtRank gtB)) cube'
+                let cube    = map (map (\a -> setAssignmentRankCopy a 0 0)) cube''
+---                liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
+---                liftIO $ mapM (putStrLn . printMove spec . Just) cube'
+---                liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
 
-            
+                both <- liftE $ conjunctTemp (gtMaxCopy gt) [fmlA, fmlB]
+                dumpDimacs (gtMaxCopy gt) both "somedimacs"
 
-            both <- liftE $ conjunctTemp (gtMaxCopy gt) [fmlA, fmlB]
-            dumpDimacs (gtMaxCopy gt) both "somedimacs"
+                when (any (\cs -> not $ all (\a -> assignmentRank a == assignmentRank (head cs)) cs) cube') $ do
+                    throwError "Not all cubes of the same rank"
 
-            when (any (\cs -> not $ all (\a -> assignmentRank a == assignmentRank (head cs)) cs) cube') $ do
-                throwError "Not all cubes of the same rank"
+                when (any (\cs -> not $ all (\a -> assignmentCopy a == assignmentCopy (head cs)) cs) cube') $ do
+                    throwError "Not all cubes of the same copy"
 
-            when (any (\cs -> not $ all (\a -> assignmentCopy a == assignmentCopy (head cs)) cs) cube') $ do
-                throwError "Not all cubes of the same copy"
+                ls <- get
+                if player == Existential
+                then put $ ls { winningMay = alterAll (insertIntoSet cube) [1..gtBaseRank gtB] (winningMay ls) }
+                else put $ ls { winningMust = winningMust ls ++ cube }
 
-            ls <- get
-            if player == Existential
-            then put $ ls { winningMay = alterAll (insertIntoSet cube) [1..gtBaseRank gtB] (winningMay ls) }
-            else put $ ls { winningMust = winningMust ls ++ cube }
-
-            interpolateTree spec player s gtA
+                interpolateTree spec player s gtA
     else return ()
 
 alterAll :: Ord k => (Maybe a -> Maybe a) -> [k] -> Map.Map k a -> Map.Map k a

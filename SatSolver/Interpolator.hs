@@ -25,34 +25,34 @@ data InterpolantResult = InterpolantResult {
     , interpolant   :: Maybe [[Assignment]]
 } deriving (Show, Eq)
 
-foreign import ccall safe "periplo_wrapper/periplo_wrapper.h newSolver"
+foreign import ccall unsafe "periplo_wrapper/periplo_wrapper.h newSolver"
     c_newSolver :: IO (Ptr PeriploSolver)
 
-foreign import ccall safe "periplo_wrapper/periplo_wrapper.h deleteSolver"
+foreign import ccall unsafe "periplo_wrapper/periplo_wrapper.h deleteSolver"
     c_deleteSolver :: (Ptr PeriploSolver) -> IO ()
 
-foreign import ccall safe "periplo_wrapper/periplo_wrapper.h interpolate"
+foreign import ccall unsafe "periplo_wrapper/periplo_wrapper.h interpolate"
     c_interpolate :: Ptr PeriploSolver -> Ptr CInt -> CInt -> Ptr Enode -> Ptr Enode -> IO (Ptr (Ptr AssignmentStruct))
 
-foreign import ccall safe "periplo_wrapper/periplo_wrapper.h mkConjunct"
+foreign import ccall unsafe "periplo_wrapper/periplo_wrapper.h mkConjunct"
     c_mkConjunct :: Ptr PeriploSolver -> CInt -> Ptr (Ptr Enode) -> IO (Ptr Enode)
 
-foreign import ccall safe "periplo_wrapper/periplo_wrapper.h mkDisjunct"
+foreign import ccall unsafe "periplo_wrapper/periplo_wrapper.h mkDisjunct"
     c_mkDisjunct :: Ptr PeriploSolver -> CInt -> Ptr (Ptr Enode) -> IO (Ptr Enode)
 
-foreign import ccall safe "periplo_wrapper/periplo_wrapper.h mkNegation"
+foreign import ccall unsafe "periplo_wrapper/periplo_wrapper.h mkNegation"
     c_mkNegation :: Ptr PeriploSolver -> Ptr Enode -> IO (Ptr Enode)
 
-foreign import ccall safe "periplo_wrapper/periplo_wrapper.h mkVariable"
+foreign import ccall unsafe "periplo_wrapper/periplo_wrapper.h mkVariable"
     c_mkVariable :: Ptr PeriploSolver -> CInt -> IO (Ptr Enode)
 
-foreign import ccall safe "periplo_wrapper/periplo_wrapper.h mkTrue"
+foreign import ccall unsafe "periplo_wrapper/periplo_wrapper.h mkTrue"
     c_mkTrue :: Ptr PeriploSolver -> IO (Ptr Enode)
 
-foreign import ccall safe "periplo_wrapper/periplo_wrapper.h mkFalse"
+foreign import ccall unsafe "periplo_wrapper/periplo_wrapper.h mkFalse"
     c_mkFalse :: Ptr PeriploSolver -> IO (Ptr Enode)
 
-foreign import ccall safe "periplo_wrapper/periplo_wrapper.h checkFml"
+foreign import ccall unsafe "periplo_wrapper/periplo_wrapper.h checkFml"
     c_checkFml :: Ptr PeriploSolver -> Ptr Enode -> IO CInt
 
 
