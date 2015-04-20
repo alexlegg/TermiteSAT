@@ -14,8 +14,11 @@ import Data.Tree
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Traversable as T
+import Data.List
 import Data.List.Split
 import System.IO
+import System.CPUTime
+import Text.Printf
 
 import Utils.Logger
 import Utils.Utils
@@ -42,20 +45,22 @@ unbounded spec = do
 
 unboundedLoop :: Expression -> CompiledSpec -> Int -> SolverT (Maybe Int)
 unboundedLoop init spec k = do
+    liftIO $ putStrLn "-----"
     liftIO $ putStrLn $ "Unbounded Loop " ++ show k
 
-    ls <-get 
+    ls <- get 
     
-    when (k == 6) $ do
-        liftIO $ withFile "winningMay" WriteMode $ \h -> do
-            forM (Map.toList (winningMay ls)) $ \(r, wm) -> do
-                hPutStrLn h (show r)
-                forM (Set.toList wm) $ \s ->
-                    hPutStrLn h (printMove spec (Just s))
-                hPutStrLn h "--"
-            return ()
+---    when (k == 17) $ do
+---        liftIO $ withFile "winningMay" WriteMode $ \h -> do
+---            forM (Map.toList (winningMay ls)) $ \(r, wm) -> do
+---                hPutStrLn h (show r)
+---                forM (sort (map sort (Set.toList wm))) $ \s ->
+---                    hPutStrLn h (printMove spec (Just (sort s)))
+---                hPutStrLn h "--"
+---            return ()
+---        throwError "stop"
 
-    exWins <- checkInit k init (winningMust ls) (head (cg spec))
+    exWins <- checkInit k init (map Set.toList (Set.toList (winningMust ls))) (head (cg spec))
 
     unWins <- checkUniversalWin spec k
 
@@ -63,9 +68,21 @@ unboundedLoop init spec k = do
     then return (Just (k-1))
     else do
         if unWins
-        then return Nothing
+        then do
+            liftIO $ withFile "winningMay" WriteMode $ \h -> do
+                forM (Map.toList (winningMay ls)) $ \(r, wm) -> do
+                    hPutStrLn h (show r)
+                    forM (Set.toList wm) $ \s ->
+                        hPutStrLn h (printMove spec (Just (Set.toList s)))
+                    hPutStrLn h "--"
+                return ()
+            return Nothing
         else do
-            r <- checkRank spec k init
+            t1  <- liftIO $ getCPUTime
+            r   <- checkRank spec k init
+            t2  <- liftIO $ getCPUTime
+            let t = fromIntegral (t2-t1) * 1e-12 :: Double
+            liftIO $ printf "checkRank : %6.2fs\n" t
             if r
             then return (Just k) --Counterexample exists for Universal player
             else do

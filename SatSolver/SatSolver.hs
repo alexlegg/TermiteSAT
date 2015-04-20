@@ -37,7 +37,10 @@ totalTime :: IORef Double
 totalTime = unsafePerformIO (newIORef 0)
 
 timeInSAT :: IO Double
-timeInSAT = readIORef totalTime
+timeInSAT = do
+    t <- readIORef totalTime
+    writeIORef totalTime 0
+    return t
 
 unsatisfiable :: SatResult -> Bool
 unsatisfiable = not . satisfiable

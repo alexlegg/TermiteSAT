@@ -60,9 +60,13 @@ checkUniversalWin spec k = do
     let unWins  = or (zipWith (==) wm1 wm2)
 
     rs <- forM (zip wm1 wm2) $ \(wmA, wmB) -> do
-        let f   = maybe [] Set.toList
+        let f   = map Set.toList . maybe [] Set.toList
         fml     <- makeUniversalWinCheckFml (f wmA) (f wmB)
-        satSolve 0 Nothing fml
+        r <- satSolve 0 Nothing fml
+---        when (satisfiable r) $ do
+---            cex <- getVarsAtRank (svars spec) (fromJust (model r)) 0 0
+---            liftIO $ putStrLn (printMove spec (Just cex))
+        return r
 
     return $ any (not . satisfiable) rs
 
@@ -130,8 +134,8 @@ findCandidate player spec s gt = do
         then do
             mapM_ (learnStates spec player) (gtUnsetNodes gt)
         else do
-            mapM_ (learnStates spec player) (gtUnsetNodes gt)
             learnWinning spec player s gt
+            mapM_ (learnStates spec player) (gtUnsetNodes gt)
         return Nothing
 
 learnStates :: CompiledSpec -> Player -> GameTree -> SolverT ()
@@ -146,16 +150,17 @@ learnStates spec player ogt = do
     core            <- minimiseCore gt (Just s) f
 
     when (isJust core) $ do
-        c <- getConflicts (svars spec) (fromJust core) 0 rank
+        c           <- getConflicts (svars spec) (fromJust core) 0 rank
+        let cube    = sort $ map (\a -> setAssignmentRankCopy a 0 0) c
 
         ls <- get
         if player == Existential
         then do
-            put $ ls { winningUn = Map.alter (\x -> Just (Set.insert c (fromMaybe Set.empty x))) rank (winningUn ls) }
-            liftLog $ logLosingState (printMove spec (Just c))
+            put $ ls { winningMay    = alterAll (insertIntoSet [cube]) [1..rank] (winningMay ls) }
+            liftLog $ logLosingState (printMove spec (Just cube))
         else do
-            put $ ls { winningEx = winningEx ls ++ [c] }
-            liftLog $ logLosingState (printMove spec (Just c))
+            put $ ls { winningMust = Set.insert (Set.fromList cube) (winningMust ls) }
+            liftLog $ logLosingState (printMove spec (Just cube))
 
 learnWinning :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ()
 learnWinning spec player s gt = do
@@ -189,13 +194,12 @@ interpolateTree spec player s gt' = do
             else do
                 let cube'   = map (filter (((==) StateVar) . assignmentSection)) (fromJust (interpolant ir))
                 let cube''  = filter (all (\a -> assignmentRank a == gtRank gtB)) cube'
-                let cube    = map (map (\a -> setAssignmentRankCopy a 0 0)) cube''
+                let cube    = map (sort . map (\a -> setAssignmentRankCopy a 0 0)) cube''
 ---                liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
 ---                liftIO $ mapM (putStrLn . printMove spec . Just) cube'
 ---                liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
-
-                both <- liftE $ conjunctTemp (gtMaxCopy gt) [fmlA, fmlB]
-                dumpDimacs (gtMaxCopy gt) both "somedimacs"
+--
+---                liftIO $ mapM (\c -> putStrLn $ "learnWinning " ++ show c) cube
 
                 when (any (\cs -> not $ all (\a -> assignmentRank a == assignmentRank (head cs)) cs) cube') $ do
                     throwError "Not all cubes of the same rank"
@@ -205,8 +209,12 @@ interpolateTree spec player s gt' = do
 
                 ls <- get
                 if player == Existential
-                then put $ ls { winningMay = alterAll (insertIntoSet cube) [1..gtBaseRank gtB] (winningMay ls) }
-                else put $ ls { winningMust = winningMust ls ++ cube }
+                then put $ ls {
+                      winningMay    = alterAll (insertIntoSet cube) [1..gtBaseRank gtB] (winningMay ls)
+                    }
+                else put $ ls {
+                      winningMust   = foldl insertCube (winningMust ls) cube 
+                    }
 
                 interpolateTree spec player s gtA
     else return ()
@@ -215,18 +223,23 @@ alterAll :: Ord k => (Maybe a -> Maybe a) -> [k] -> Map.Map k a -> Map.Map k a
 alterAll f (k:[]) m = Map.alter f k m
 alterAll f (k:ks) m = Map.alter f k (alterAll f ks m)
 
-insertIntoSet :: Ord a => [a] -> Maybe (Set.Set a) -> Maybe (Set.Set a)
-insertIntoSet x (Just s)    = Just $ Set.union s (Set.fromList x)
-insertIntoSet x Nothing     = Just $ Set.fromList x
+insertIntoSet :: Ord a => [[a]] -> Maybe (Set.Set (Set.Set a)) -> Maybe (Set.Set (Set.Set a))
+insertIntoSet xs ss = Just $ foldl insertCube (fromMaybe Set.empty ss) xs
+
+insertCube :: Ord a => Set.Set (Set.Set a) -> [a] -> Set.Set (Set.Set a)
+insertCube ss x' = let x = Set.fromList x' in
+    if isJust $ find (\s -> s `Set.isSubsetOf` x) ss
+        then ss 
+        else Set.insert x $ Set.filter (\s -> not (x `Set.isSubsetOf` s)) ss
 
 printLearnedStates :: CompiledSpec -> Player -> SolverT [String]
 printLearnedStates spec player = do
     LearnedStates{..} <- get
     if player == Existential
     then do
-        return $ map (\(k, e) -> printMove spec (Just e)) (ungroupZip (map (mapSnd Set.toList) (Map.toList winningUn)))
+        return $ map (\(k, e) -> printMove spec (Just e)) (ungroupZip (map (mapSnd (\s -> map Set.toList (Set.toList s))) (Map.toList winningMay)))
     else do
-        return $ map (printMove spec . Just) winningEx
+        return $ map (printMove spec . Just) (map Set.toList (Set.toList winningMust))
 
 verify :: Player -> CompiledSpec -> Expression -> GameTree -> GameTree -> SolverT (Maybe GameTree)
 verify player spec s gt cand = do

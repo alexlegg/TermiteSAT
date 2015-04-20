@@ -162,8 +162,8 @@ makeUniversalWinCheckFml wm1 wm2 = do
     wm2'' <- liftE $ disjunct wm2'
 
     e <- liftE $ equate wm1'' wm2''
-    ep <- liftE $ printExpression e
-    liftIO $ writeFile "checkUnWin" ep
+---    ep <- liftE $ printExpression e
+---    liftIO $ writeFile "checkUnWin" ep
     liftE $ negation e
 
 data Construct where
@@ -272,18 +272,12 @@ makeGoal spec player CGoal{..} = do
 getBlockedStates :: Player -> [(Int, Int)] -> SolverT [Construct]
 getBlockedStates Existential copyRanks = do
     LearnedStates{..} <- get
-    let blockingStates = case learningType of
-                BoundedLearning     -> winningUn
-                UnboundedLearning   -> winningMay
-    return $ concatMap (\(c, r) -> blockAtRank blockingStates r c) copyRanks
+    return $ concatMap (\(c, r) -> blockAtRank winningMay r c) copyRanks
     where
-        blockAtRank block r c = map (CBlocked r c) (maybe [] Set.toList (Map.lookup r block))
+        blockAtRank block r c = map (CBlocked r c) (map Set.toList (maybe [] Set.toList (Map.lookup r block)))
 getBlockedStates Universal copyRanks = do
     LearnedStates{..} <- get
-    let blockingStates = case learningType of
-                BoundedLearning     -> winningEx
-                UnboundedLearning   -> winningMust
-    return [CBlocked r c a | (c, r) <- copyRanks, a <- blockingStates]
+    return [CBlocked r c a | (c, r) <- copyRanks, a <- (map Set.toList (Set.toList winningMust))]
 
 blockExpression CBlocked{..} = do
     let as = map (\a -> setAssignmentRankCopy a cbRank cbCopy) cbAssignment

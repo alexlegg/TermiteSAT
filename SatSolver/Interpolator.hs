@@ -16,6 +16,7 @@ import System.TimeIt
 import Data.IORef
 import Data.List
 import System.IO.Unsafe
+import System.CPUTime
 
 data PeriploSolver
 data Enode
@@ -61,10 +62,21 @@ totalTime :: IORef Double
 totalTime = unsafePerformIO (newIORef 0)
 
 timeInInterpolate :: IO Double
-timeInInterpolate = readIORef totalTime
+timeInInterpolate = do
+    t <- readIORef totalTime
+    writeIORef totalTime 0
+    return t
 
 interpolate :: Int -> [Int] -> Expression -> Expression -> SolverT InterpolantResult
 interpolate mc project a b = do
+    t1  <- liftIO $ getCPUTime
+    r   <- interpolate' mc project a b
+    t2  <- liftIO $ getCPUTime
+    let t = fromIntegral (t2-t1) * 1e-12 :: Double
+    liftIO $ modifyIORef totalTime (\total -> t + total)
+    return r
+
+interpolate' mc project a b = do
     ctx <- liftIO $ c_newSolver
 
     enodeA  <- lift $ foldExpressionIO mc (exprToEnode ctx) a
@@ -90,8 +102,7 @@ interpolate mc project a b = do
                 }
         else do
             let pv = SV.fromList (map fromIntegral project) :: SV.Vector CInt
-            (t, r) <- liftIO $ timeItT $ SV.unsafeWith pv (\ps -> c_interpolate ctx ps (fromIntegral (SV.length pv)) enodeA enodeB)
-            liftIO $ modifyIORef totalTime (\total -> t + total)
+            r <- liftIO $ SV.unsafeWith pv (\ps -> c_interpolate ctx ps (fromIntegral (SV.length pv)) enodeA enodeB)
             liftIO $ c_deleteSolver ctx
 
             let succ = (r /= nullPtr)

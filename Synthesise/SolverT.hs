@@ -22,18 +22,14 @@ data LearningType = BoundedLearning | UnboundedLearning deriving (Show, Eq)
 
 data LearnedStates = LearnedStates {
       learningType  :: LearningType
-    , winningEx     :: [[Assignment]]
-    , winningUn     :: Map.Map Int (Set.Set [Assignment])
-    , winningMay    :: Map.Map Int (Set.Set [Assignment])
-    , winningMust   :: [[Assignment]]
+    , winningMust   :: Set.Set (Set.Set Assignment)
+    , winningMay    :: Map.Map Int (Set.Set (Set.Set Assignment))
 }
 
 emptyLearnedStates t = LearnedStates {
       learningType  = t
-    , winningEx     = []
-    , winningUn     = Map.empty
+    , winningMust   = Set.empty
     , winningMay    = Map.empty
-    , winningMust   = []
 }
 
 throwError :: String -> SolverT a
