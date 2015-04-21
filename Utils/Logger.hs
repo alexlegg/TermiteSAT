@@ -75,11 +75,12 @@ printLog dm logger = do
             renderHtmlToByteStringIO (BS.hPut h) (outputLog (fromJust spec) (fromJust trace))
     return r
 
-logDumpLog :: LoggerT IO ()
-logDumpLog = do
+logDumpLog :: Int -> LoggerT IO ()
+logDumpLog k = do
     Log{..} <- get
+    let dumpFn = "debug" ++ (show k) ++ ".html"
     when (debugMode == DumpLogs && isJust trace && isJust spec) $ liftIO $ do
-        withFile "debug.html" WriteMode $ \h -> do
+        withFile dumpFn WriteMode $ \h -> do
             renderHtmlToByteStringIO (BS.hPut h) (outputLog (fromJust spec) (fromJust trace))
 
 outputLog spec trace = H.docTypeHtml $ do

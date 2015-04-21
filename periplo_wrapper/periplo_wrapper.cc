@@ -167,7 +167,7 @@ extern "C" {
             if (!success) {
                 cout << "Error reducing cubes" << endl;
                 interp = NULL;
-            }
+            } 
         }
 
         ctx->deleteProofGraph();

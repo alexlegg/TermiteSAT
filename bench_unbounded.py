@@ -41,7 +41,7 @@ M4PARAM         = {
 MAX_K_F = {
            "spi"            : 4
          , "queue"          : 4
-         , "queue_fails"    : 4
+         , "queue_fails"    : 2
          , "ide"            : 4
          , "uart"           : 4
          }

@@ -666,8 +666,9 @@ printMove :: CompiledSpec -> Move -> String
 printMove spec Nothing   = "Nothing"
 printMove spec (Just as) = interMap ", " (printVar spec) vs
     where
-        vs = groupBy f as
+        vs = groupBy f (sortBy g as)
         f (Assignment _ x) (Assignment _ y) = varname x == varname y
+        g (Assignment _ x) (Assignment _ y) = compare (varname x) (varname y)
 
 printVar :: CompiledSpec -> [Assignment] -> String
 printVar spec as = vname ++ show vrank ++ "_" ++ show vcopy ++ " = " ++ valsToEnums vi vals

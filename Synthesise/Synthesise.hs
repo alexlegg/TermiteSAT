@@ -65,18 +65,10 @@ unboundedLoop init spec k = do
     unWins <- checkUniversalWin spec k
 
     if exWins
-    then return (Just (k-1))
+    then finishedLoop spec (Just (k-1))
     else do
         if unWins
-        then do
-            liftIO $ withFile "winningMay" WriteMode $ \h -> do
-                forM (Map.toList (winningMay ls)) $ \(r, wm) -> do
-                    hPutStrLn h (show r)
-                    forM (Set.toList wm) $ \s ->
-                        hPutStrLn h (printMove spec (Just (Set.toList s)))
-                    hPutStrLn h "--"
-                return ()
-            return Nothing
+        then finishedLoop spec Nothing
         else do
             t1  <- liftIO $ getCPUTime
             r   <- checkRank spec k init
@@ -84,11 +76,31 @@ unboundedLoop init spec k = do
             let t = fromIntegral (t2-t1) * 1e-12 :: Double
             liftIO $ printf "checkRank : %6.2fs\n" t
             if r
-            then return (Just k) --Counterexample exists for Universal player
+            then finishedLoop spec (Just k) --Counterexample exists for Universal player
             else do
                 spec' <- liftE $ unrollSpec spec
                 init' <- liftE $ setRank (k+1) init
                 unboundedLoop init' spec' (k+1)
+
+finishedLoop :: CompiledSpec -> Maybe Int -> SolverT (Maybe Int)
+finishedLoop spec r = do
+    ls <- get
+
+    liftIO $ withFile "winningMay" WriteMode $ \h -> do
+        forM (Map.toList (winningMay ls)) $ \(r, wm) -> do
+            hPutStrLn h (show r)
+            forM (Set.toList wm) $ \s ->
+                hPutStrLn h (printMove spec (Just (Set.toList s)))
+            hPutStrLn h "--"
+        return ()
+
+    liftIO $ withFile "winningMust" WriteMode $ \h -> do
+        forM (Set.toList (winningMust ls)) $ \s -> do
+            hPutStrLn h (printMove spec (Just (Set.toList s)))
+        return ()
+
+    return r
+
 
 synthesise' k spec learning = do
     (init, cspec) <- loadFmls k spec

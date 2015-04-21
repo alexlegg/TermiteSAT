@@ -61,11 +61,23 @@ totalTime :: IORef Double
 {-# NOINLINE totalTime #-}
 totalTime = unsafePerformIO (newIORef 0)
 
-timeInInterpolate :: IO Double
+enodeATime :: IORef Double
+{-# NOINLINE enodeATime #-}
+enodeATime = unsafePerformIO (newIORef 0)
+
+enodeBTime :: IORef Double
+{-# NOINLINE enodeBTime #-}
+enodeBTime = unsafePerformIO (newIORef 0)
+
+timeInInterpolate :: IO (Double, Double, Double)
 timeInInterpolate = do
     t <- readIORef totalTime
+    tA <- readIORef enodeATime
+    tB <- readIORef enodeBTime
     writeIORef totalTime 0
-    return t
+    writeIORef enodeATime 0
+    writeIORef enodeBTime 0
+    return (t, tA, tB)
 
 interpolate :: Int -> [Int] -> Expression -> Expression -> SolverT InterpolantResult
 interpolate mc project a b = do
@@ -79,8 +91,12 @@ interpolate mc project a b = do
 interpolate' mc project a b = do
     ctx <- liftIO $ c_newSolver
 
+    tA1     <- liftIO $ getCPUTime
     enodeA  <- lift $ foldExpressionIO mc (exprToEnode ctx) a
     rA      <- liftIO $ c_checkFml ctx enodeA
+    tA2     <- liftIO $ getCPUTime
+    let tA = fromIntegral (tA2-tA1) * 1e-12 :: Double
+    liftIO $ modifyIORef enodeATime (\total -> tA + total)
 
     if (rA == 0)
     then do
@@ -90,8 +106,12 @@ interpolate' mc project a b = do
             interpolant = Nothing
             }
     else do
+        tB1     <- liftIO $ getCPUTime
         enodeB  <- lift $ foldExpressionIO mc (exprToEnode ctx) b
         rB      <- liftIO $ c_checkFml ctx enodeB
+        tB2     <- liftIO $ getCPUTime
+        let tB = fromIntegral (tB2-tB1) * 1e-12 :: Double
+        liftIO $ modifyIORef enodeBTime (\total -> tB + total)
 
         if (rB == 1)
         then do

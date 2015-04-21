@@ -40,9 +40,12 @@ checkRank spec rnk s = do
     r <- solveAbstract Universal spec s (gtNew Existential rnk)
     --liftE $ analyseManagers
     satTime <- liftIO $ timeInSAT
-    intTime <- liftIO $ timeInInterpolate
+    (intTime, eA, eB) <- liftIO $ timeInInterpolate
     liftIO $ putStrLn $ "timeInSAT = " ++ (show ((fromInteger $ round $ (satTime * 10)) / 10.0))
     liftIO $ putStrLn $ "timeInInterpolate = " ++ (show ((fromInteger $ round $ (intTime * 10)) / 10.0))
+    liftIO $ putStrLn $ "timeInEnodeA = " ++ (show ((fromInteger $ round $ (eA * 10)) / 10.0))
+    liftIO $ putStrLn $ "timeInEnodeB = " ++ (show ((fromInteger $ round $ (eB * 10)) / 10.0))
+    liftLog (logDumpLog rnk)
     return (isNothing r)
 
 checkInit :: Int -> Expression -> [[Assignment]] -> Expression -> SolverT Bool
@@ -96,7 +99,6 @@ solveAbstract player spec s gt = do
     res <- refinementLoop player spec s cand gt gt
 
     liftLog $ logSolveComplete res
-    liftLog logDumpLog
 
     return res
 
