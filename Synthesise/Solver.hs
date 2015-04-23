@@ -94,7 +94,6 @@ solveAbstract player spec s gt = do
     liftLog $ logSolve gt player []
 
     cand <- findCandidate player spec s gt
-    liftLog $ logCandidate cand
 
     res <- refinementLoop player spec s cand gt gt
 
@@ -129,6 +128,8 @@ findCandidate player spec s gt = do
     then do
         (Just m)    <- shortenStrategy player gt' f (model res) es
         gt'         <- setMoves player spec m (gtRoot gt')
+        outGt'      <- setMoves player spec m (gtRoot (gtExtend gt'))
+        liftLog $ logCandidate (Just outGt')
         return (Just gt')
     else do
         ls <- get
@@ -138,6 +139,7 @@ findCandidate player spec s gt = do
         else do
             learnWinning spec player s gt
             mapM_ (learnStates spec player) (gtUnsetNodes gt)
+        liftLog $ logCandidate Nothing
         return Nothing
 
 learnStates :: CompiledSpec -> Player -> GameTree -> SolverT ()
@@ -154,6 +156,11 @@ learnStates spec player ogt = do
     when (isJust core) $ do
         c           <- getConflicts (svars spec) (fromJust core) 0 rank
         let cube    = sort $ map (\a -> setAssignmentRankCopy a 0 0) c
+
+        liftIO $ putStrLn $ "learnStates " ++ show player ++ " " ++ show rank
+        liftIO $ putStrLn $ printMove spec (Just cube)
+        liftIO $ putStrLn $ show cube
+        liftIO $ putStrLn ""
 
         ls <- get
         if player == Existential
@@ -186,20 +193,24 @@ interpolateTree spec player s gt' = do
         if (not (satisfiable rA))
         then do
             -- We lose in the prefix, so just keep going
+            liftIO $ putStrLn "lose in prefix"
             interpolateTree spec player s gtA
         else do
             ir <- interpolate (gtMaxCopy gt) project fmlA fmlB
             if (not (success ir))
             then do
+                liftIO $ putStrLn "bad thing probably"
                 -- We lose in the prefix, so just keep going
                 interpolateTree spec player s gtA
             else do
                 let cube'   = map (filter (((==) StateVar) . assignmentSection)) (fromJust (interpolant ir))
                 let cube''  = filter (all (\a -> assignmentRank a == gtRank gtB)) cube'
                 let cube    = map (sort . map (\a -> setAssignmentRankCopy a 0 0)) cube''
----                liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
----                liftIO $ mapM (putStrLn . printMove spec . Just) cube'
----                liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
+                
+                liftIO $ putStrLn $ "--Losing for " ++ show player ++ " " ++ (show (gtBaseRank gtB)) ++ "--"
+                liftIO $ mapM (putStrLn . printMove spec . Just) cube
+                liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
+                liftIO $ putStrLn ""
 --
 ---                liftIO $ mapM (\c -> putStrLn $ "learnWinning " ++ show c) cube
 

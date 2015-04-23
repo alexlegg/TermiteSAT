@@ -1,6 +1,9 @@
 #include "core/Solver.h"
+#include <iostream>
+#include <vector>
 
 using namespace Glucose;
+using namespace std;
 
 struct glucose_solver_t : public Solver {
     vec<Lit> assumps;
@@ -71,22 +74,22 @@ extern "C" {
         return s->solve(s->assumps);
     }
 
-    int *minimise_core(glucose_solver *s)
+    vector<Lit> reduce(glucose_solver *s, vector<Lit> cube)
     {
-        vec<bool> marks(s->assumps.size());
+        vector<bool> marks(cube.size());
         for (int i = 0; i != marks.size(); ++i)
         {
             marks[i] = false;
         }
 
-        for (int i = 0; i != s->assumps.size(); ++i)
+        for (int i = 0; i != cube.size(); ++i)
         {
             vec<Lit> curr_assumps;
             for (int j = 0; j != marks.size(); ++j)
             {
                 if (i == j) continue; //Omit current lit
                 if (marks[j]) continue; //Omit previously marked lits
-                curr_assumps.push(s->assumps[j]);
+                curr_assumps.push(cube[j]);
             }
 
             if (!s->solve(curr_assumps))
@@ -95,27 +98,71 @@ extern "C" {
             }
         }
 
-        int core_size = 0;
-        for (int i = 0; i != marks.size(); ++i)
-        {
-            if (!marks[i]) core_size++;
-        }
-
-        int *core = (int *)malloc(sizeof(int) * (1 + core_size));
-        int ci = 0;
+        vector<Lit> reduced;
         for (int i = 0; i != marks.size(); ++i)
         {
             if (!marks[i]) {
-                if (sign(s->assumps[i])) {
-                    core[ci] = -var(s->assumps[i]);
-                } else {
-                    core[ci] = var(s->assumps[i]);
-                }
-                ci++;
+                reduced.push_back(cube[i]);
             }
         }
-        core[ci] = 0;
-        return core;
+        
+        return reduced;
+    }
+
+    int *minimise_core(glucose_solver *s)
+    {
+        vector<Lit> initial_core;
+        for (int i = 0; i != s->assumps.size(); ++i)
+        {
+            initial_core.push_back(s->assumps[i]);
+        }
+        vector<Lit> core = reduce(s, initial_core);
+
+
+        //TEST
+///        vector<int> try_removing;
+///        for (int i = 0; i != marks.size(); ++i)
+///        {
+///            if (!marks[i]) {
+///                try_removing.push_back(i);
+///            }
+///        }
+
+///        while (!try_removing.empty())
+///        {
+///            int remove = try_removing.back();
+///            try_removing.pop_back();
+///            vec<Lit> blah;
+///            for (int i = 0; i != s->assumps.size(); ++i)
+///            {
+///                if (i == remove) continue;
+///                blah.push(s->assumps[i]);
+///                if (sign(s->assumps[i])) cout << "-";
+///                cout << var(s->assumps[i]) << " ";
+///            }
+
+///            if (!s->solve(blah)) {
+///                cout << "true" << endl;
+///            } else {
+///                cout << "false" << endl;
+///            }
+
+///        }
+
+        //TEST
+
+        int *core_arr = (int *)malloc(sizeof(int) * (1 + core.size()));
+        int ci = 0;
+        for (int i = 0; i != core.size(); ++i)
+        {
+            if (sign(core[i])) {
+                core_arr[i] = -var(core[i]);
+            } else {
+                core_arr[i] = var(core[i]);
+            }
+        }
+        core_arr[core.size()] = 0;
+        return core_arr;
     }
 
     int *model(glucose_solver *s)
