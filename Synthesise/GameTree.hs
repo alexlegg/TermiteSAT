@@ -475,7 +475,7 @@ stateFromPair (SNode n@(U{})) (SNode (E{})) = uState n
 
 -- |Finds the first Nothing move
 gtUnsetNodes :: GameTree -> [GameTree]
-gtUnsetNodes gt = map (setCrumb gt) $ filter (not . null) $ map (firstUnsetNode (root gt) 0) (getLeaves (root gt))
+gtUnsetNodes gt = map (setCrumb gt) $ nub $ filter (not . null) $ map (firstUnsetNode (root gt) 0) (getLeaves (root gt))
 
 firstUnsetNode r cc cr
     | cc == length cr + 1                                   = []

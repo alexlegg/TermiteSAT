@@ -105,7 +105,7 @@ toDimacs mc e = do
     dimacs <- liftE $ getCachedStepDimacs mc e
     return (SV.singleton (fromIntegral (exprIndex e)) : dimacs)
 
-minimiseCore :: GameTree -> Maybe [Assignment] -> Expression -> SolverT (Maybe [Int])
+minimiseCore :: GameTree -> Maybe [Assignment] -> Expression -> SolverT (Maybe [[Int]])
 minimiseCore gt a e = do
     maxId       <- liftE $ getMaxId (gtMaxCopy gt)
     clauses     <- toDimacs (gtMaxCopy gt) e
@@ -119,7 +119,7 @@ minimiseCore gt a e = do
 
     doMinimiseCore maxId as clauses
 
-doMinimiseCore :: Int -> [Int] -> [SV.Vector CInt] -> SolverT (Maybe [Int])
+doMinimiseCore :: Int -> [Int] -> [SV.Vector CInt] -> SolverT (Maybe [[Int]])
 doMinimiseCore max assumptions clauses = do
     solver <- liftIO $ c_glucose_new
 
@@ -145,12 +145,18 @@ doMinimiseCore max assumptions clauses = do
         if noCore
         then do
             liftIO $ addAssumptions solver conflicts
-            core_ptr <- liftIO $ c_minimise_core solver
+            coresPtr    <- liftIO $ c_minimise_core solver
+            coresPtrs   <- liftIO $ peekArray0 nullPtr coresPtr
 
-            core <- liftIO $ peekArray0 0 core_ptr
-            liftIO $ free core_ptr
+            cores <- liftIO $ forM coresPtrs $ \p -> do
+                core <- peekArray0 0 p
+                free p
+                return core
+
+            liftIO $ free coresPtr
             liftIO $ c_glucose_delete solver
-            return $ Just (map fromIntegral core)
+
+            return $ Just (map (map fromIntegral) cores)
         else do
             liftIO $ c_glucose_delete solver
             liftIO $ putStrLn "minimise_core -> UNSAT w/ no core"
@@ -199,7 +205,7 @@ foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h solve"
     c_solve :: Ptr GlucoseSolver -> IO Bool
 
 foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h minimise_core"
-    c_minimise_core :: Ptr GlucoseSolver -> IO (Ptr CInt)
+    c_minimise_core :: Ptr GlucoseSolver -> IO (Ptr (Ptr CInt))
 
 foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h model"
     c_model :: Ptr GlucoseSolver -> IO (Ptr CInt)

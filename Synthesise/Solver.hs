@@ -138,7 +138,7 @@ findCandidate player spec s gt = do
             mapM_ (learnStates spec player) (gtUnsetNodes gt)
         else do
             learnWinning spec player s gt
-            mapM_ (learnStates spec player) (gtUnsetNodes gt)
+            --mapM_ (learnStates spec player) (gtUnsetNodes gt)
         liftLog $ logCandidate Nothing
         return Nothing
 
@@ -151,29 +151,60 @@ learnStates spec player ogt = do
 
     fakes           <- liftE $ trueExpr
     (es, f, gt)     <- makeFml spec player fakes gt' True
-    core            <- minimiseCore gt (Just s) f
+    cores           <- minimiseCore gt (Just s) f
 
-    when (isJust core) $ do
-        c           <- getConflicts (svars spec) (fromJust core) 0 rank
-        let cube    = sort $ map (\a -> setAssignmentRankCopy a 0 0) c
+    when (isJust cores) $ do
+        cs          <- mapM (\core -> getConflicts (svars spec) core 0 rank) (fromJust cores)
+        let cube    = map (sort . map (\a -> setAssignmentRankCopy a 0 0)) cs
 
-        liftIO $ putStrLn $ "learnStates " ++ show player ++ " " ++ show rank
-        liftIO $ putStrLn $ printMove spec (Just cube)
-        liftIO $ putStrLn $ show cube
+        liftIO $ putStrLn $ "--learnStates for " ++ show player ++ " " ++ (show rank) ++ "--"
+        liftIO $ mapM (putStrLn . printMove spec . Just) cube
+        liftIO $ putStrLn $ "--learnStates for " ++ show player ++ "--"
         liftIO $ putStrLn ""
 
         ls <- get
         if player == Existential
         then do
-            put $ ls { winningMay    = alterAll (insertIntoSet [cube]) [1..rank] (winningMay ls) }
-            liftLog $ logLosingState (printMove spec (Just cube))
+            put $ ls { winningMay    = alterAll (insertIntoSet cube) [1..rank] (winningMay ls) }
+            liftLog $ logLosingState (printMove spec (Just (head cube)))
         else do
-            put $ ls { winningMust = Set.insert (Set.fromList cube) (winningMust ls) }
-            liftLog $ logLosingState (printMove spec (Just cube))
+            put $ ls { winningMust   = foldl insertCube (winningMust ls) cube }
+            liftLog $ logLosingState (printMove spec (Just (head cube)))
+
+getLosingStates :: CompiledSpec -> Player -> GameTree -> SolverT (Maybe [[Assignment]])
+getLosingStates spec player ogt = do
+    let gt'         = gtRebase 0 ogt
+    let (Just as)   = gtPrevState ogt
+    let rank        = gtBaseRank gt'
+    let s           = map (\x -> setAssignmentRankCopy x rank 0) as
+
+    fakes           <- liftE $ trueExpr
+    (es, f, gt)     <- makeFml spec player fakes gt' True
+    cores           <- minimiseCore gt (Just s) f
+
+    if (isJust cores)
+    then do
+        cs          <- mapM (\core -> getConflicts (svars spec) core 0 rank) (fromJust cores)
+        let cube    = map (sort . map (\a -> setAssignmentRankCopy a 0 0)) cs
+        return $ Just cube
+    else 
+        return Nothing
+
 
 learnWinning :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ()
 learnWinning spec player s gt = do
-    interpolateTree spec player s (gtExtend gt)
+    let gts = gtUnsetNodes gt
+    gt' <- case gts of
+        []      -> return $ gt
+        (t:[])  -> return $ gtRebase 0 t
+        _       -> throwError "I think this is an error?"
+
+    --Just s' <- getLosingStates spec player t
+
+    let (Just s') = gtPrevState gt'
+    se <- liftE $ assignmentToExpression s'
+
+    interpolateTree spec player s' (gtExtend gt')
 
 interpolateTree :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ()
 interpolateTree spec player s gt' = do
@@ -193,15 +224,12 @@ interpolateTree spec player s gt' = do
         if (not (satisfiable rA))
         then do
             -- We lose in the prefix, so just keep going
-            liftIO $ putStrLn "lose in prefix"
             interpolateTree spec player s gtA
         else do
             ir <- interpolate (gtMaxCopy gt) project fmlA fmlB
             if (not (success ir))
             then do
-                liftIO $ putStrLn "bad thing probably"
-                -- We lose in the prefix, so just keep going
-                interpolateTree spec player s gtA
+                throwError "Interpolation failed"
             else do
                 let cube'   = map (filter (((==) StateVar) . assignmentSection)) (fromJust (interpolant ir))
                 let cube''  = filter (all (\a -> assignmentRank a == gtRank gtB)) cube'
