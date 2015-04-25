@@ -131,18 +131,6 @@ extern "C" {
             }
         }
 
-///        cout << "extra cubes" << endl;
-///        for (int i = 0; i != cubes.size(); ++i)
-///        {
-///            for (int j = 0; j != cubes[i].size(); ++j)
-///            {
-///                if (sign(extra_cubes[i][j])) cout << "-";
-///                cout << var(extra_cubes[i][j]) << " ";
-///            }
-///            cout << endl;
-///        }
-///        cout << "extra cubes" << endl;
-
         int **cubes_arr = (int **)malloc(sizeof(int*) * (1 + cubes.size()));
         for (int i = 0; i != cubes.size(); ++i)
         {
@@ -153,7 +141,7 @@ extern "C" {
                 if (sign(cubes[i][j])) {
                     core_arr[j] = -var(cubes[i][j]);
                 } else {
-                    core_arr[i] = var(cubes[i][j]);
+                    core_arr[j] = var(cubes[i][j]);
                 }
             }
 

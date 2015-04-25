@@ -185,8 +185,8 @@ getLosingStates spec player ogt = do
     if (isJust cores)
     then do
         cs          <- mapM (\core -> getConflicts (svars spec) core 0 rank) (fromJust cores)
-        let cube    = map (sort . map (\a -> setAssignmentRankCopy a 0 0)) cs
-        return $ Just cube
+        --let cube    = map (sort . map (\a -> setAssignmentRankCopy a 0 0)) cs
+        return $ Just cs
     else 
         return Nothing
 
@@ -194,15 +194,15 @@ getLosingStates spec player ogt = do
 learnWinning :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ()
 learnWinning spec player s gt = do
     let gts = gtUnsetNodes gt
-    gt' <- case gts of
-        []      -> return $ gt
-        (t:[])  -> return $ gtRebase 0 t
+    (s', gt') <- case gts of
+        []      -> return $ (s, gt)
+        (t:[])  -> do
+            (Just core) <- getLosingStates spec player t
+            coreExps    <- liftE $ mapM (assignmentToExpression 0) core
+            allCores    <- liftE $ disjunct coreExps
+            return $ (allCores, gtRebase 0 t)
         _       -> throwError "I think this is an error?"
 
-    --Just s' <- getLosingStates spec player t
-
-    let (Just s') = gtPrevState gt'
-    se <- liftE $ assignmentToExpression s'
 
     interpolateTree spec player s' (gtExtend gt')
 
@@ -235,10 +235,10 @@ interpolateTree spec player s gt' = do
                 let cube''  = filter (all (\a -> assignmentRank a == gtRank gtB)) cube'
                 let cube    = map (sort . map (\a -> setAssignmentRankCopy a 0 0)) cube''
                 
-                liftIO $ putStrLn $ "--Losing for " ++ show player ++ " " ++ (show (gtBaseRank gtB)) ++ "--"
-                liftIO $ mapM (putStrLn . printMove spec . Just) cube
-                liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
-                liftIO $ putStrLn ""
+---                liftIO $ putStrLn $ "--Losing for " ++ show player ++ " " ++ (show (gtBaseRank gtB)) ++ "--"
+---                liftIO $ mapM (putStrLn . printMove spec . Just) cube
+---                liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
+---                liftIO $ putStrLn ""
 --
 ---                liftIO $ mapM (\c -> putStrLn $ "learnWinning " ++ show c) cube
 
