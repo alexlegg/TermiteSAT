@@ -36,17 +36,30 @@ import Utils.Utils
 
 checkRank :: CompiledSpec -> Int -> Expression -> SolverT Bool
 checkRank spec rnk s = do
-    --testInterpolants
+    initDefaultMoves spec rnk
     r <- solveAbstract Universal spec s (gtNew Existential rnk)
-    --liftE $ analyseManagers
+    
     satTime <- liftIO $ timeInSAT
     (intTime, eA, eB) <- liftIO $ timeInInterpolate
     liftIO $ putStrLn $ "timeInSAT = " ++ (show ((fromInteger $ round $ (satTime * 10)) / 10.0))
     liftIO $ putStrLn $ "timeInInterpolate = " ++ (show ((fromInteger $ round $ (intTime * 10)) / 10.0))
     liftIO $ putStrLn $ "timeInEnodeA = " ++ (show ((fromInteger $ round $ (eA * 10)) / 10.0))
     liftIO $ putStrLn $ "timeInEnodeB = " ++ (show ((fromInteger $ round $ (eB * 10)) / 10.0))
+
     liftLog (logDumpLog rnk)
+
     return (isNothing r)
+
+initDefaultMoves :: CompiledSpec -> Int -> SolverT ()
+initDefaultMoves spec rank = do
+    let someUnMove  = map (\v -> Assignment Pos v) (ucont spec)
+    let someExMove  = map (\v -> Assignment Pos v) (cont spec)
+    let defaultUn   = foldl (\m r -> Map.insert r someUnMove m) Map.empty [0..rank]
+    let defaultEx   = foldl (\m r -> Map.insert r someExMove m) Map.empty [0..rank]
+    ls <- get
+    put $ ls { defaultUnMoves   = defaultUn
+             , defaultExMoves   = defaultEx }
+    return ()
 
 checkInit :: Int -> Expression -> [[Assignment]] -> Expression -> SolverT Bool
 checkInit k init must goal = do
@@ -157,10 +170,9 @@ learnStates spec player ogt = do
         cs          <- mapM (\core -> getConflicts (svars spec) core 0 rank) (fromJust cores)
         let cube    = map (sort . map (\a -> setAssignmentRankCopy a 0 0)) cs
 
-        liftIO $ putStrLn $ "--learnStates for " ++ show player ++ " " ++ (show rank) ++ "--"
-        liftIO $ mapM (putStrLn . printMove spec . Just) cube
-        liftIO $ putStrLn $ "--learnStates for " ++ show player ++ "--"
-        liftIO $ putStrLn ""
+---        liftIO $ putStrLn $ "--learnStates for " ++ show player ++ " " ++ (show rank) ++ "--"
+---        liftIO $ mapM (putStrLn . printMove spec . Just) cube
+---        liftIO $ putStrLn $ "--learnStates for " ++ show player ++ "--"
 
         ls <- get
         if player == Existential

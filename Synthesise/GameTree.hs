@@ -36,6 +36,7 @@ module Synthesise.GameTree (
     , printTree
     , gtIsPrefix
     , gtCopiesAndRanks
+    , gtPlayer
 
     -- Modifiers
     , gtNew
@@ -735,3 +736,6 @@ gtIsPrefix gt = not $ hasNothingMove (root gt)
     where
         hasNothingMove (snodeMove -> Nothing)   = True
         hasNothingMove n                        = any hasNothingMove (children n)
+
+gtPlayer :: GameTree -> Player
+gtPlayer gt = if (isUNode (followGTCrumb gt)) then Universal else Existential

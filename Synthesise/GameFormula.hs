@@ -30,9 +30,12 @@ makeFml spec player s ogt useBlocking = do
     let maxCopy = gtMaxCopy gt
     let root    = gtRoot gt
     let rank    = gtRank root
+    let gtExt   = gtExtend gt
 
     liftE $ clearTempExpressions
     liftE $ initCopyMaps maxCopy
+
+    filledTree <- (fmap gtRoot) $ fillTree player (head (gtChildren (gtRoot gtExt)))
 
     -- Make a list of transitions, moves and blocking expressions to construct
     let cs      = gtSteps root
@@ -40,7 +43,7 @@ makeFml spec player s ogt useBlocking = do
                     then getTransitions rank root (Nothing, Nothing, Nothing)
                     else concatMap (getTransitions rank root) cs
     let goals   = getGoals rank maxCopy player
-    let moves   = concatMap (getMoves rank player root) cs
+    let moves   = concatMap (getMoves rank player filledTree) (gtSteps filledTree)
     let cr      = gtCopiesAndRanks gt
     block       <- if useBlocking
                     then getBlockedStates player cr
@@ -227,9 +230,8 @@ getConstructsFor maxCopy gt player stopAt = do
     return $ trans ++ goals ++ moves ++ block
 
 getMoves :: Int -> Player -> GameTree -> (Move, Move, Maybe GameTree) -> [Construct]
-getMoves rank player gt (m1, m2, c) = m1' ++ m2' ++ next --m ++ next
+getMoves rank player gt (m1, m2, c) = m1' ++ m2' ++ next
     where
-        m           = if player == first then m2' else m1'
         m1'         = maybe [] (\m -> [CMove rank parentCopy copy1 first m]) m1
         m2'         = maybe [] (\m -> [CMove rank parentCopy copy2 (opponent first) m]) m2
         parentCopy  = gtCopyId gt 
@@ -418,3 +420,20 @@ leafTo spec copy maxCopy player rank rankTo = do
 playerToSection :: Player -> Section
 playerToSection Existential = ContVar
 playerToSection Universal   = UContVar
+
+fillTree :: Player -> GameTree -> SolverT GameTree
+fillTree player gt = do
+    ls <- get
+   
+    let moveMap = if player == Existential
+        then defaultUnMoves ls
+        else defaultExMoves ls
+
+    let gt' = if gtPlayer gt == opponent player && isNothing (gtMove gt)
+        then gtSetMove gt (fromJust (Map.lookup (gtRank gt) moveMap))
+        else gt
+
+    let cs = gtChildren gt'
+    cs' <- mapM (fillTree player) cs
+
+    return $ gtSetChildren gt' cs'

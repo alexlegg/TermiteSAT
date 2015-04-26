@@ -21,15 +21,19 @@ type SolverT = SolverST (ExpressionT (LoggerT IO))
 data LearningType = BoundedLearning | UnboundedLearning deriving (Show, Eq)
 
 data LearnedStates = LearnedStates {
-      learningType  :: LearningType
-    , winningMust   :: Set.Set (Set.Set Assignment)
-    , winningMay    :: Map.Map Int (Set.Set (Set.Set Assignment))
+      learningType      :: LearningType
+    , winningMust       :: Set.Set (Set.Set Assignment)
+    , winningMay        :: Map.Map Int (Set.Set (Set.Set Assignment))
+    , defaultUnMoves    :: Map.Map Int [Assignment]
+    , defaultExMoves    :: Map.Map Int [Assignment]
 }
 
 emptyLearnedStates t = LearnedStates {
-      learningType  = t
-    , winningMust   = Set.empty
-    , winningMay    = Map.empty
+      learningType      = t
+    , winningMust       = Set.empty
+    , winningMay        = Map.empty
+    , defaultUnMoves    = Map.empty
+    , defaultExMoves    = Map.empty
 }
 
 throwError :: String -> SolverT a
