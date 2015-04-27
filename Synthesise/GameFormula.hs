@@ -48,7 +48,7 @@ makeFml spec player s ogt useBlocking = do
     block       <- if useBlocking
                     then getBlockedStates player cr
                     else return []
-    
+
     -- Construct everything in order
     exprs       <- mapM (construct spec player (gtFirstPlayer gt)) (sortConstructibles (trans ++ moves ++ goals ++ block))
 
@@ -97,8 +97,8 @@ makeSplitFmls spec player s gt = do
     liftE $ clearTempExpressions
     liftE $ initCopyMaps maxCopy
 
-    constA <- liftM (zip (repeat True)) $ getConstructsFor maxCopy t1 player (Just (nRank-1, copy2))
-    constB <- liftM (zip (repeat False)) $ getConstructsFor maxCopy t2 player Nothing
+    constA <- liftM (zip (repeat True)) $ getConstructsFor spec maxCopy t1 player (Just (nRank-1, copy2))
+    constB <- liftM (zip (repeat False)) $ getConstructsFor spec maxCopy t2 player Nothing
     let sorted = sortBy (\x y -> compare (sortIndex (snd x)) (sortIndex (snd y))) (constA ++ constB)
 
     -- Construct everything in order
@@ -210,16 +210,21 @@ construct s p f g@CGoal{}       = makeGoal s p g
 sortConstructibles :: [Construct] -> [Construct]
 sortConstructibles = sortBy (\x y -> compare (sortIndex x) (sortIndex y))
 
-getConstructsFor :: Int -> GameTree -> Player -> Maybe (Int, Int) -> SolverT [Construct]
-getConstructsFor maxCopy gt player stopAt = do
+getConstructsFor :: CompiledSpec -> Int -> GameTree -> Player -> Maybe (Int, Int) -> SolverT [Construct]
+getConstructsFor spec maxCopy gt player stopAt = do
     let root    = gtRoot gt
     let rank    = gtRank root
     let cs      = gtSteps root
+
     let trans   = if null cs
                     then getTransitions rank root (Nothing, Nothing, Nothing)
                     else concatMap (getTransitions rank root) cs
     let goals   = getGoals rank maxCopy player
-    let moves   = concatMap (getMoves rank player root) cs
+    moves       <- if (gtEmpty root)
+        then return []
+        else do
+            filledTree <- (fmap gtRoot) $ fillTree player (head (gtChildren root))
+            return $ concatMap (getMoves rank player filledTree) (gtSteps filledTree)
     let cr      = case stopAt of
                 Just (stopRank, stopCopy)   -> filter (\(c, r) -> not (r <= stopRank && c == stopCopy)) (gtCopiesAndRanks gt)
                 Nothing                     -> [(gtCopyId root, rank), (gtCopyId (head (gtChildren gt)), rank-1)]
@@ -424,16 +429,18 @@ playerToSection Universal   = UContVar
 fillTree :: Player -> GameTree -> SolverT GameTree
 fillTree player gt = do
     ls <- get
-   
-    let moveMap = if player == Existential
-        then defaultUnMoves ls
-        else defaultExMoves ls
+    if Map.null (defaultUnMoves ls) || Map.null (defaultExMoves ls)
+    then return gt
+    else do
+        let moveMap = if player == Existential
+            then defaultUnMoves ls
+            else defaultExMoves ls
 
-    let gt' = if gtPlayer gt == opponent player && isNothing (gtMove gt)
-        then gtSetMove gt (fromJust (Map.lookup (gtRank gt) moveMap))
-        else gt
+        let gt' = if gtPlayer gt == opponent player && isNothing (gtMove gt)
+            then gtSetMove gt (fromJust (Map.lookup (gtRank gt) moveMap))
+            else gt
 
-    let cs = gtChildren gt'
-    cs' <- mapM (fillTree player) cs
+        let cs = gtChildren gt'
+        cs' <- mapM (fillTree player) cs
 
-    return $ gtSetChildren gt' cs'
+        return $ gtSetChildren gt' cs'

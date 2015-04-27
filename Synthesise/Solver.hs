@@ -36,7 +36,7 @@ import Utils.Utils
 
 checkRank :: CompiledSpec -> Int -> Expression -> SolverT Bool
 checkRank spec rnk s = do
-    initDefaultMoves spec rnk
+    initDefaultMoves spec rnk s
     r <- solveAbstract Universal spec s (gtNew Existential rnk)
     
     satTime <- liftIO $ timeInSAT
@@ -50,16 +50,42 @@ checkRank spec rnk s = do
 
     return (isNothing r)
 
-initDefaultMoves :: CompiledSpec -> Int -> SolverT ()
-initDefaultMoves spec rank = do
-    let someUnMove  = map (\v -> Assignment Pos v) (ucont spec)
-    let someExMove  = map (\v -> Assignment Pos v) (cont spec)
-    let defaultUn   = foldl (\m r -> Map.insert r someUnMove m) Map.empty [0..rank]
-    let defaultEx   = foldl (\m r -> Map.insert r someExMove m) Map.empty [0..rank]
+initDefaultMoves :: CompiledSpec -> Int -> Expression -> SolverT ()
+initDefaultMoves spec rank s = do
+    let gt = gtExtend (gtNew Existential rank)
+
+    --Wipe moves from last loop
+    ls <- get
+    put $ ls { defaultUnMoves   = Map.empty 
+             , defaultExMoves   = Map.empty }
+
+    (_, fE, _)  <- makeFml spec Existential s gt True
+    rE          <- satSolve (gtMaxCopy gt) Nothing fE
+
+    defaultEx <- if satisfiable rE
+        then do
+            moves   <- mapM (getVarsAtRank (cont spec) (fromJust (model rE)) 0) [0..rank]
+            return $ Map.fromList (zip [0..rank] moves)
+        else do
+            -- No way to win at this rank so set anything
+            let someExMove = map (\v -> Assignment Pos v) (cont spec)
+            return $ foldl (\m r -> Map.insert r someExMove m) Map.empty [0..rank]
+
+    (_, fU, _)  <- makeFml spec Universal s gt True
+    rU          <- satSolve (gtMaxCopy gt) Nothing fU
+
+    defaultUn <- if satisfiable rU
+        then do
+            moves   <- mapM (getVarsAtRank (ucont spec) (fromJust (model rU)) 0) [0..rank]
+            return $ Map.fromList (zip [0..rank] moves)
+        else do
+            -- No way to win at this rank so set anything
+            let someUnMove  = map (\v -> Assignment Pos v) (ucont spec)
+            return $ foldl (\m r -> Map.insert r someUnMove m) Map.empty [0..rank]
+
     ls <- get
     put $ ls { defaultUnMoves   = defaultUn
              , defaultExMoves   = defaultEx }
-    return ()
 
 checkInit :: Int -> Expression -> [[Assignment]] -> Expression -> SolverT Bool
 checkInit k init must goal = do
