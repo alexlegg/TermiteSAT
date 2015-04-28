@@ -6,6 +6,7 @@ module Utils.Logger (
     , logSolveComplete
     , logVerify
     , logRefine
+    , logRank
     , logDumpLog
     , logLosingState
     , logCandidate
@@ -45,7 +46,7 @@ instance Show SynthTrace where
 data TraceCrumb = VerifyCrumb Int Int | RefineCrumb Int
     deriving (Show, Eq)
 
-data DebugMode = NoDebug | FinalLogOnly | DumpLogs deriving (Show, Eq)
+data DebugMode = NoDebug | FinalLogOnly | LogEachRank | DumpLogs deriving (Show, Eq)
 
 data Log = Log {
       trace     :: Maybe SynthTrace
@@ -62,6 +63,7 @@ emptyLog dm = Log {
         0   -> NoDebug
         1   -> FinalLogOnly
         2   -> DumpLogs
+        3   -> LogEachRank
     }
 
 type LoggerT m = StateT Log m
@@ -75,10 +77,18 @@ printLog dm logger = do
             renderHtmlToByteStringIO (BS.hPut h) (outputLog (fromJust spec) (fromJust trace))
     return r
 
-logDumpLog :: Int -> LoggerT IO ()
-logDumpLog k = do
+logRank :: Int -> LoggerT IO ()
+logRank k = do
     Log{..} <- get
     let dumpFn = "debug" ++ (show k) ++ ".html"
+    when (debugMode == LogEachRank && isJust trace && isJust spec) $ liftIO $ do
+        withFile dumpFn WriteMode $ \h -> do
+            renderHtmlToByteStringIO (BS.hPut h) (outputLog (fromJust spec) (fromJust trace))
+
+logDumpLog :: LoggerT IO ()
+logDumpLog = do
+    Log{..} <- get
+    let dumpFn = "debug.html"
     when (debugMode == DumpLogs && isJust trace && isJust spec) $ liftIO $ do
         withFile dumpFn WriteMode $ \h -> do
             renderHtmlToByteStringIO (BS.hPut h) (outputLog (fromJust spec) (fromJust trace))

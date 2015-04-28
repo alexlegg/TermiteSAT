@@ -142,7 +142,7 @@ extern "C" {
     {
         VarAssignment **interp = NULL;
         vector<int> project;
-        
+
         for (auto aVar = ctx->varsInA.begin(); aVar != ctx->varsInA.end(); ++aVar)
         {
             if (ctx->varsInB.find(*aVar) != ctx->varsInB.end())

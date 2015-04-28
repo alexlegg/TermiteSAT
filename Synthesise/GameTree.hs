@@ -672,7 +672,7 @@ printMove spec (Just as) = interMap ", " (printVar spec) vs
         g (Assignment _ x) (Assignment _ y) = compare (varname x) (varname y)
 
 printVar :: CompiledSpec -> [Assignment] -> String
-printVar spec as = vname ++ {- show vrank ++ "_" ++ show vcopy ++ -} " = " ++ valsToEnums vi vals
+printVar spec as = vname ++ show vrank ++ {- "_" ++ show vcopy ++ -} " = " ++ valsToEnums vi vals
     where
         vname       = let (Assignment _ v) = (head as) in varname v
         vrank       = let (Assignment _ v) = (head as) in rank v

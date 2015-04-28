@@ -38,7 +38,7 @@ emptyLearnedStates t = LearnedStates {
 
 throwError :: String -> SolverT a
 throwError s = do
-    liftLog (logDumpLog 0)
+    liftLog $ logDumpLog
     lift (lift (left s))
 
 liftLog :: LoggerT IO a -> SolverT a

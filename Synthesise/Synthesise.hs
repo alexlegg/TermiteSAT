@@ -155,6 +155,8 @@ loadFmls k spec = do
     let uvars = concatMap compileVar ucontVars
     let cvars = concatMap compileVar contVars
 
+    liftIO $ putStrLn (show uvars)
+
     let vinfo = stateVars ++ ucontVars ++ contVars
 
     u_idle <- equalsConstant (map (\v -> v {rank = 1}) uvars) 0

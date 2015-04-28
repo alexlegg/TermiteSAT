@@ -46,7 +46,7 @@ checkRank spec rnk s = do
     liftIO $ putStrLn $ "timeInEnodeA = " ++ (show ((fromInteger $ round $ (eA * 10)) / 10.0))
     liftIO $ putStrLn $ "timeInEnodeB = " ++ (show ((fromInteger $ round $ (eB * 10)) / 10.0))
 
-    liftLog (logDumpLog rnk)
+    liftLog (logRank rnk)
 
     return (isNothing r)
 
@@ -64,24 +64,24 @@ initDefaultMoves spec rank s = do
 
     defaultEx <- if satisfiable rE
         then do
-            moves   <- mapM (getVarsAtRank (cont spec) (fromJust (model rE)) 0) [0..rank]
-            return $ Map.fromList (zip [0..rank] moves)
+            moves   <- mapM (getVarsAtRank (cont spec) (fromJust (model rE)) 0) [1..rank]
+            return $ Map.fromList (zip [1..rank] moves)
         else do
             -- No way to win at this rank so set anything
             let someExMove = map (\v -> Assignment Pos v) (cont spec)
-            return $ foldl (\m r -> Map.insert r someExMove m) Map.empty [0..rank]
+            return $ foldl (\m r -> Map.insert r someExMove m) Map.empty [1..rank]
 
     (_, fU, _)  <- makeFml spec Universal s gt True
     rU          <- satSolve (gtMaxCopy gt) Nothing fU
 
     defaultUn <- if satisfiable rU
         then do
-            moves   <- mapM (getVarsAtRank (ucont spec) (fromJust (model rU)) 0) [0..rank]
-            return $ Map.fromList (zip [0..rank] moves)
+            moves   <- mapM (getVarsAtRank (ucont spec) (fromJust (model rU)) 0) [1..rank]
+            return $ Map.fromList (zip [1..rank] moves)
         else do
             -- No way to win at this rank so set anything
             let someUnMove  = map (\v -> Assignment Pos v) (ucont spec)
-            return $ foldl (\m r -> Map.insert r someUnMove m) Map.empty [0..rank]
+            return $ foldl (\m r -> Map.insert r someUnMove m) Map.empty [1..rank]
 
     ls <- get
     put $ ls { defaultUnMoves   = defaultUn
@@ -104,10 +104,7 @@ checkUniversalWin spec k = do
     rs <- forM (zip wm1 wm2) $ \(wmA, wmB) -> do
         let f   = map Set.toList . maybe [] Set.toList
         fml     <- makeUniversalWinCheckFml (f wmA) (f wmB)
-        r <- satSolve 0 Nothing fml
----        when (satisfiable r) $ do
----            cex <- getVarsAtRank (svars spec) (fromJust (model r)) 0 0
----            liftIO $ putStrLn (printMove spec (Just cex))
+        r       <- satSolve 0 Nothing fml
         return r
 
     return $ any (not . satisfiable) rs
@@ -137,6 +134,7 @@ solveAbstract player spec s gt = do
     res <- refinementLoop player spec s cand gt gt
 
     liftLog $ logSolveComplete res
+    liftLog $ logDumpLog
 
     return res
 
@@ -220,10 +218,10 @@ getLosingStates spec player ogt = do
     (es, f, gt)     <- makeFml spec player fakes gt' True
     cores           <- minimiseCore gt (Just s) f
 
+
     if (isJust cores)
     then do
-        cs          <- mapM (\core -> getConflicts (svars spec) core 0 rank) (fromJust cores)
-        --let cube    = map (sort . map (\a -> setAssignmentRankCopy a 0 0)) cs
+        cs <- mapM (\core -> getConflicts (svars spec) core 0 rank) (fromJust cores)
         return $ Just cs
     else 
         return Nothing
@@ -231,6 +229,7 @@ getLosingStates spec player ogt = do
 
 learnWinning :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ()
 learnWinning spec player s gt = do
+    sp <- liftE $ printExpression s
     let gts = gtUnsetNodes gt
     (s', gt') <- case gts of
         []      -> return $ (s, gt)

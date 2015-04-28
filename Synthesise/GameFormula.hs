@@ -55,6 +55,7 @@ makeFml spec player s ogt useBlocking = do
     -- Construct init expression
     initMove    <- liftE $ moveToExpression (gtMaxCopy gt) (gtMove root)
     let s'      = s : catMaybes [initMove]
+    
 
     -- Join transitions into steps and finally fml
     (es, fml)   <- case gtStepChildren root of
@@ -66,7 +67,17 @@ makeFml spec player s ogt useBlocking = do
             step        <- liftE $ conjunctTemp maxCopy (map snd steps)
             return (map ((Just (gtNodeId root), step) :) (concatMap fst steps), step)
 
-    fml'        <- liftE $ conjunctTemp maxCopy (fml : s' ++ catMaybes exprs)
+    let goal    = goalFor player spec rank
+    cg          <- liftE $ getCached rank 0 0 0 (exprIndex goal)
+    when (isNothing cg) $ throwError "Max rank goal not created in advance"
+
+    fml' <- if player == Existential
+        then do
+            fmlOrGoal <- liftE $ disjunctTemp maxCopy [fromJust cg, fml]
+            liftE $ conjunctTemp maxCopy (fmlOrGoal : s' ++ catMaybes exprs)
+        else do
+            fmlAndGoal <- liftE $ conjunctTemp maxCopy [fromJust cg, fml]
+            liftE $ conjunctTemp maxCopy (fmlAndGoal : s' ++ catMaybes exprs)
 
     -- Gametree and expression bookkeeping
     let node2expr   = concatMap catMaybeFst es

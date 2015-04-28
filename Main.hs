@@ -62,6 +62,7 @@ mainTimed = do
                 0 -> "No output"
                 1 -> "Print log"
                 2 -> "Continuous log dumping"
+                3 -> "Log each rank (unbounded)"
 
             when (isJust (strategyFile config)) $ 
                 putStrLn ("Strategy    " ++ fromJust (strategyFile config))
