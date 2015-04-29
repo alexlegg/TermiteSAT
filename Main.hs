@@ -8,10 +8,12 @@ import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Error
 import Data.Maybe
+import Data.String.Utils
 
 import Utils.Logger
 import Expression.Expression
 import Expression.Parse
+import qualified Expression.ParseAIG as AIG
 import Synthesise.Synthesise
 
 import SatSolver.Interpolator
@@ -92,7 +94,7 @@ getConfig = do
     
 
 run config f = do
-    spec <- hoistEither $ parser (tslFile config) f
+    spec <- hoistEither $ parse (tslFile config) f
     case (bound config) of
         Nothing -> unboundedSynthesis spec
         Just k  -> do
@@ -101,3 +103,6 @@ run config f = do
                 playStrategy k spec (fromJust (strategyFile config))
             else do
                 synthesise k spec
+
+parse fn | endswith ".tsl" fn     = parser fn
+         | endswith ".aag" fn     = AIG.parser fn

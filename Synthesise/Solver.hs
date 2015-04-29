@@ -125,7 +125,7 @@ buildStratGameTree player gt strat = gtParent $ gtParent $ foldl (buildStratGame
 
 solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Maybe GameTree)
 solveAbstract player spec s gt = do
----    liftIO $ putStrLn ("Solve abstract for " ++ show player)
+    liftIO $ putStrLn ("Solve abstract for " ++ show player)
 ---    pLearn <- printLearnedStates spec player
     liftLog $ logSolve gt player []
 
@@ -140,19 +140,19 @@ solveAbstract player spec s gt = do
 
 refinementLoop :: Player -> CompiledSpec -> Expression -> Maybe GameTree -> GameTree -> GameTree -> SolverT (Maybe GameTree)
 refinementLoop player spec s Nothing origGT absGt = do
----    liftIO $ putStrLn ("Could not find a candidate for " ++ show player)
+    liftIO $ putStrLn ("Could not find a candidate for " ++ show player)
     return Nothing
 refinementLoop player spec s (Just cand) origGT absGT = do
     v <- verify player spec s origGT cand
     case v of
         (Just cex) -> do
----            liftIO $ putStrLn ("Counterexample found against " ++ show player)
+            liftIO $ putStrLn ("Counterexample found against " ++ show player)
             absGT' <- refine absGT cex
             liftLog $ logRefine
             cand' <- solveAbstract player spec s absGT'
             refinementLoop player spec s cand' origGT absGT'
         Nothing -> do
----            liftIO $ putStrLn ("Verified candidate for " ++ show player)
+            liftIO $ putStrLn ("Verified candidate for " ++ show player)
             return (Just cand)
     
 
@@ -245,6 +245,7 @@ learnWinning spec player s gt = do
 
 interpolateTree :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ()
 interpolateTree spec player s gt' = do
+    liftIO $ putStrLn "interpolateTree"
     let gt = normaliseCopies gt'
     fmls <- makeSplitFmls spec player s gt
     if (isJust fmls)
