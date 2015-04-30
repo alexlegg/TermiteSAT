@@ -163,12 +163,14 @@ findCandidate player spec s gt = do
 
     if satisfiable res
     then do
+        liftIO $ putStrLn "sat"
         (Just m)    <- shortenStrategy player gt' f (model res) es
         gt'         <- setMoves player spec m (gtRoot gt')
         outGt'      <- setMoves player spec m (gtRoot (gtExtend gt'))
         liftLog $ logCandidate (Just outGt')
         return (Just gt')
     else do
+        liftIO $ putStrLn "unsat"
         ls <- get
         if (learningType ls == BoundedLearning)
         then do

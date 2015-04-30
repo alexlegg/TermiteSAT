@@ -56,7 +56,6 @@ makeFml spec player s ogt useBlocking = do
     initMove    <- liftE $ moveToExpression (gtMaxCopy gt) (gtMove root)
     let s'      = s : catMaybes [initMove]
     
-
     -- Join transitions into steps and finally fml
     (es, fml)   <- case gtStepChildren root of
         []  -> do
@@ -362,13 +361,20 @@ makeMove spec player CMove{..} = do
     let isHatMove           = player /= cmPlayer
     let moveType            = (if isHatMove then HatMove else RegularMove) cmParentCopy
 
+    liftIO $ putStrLn "1"
+
     cached <- liftE $ getCachedMove cmCopy (moveType, cmAssignment)
+    liftIO $ putStrLn "2"
     case cached of
         (Just m)    -> return (Just m)
         Nothing     -> do
+            liftIO $ putStrLn "3"
+            liftIO $ putStrLn (show cmAssignment)
             move <- if isHatMove
                 then liftE $ makeHatMove cmCopy (vh !! i) cmAssignment
                 else liftE $ assignmentToExpression cmCopy cmAssignment
+
+            liftIO $ putStrLn "4"
 
             let cMap = Map.fromList [
                       ((playerToSection cmPlayer, cmRank), cmCopy)
@@ -376,8 +382,12 @@ makeMove spec player CMove{..} = do
                     , ((StateVar, cmRank), cmParentCopy)
                     ]
 
+            liftIO $ putStrLn "5"
+
             mc <- liftE $ setCopy cMap move
+            liftIO $ putStrLn "6"
             liftE $ cacheMove cmCopy (moveType, cmAssignment) mc
+            liftIO $ putStrLn "7"
 
             return (Just mc)
 

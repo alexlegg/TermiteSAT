@@ -100,7 +100,9 @@ compile (HAST.XOr a b) = do
     throwError "XOr not implemented"
 
 compile (HAST.XNor a b) = do
-    throwError "XNor not implemented"
+    a' <- compile a
+    b' <- compile b
+    equate a' b'
 
 compile (HAST.Case xs) = do
     let (cs, es) = unzip xs
@@ -112,7 +114,8 @@ compile (HAST.Case xs) = do
 
 compile (HAST.Var x) = do
     x' <- compileHVar x
-    throwError "Var not implemented"
+    when (length x' /= 1) $ throwError "Var must be of size 1"
+    literal (head x')
 
 compile (HAST.EqVar a b) = do
     a' <- compileHVar a

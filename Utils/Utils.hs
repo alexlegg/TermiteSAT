@@ -8,6 +8,7 @@ module Utils.Utils (
     , mapSnd
     , mapSndM
     , mapThd
+    , (><)
     , concatMapM
     , mapUntilJust
     , mapMUntilJust
@@ -67,6 +68,10 @@ mapSndM :: Monad m => (a -> m b) -> (c, a) -> m (c, b)
 mapSndM f (x,y) = do
     y' <- f y
     return (x, y')
+
+infixr 8 ><
+(><) :: (a -> b) -> (c -> d) -> (a, c) -> (b, d)
+(f >< g) (x,y) = (f x,g y)
 
 mapThd :: (c -> d) -> (a, b, c) -> (a, b, d)
 mapThd f (x, y, z) = (x, y, f z)

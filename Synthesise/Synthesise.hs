@@ -145,6 +145,8 @@ loadFmls k spec = do
     let ParsedSpec{..} = spec
 
     t' <- mapM compile trans
+    tp <- mapM printExpression t'
+    liftIO $ mapM putStrLn tp
     t <- conjunct t'
     g' <- compile goal
     cg <- setRank 0 g'
