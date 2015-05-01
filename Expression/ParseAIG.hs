@@ -52,15 +52,16 @@ parser fn f = do
                 ++  map latchId latches
                 ++  map outputId outputs
 
-    let vMap    = zip varIds (map makeVarAST (iVars ++ lVars ++ oVars))
+    let vMap    = zip varIds (map makeVarAST (iVars ++ lVars))
     let gates'  = makeGates vMap gates
     let ts      = map (makeLatch gates') latches
+    let o       = makeOutput gates' (head outputs)
 
     let spec = ParsedSpec {
           init      = makeEqualsZero sVars
         , goal      = makeVarAST (head oVars)
-        , ucont     = HAST.F
-        , trans     = ts
+        , ucont     = Nothing
+        , trans     = ts ++ [o]
         , stateVars = sVars
         , ucontVars = uVars
         , contVars  = cVars
@@ -70,15 +71,15 @@ parser fn f = do
 
 inputVarType Nothing                = UContVar
 inputVarType (Just nm)
-    | startswith "controllable_" nm = ContVar
-    | otherwise                     = UContVar
+    | startswith "controllable_" nm = UContVar
+    | otherwise                     = ContVar
 
 makeInputVar (Input i n)    = makeVar (fromMaybe ("i" ++ show i) n) (inputVarType n) 1
 makeLatchVar (Latch i _ n)  = makeVar (fromMaybe ("l" ++ show i) n) StateVar 1
 makeOutputVar (Output i n)  = makeVar (fromMaybe ("o" ++ show i) n) StateVar 1
 
 makeVar nm sect r = VarInfo {
-      name      = nm
+      name      = fromMaybe nm (stripPrefix "controllable_" nm)
     , sz        = 1
     , section   = sect
     , slice     = Nothing
@@ -100,8 +101,11 @@ makeGates done gates    = makeGates (done ++ map (gateId >< fromJust) done') (ma
         loop            = map (makeGate done) gates
         (done', gates') = partition (isJust . snd) (zip gates loop)
 
+setSign x ast | odd x       = HAST.Not ast
+              | otherwise   = ast
+
 makeGate done (Gate i x y) = case (x', y') of
-    (Just xd, Just yd)  -> Just (HAST.And xd yd)
+    (Just xd, Just yd)  -> Just (HAST.And (setSign x xd) (setSign y yd))
     _                   -> Nothing
     where
         x'  = lookupDone done x
@@ -111,10 +115,15 @@ lookupDone done 0 = Just HAST.F
 lookupDone done 1 = Just HAST.T
 lookupDone done i = lookup (varId i) done
 
-makeLatch done (Latch i x nm) = HAST.XNor var x'
+makeLatch done (Latch i x nm) = HAST.XNor var (setSign x x')
     where
         var     = makeVarAST $ makeVar (fromMaybe ("l" ++ show i) nm) StateVar 0
         Just x' = lookupDone done x
+
+makeOutput done (Output i nm) = HAST.XNor var x'
+    where
+        var     = makeVarAST $ makeVar (fromMaybe ("o" ++ show i) nm) StateVar 0
+        Just x' = lookupDone done i
 
 -- AIG Parsing
 

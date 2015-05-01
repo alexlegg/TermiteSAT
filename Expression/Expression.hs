@@ -514,7 +514,9 @@ foldExpressionM mc f e = do
     lift $ lift $ f (eindex e) (expr e) (zip (map sign cs) fes)
 
 foldExpression :: MonadIO m => Int -> (Int -> Expr -> [(Sign, a)] -> a) -> Expression -> ExpressionT m a
-foldExpression mc f e = do
+foldExpression mc f e@(expr -> ETrue)   = return $ f 1 ETrue []
+foldExpression mc f e@(expr -> EFalse)  = return $ f 2 EFalse []
+foldExpression mc f e                   = do
     ds <- getDependencies mc (eindex e)
     when (ISet.null ds) $ throwError "Empty dependencies"
 
@@ -524,12 +526,16 @@ foldExpression mc f e = do
     return r
 
 foldExpressionIO :: MonadIO m => Int -> (Int -> Expr -> [(Sign, a)] -> IO a) -> Expression -> ExpressionT m a
-foldExpressionIO mc f e = do
+foldExpressionIO mc f e@(expr -> ETrue)     = liftIO $ f 1 ETrue []
+foldExpressionIO mc f e@(expr -> EFalse)    = liftIO $ f 2 EFalse []
+foldExpressionIO mc f e                     = do
     ds <- getDependencies mc (eindex e)
     when (ISet.null ds) $ throwError "Empty dependencies"
 
-    es <- (liftM catMaybes) $ mapM (lookupExpression mc) (ISet.toList ds)
-    done <- applyFoldIO mc f es Map.empty
+    es      <- (liftM catMaybes) $ mapM (lookupExpression mc) (ISet.toList ds)
+    fTrue   <- liftIO $ f 1 ETrue []
+    fFalse  <- liftIO $ f 2 EFalse []
+    done    <- applyFoldIO mc f es (Map.fromList [(1, fTrue), (2, fFalse)])
     let (Just r) = Map.lookup (eindex e) done
     return r
 
@@ -568,11 +574,13 @@ tryToApplyIO' mc f (pool, doneMap) e = do
     else return (e : pool, doneMap)
 
 traverseExpression :: MonadIO m => Int -> (ExprVar -> ExprVar) -> Expression -> ExpressionT m Expression
-traverseExpression mc f e = do
+traverseExpression mc f e@(expr -> ETrue)   = return e
+traverseExpression mc f e@(expr -> EFalse)  = return e
+traverseExpression mc f e                   = do
     ds  <- getDependencies mc (eindex e)
     when (ISet.null ds) $ throwError "Empty dependencies"
     es  <- (liftM catMaybes) $ mapM (lookupExpression mc) (ISet.toList ds)
-    done <- applyTraverse mc f es Map.empty
+    done <- applyTraverse mc f es (Map.fromList [(1, 1), (2, 2)])
     let (Just e') = Map.lookup (eindex e) done
     liftM fromJust $ lookupExpression mc e'
 
@@ -734,10 +742,10 @@ printExpression' tabs s e = do
     return $ t ++ s ++ case expr e of
         (ETrue)         -> "T"
         (EFalse)        -> "F"
-        (EConjunct _)   -> "conj(" ++ show (eindex e) ++ ") {\n" ++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}"
-        (EDisjunct _)   -> "disj(" ++ show (eindex e) ++ ") {\n" ++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}"
-        (ENot _)        -> "not(" ++ show (eindex e) ++ ") {\n"++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}" 
-        (ELit v)        -> "(" ++ show (eindex e) ++ ")" ++ show v
+        (EConjunct _)   -> "conj {\n" ++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}"
+        (EDisjunct _)   -> "disj {\n" ++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}"
+        (ENot _)        -> "not {\n"++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}" 
+        (ELit v)        -> show v
 
 setCopy :: MonadIO m => (Map.Map (Section, Int) Int) -> Expression -> ExpressionT m Expression
 setCopy cMap e = traverseExpression mc f e

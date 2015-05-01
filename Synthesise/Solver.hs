@@ -163,14 +163,12 @@ findCandidate player spec s gt = do
 
     if satisfiable res
     then do
-        liftIO $ putStrLn "sat"
         (Just m)    <- shortenStrategy player gt' f (model res) es
         gt'         <- setMoves player spec m (gtRoot gt')
         outGt'      <- setMoves player spec m (gtRoot (gtExtend gt'))
         liftLog $ logCandidate (Just outGt')
         return (Just gt')
     else do
-        liftIO $ putStrLn "unsat"
         ls <- get
         if (learningType ls == BoundedLearning)
         then do
@@ -237,6 +235,7 @@ learnWinning spec player s gt = do
         []      -> return $ (s, gt)
         (t:[])  -> do
             (Just core) <- getLosingStates spec player t
+            liftIO $ putStrLn (show core)
             coreExps    <- liftE $ mapM (assignmentToExpression 0) core
             allCores    <- liftE $ disjunct coreExps
             return $ (allCores, gtRebase 0 t)
@@ -247,7 +246,6 @@ learnWinning spec player s gt = do
 
 interpolateTree :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ()
 interpolateTree spec player s gt' = do
-    liftIO $ putStrLn "interpolateTree"
     let gt = normaliseCopies gt'
     fmls <- makeSplitFmls spec player s gt
     if (isJust fmls)

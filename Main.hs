@@ -75,8 +75,8 @@ mainTimed = do
 
     case res of
         Left s          -> putStrLn s
-        Right (Just k)  -> putStrLn $ "Realisable in " ++ (show k)
-        Right Nothing   -> putStrLn "Unrealisable"
+        Right (Just k)  -> putStrLn $ "Existential wins in " ++ (show k)
+        Right Nothing   -> putStrLn "Universal wins"
 
     putStrLn "------------------------------------"
 

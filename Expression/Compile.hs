@@ -16,6 +16,7 @@ import Expression.Expression
 
 data CompiledSpec = CompiledSpec {
       t         :: [Expression]
+    , useFair   :: Bool
     , cg        :: [Expression]
     , ug        :: [Expression]
     , u         :: [Expression]

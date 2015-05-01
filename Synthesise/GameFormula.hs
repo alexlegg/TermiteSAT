@@ -358,23 +358,16 @@ makeMove spec player CMove{..} = do
     let CompiledSpec{..}    = spec
     let vh                  = if cmPlayer == Universal then vu else vc
     let i                   = cmRank - 1
-    let isHatMove           = player /= cmPlayer
+    let isHatMove           = player /= cmPlayer && useFair
     let moveType            = (if isHatMove then HatMove else RegularMove) cmParentCopy
 
-    liftIO $ putStrLn "1"
-
     cached <- liftE $ getCachedMove cmCopy (moveType, cmAssignment)
-    liftIO $ putStrLn "2"
     case cached of
         (Just m)    -> return (Just m)
         Nothing     -> do
-            liftIO $ putStrLn "3"
-            liftIO $ putStrLn (show cmAssignment)
             move <- if isHatMove
                 then liftE $ makeHatMove cmCopy (vh !! i) cmAssignment
                 else liftE $ assignmentToExpression cmCopy cmAssignment
-
-            liftIO $ putStrLn "4"
 
             let cMap = Map.fromList [
                       ((playerToSection cmPlayer, cmRank), cmCopy)
@@ -382,18 +375,15 @@ makeMove spec player CMove{..} = do
                     , ((StateVar, cmRank), cmParentCopy)
                     ]
 
-            liftIO $ putStrLn "5"
-
             mc <- liftE $ setCopy cMap move
-            liftIO $ putStrLn "6"
             liftE $ cacheMove cmCopy (moveType, cmAssignment) mc
-            liftIO $ putStrLn "7"
 
             return (Just mc)
 
 makeHatMove c valid m = do
     move        <- assignmentToExpression c m
     move_hat    <- setHatVar c move
+    vp <- printExpression valid
     valid_hat   <- setHatVar c valid
     imp         <- implicateC c valid_hat move
     conjunctC c [move_hat, imp]

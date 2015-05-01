@@ -145,53 +145,61 @@ loadFmls k spec = do
     let ParsedSpec{..} = spec
 
     t' <- mapM compile trans
-    tp <- mapM printExpression t'
-    liftIO $ mapM putStrLn tp
+---    tp <- mapM printExpression t'
+---    liftIO $ mapM putStrLn tp
+---    lift $ left $ "stop"
     t <- conjunct t'
     g' <- compile goal
     cg <- setRank 0 g'
     ug <- negation cg
-    u <- compile ucont
+    u <- mapM compile ucont
 
     let svars = concatMap compileVar stateVars
     let uvars = concatMap compileVar ucontVars
     let cvars = concatMap compileVar contVars
 
-    liftIO $ putStrLn (show uvars)
-
     let vinfo = stateVars ++ ucontVars ++ contVars
 
-    u_idle <- equalsConstant (map (\v -> v {rank = 1}) uvars) 0
-    c_idle <- equalsConstant (map (\v -> v {rank = 1}) cvars) 0
+    vus <- if isJust ucont
+        then do
+            u_idle  <- equalsConstant (map (\v -> v {rank = 1}) uvars) 0
+            uev     <- mapM enumValidity ucontVars
+            vu'     <- implicate (fromJust u) =<< (negation u_idle)
+            vu      <- conjunct (vu' : catMaybes uev)
+            iterateNM (k-1) unrollExpression vu
+        else return []
 
-    cev <- mapM enumValidity contVars
-    uev <- mapM enumValidity ucontVars
-
-    vc <- equate c_idle u
----    vc  <- conjunct (vc' : catMaybes cev)
-    vu' <- implicate u =<< (negation u_idle)
-    vu  <- conjunct (vu' : catMaybes uev)
+    vcs <- if isJust ucont
+        then do
+            c_idle  <- equalsConstant (map (\v -> v {rank = 1}) cvars) 0
+            vc      <- equate c_idle (fromJust u)
+            iterateNM (k-1) unrollExpression vc
+        else return []
 
     ts  <- iterateNM (k-1) unrollExpression t
     cgs <- iterateNM k unrollExpression cg
     ugs <- iterateNM k unrollExpression ug
-    us  <- iterateNM (k-1) unrollExpression u
-    vcs <- iterateNM (k-1) unrollExpression vc
-    vus <- iterateNM (k-1) unrollExpression vu
 
-    steps <- zipWith3M (\t vc vu -> conjunct [t, vc, vu]) ts vcs vus
+    us  <- if isJust ucont
+        then iterateNM (k-1) unrollExpression (fromJust u)
+        else return []
+
+    steps <- if isJust ucont
+        then zipWith3M (\t vc vu -> conjunct [t, vc, vu]) ts vcs vus
+        else return ts
 
     let cspec = CompiledSpec {
-          t     = steps
-        , cg    = cgs
-        , ug    = ugs
-        , u     = us
-        , vc    = vcs
-        , vu    = vus
-        , cont  = cvars
-        , ucont = uvars
-        , svars = svars
-        , vinfo = vinfo
+          t         = steps
+        , useFair   = isJust ucont
+        , cg        = cgs
+        , ug        = ugs
+        , u         = us
+        , vc        = vcs
+        , vu        = vus
+        , cont      = cvars
+        , ucont     = uvars
+        , svars     = svars
+        , vinfo     = vinfo
         }
 
     lift $ lift $ logSpec cspec

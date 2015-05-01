@@ -29,7 +29,7 @@ import Expression.AST
 data ParsedSpec = ParsedSpec {
     init        :: AST, 
     goal        :: AST, 
-    ucont       :: AST, 
+    ucont       :: Maybe AST, 
     trans       :: [AST],
     stateVars   :: [VarInfo],
     ucontVars   :: [VarInfo],
@@ -104,7 +104,7 @@ parser fn f = do
 
     Right ParsedSpec { init         = binExprToHAST initR
                      , goal         = head (map binExprToHAST goalR)
-                     , ucont        = head (map binExprToHAST fair)
+                     , ucont        = Just (head (map binExprToHAST fair))
                      , trans        = map (resolveTransLHS theMap) (ctrlExprToHAST transR)
                      , stateVars    = concatMap (declToVarInfo StateVar) stateDecls
                      , ucontVars    = concatMap (declToVarInfo UContVar) outcomeDecls
