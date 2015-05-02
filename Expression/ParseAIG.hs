@@ -111,8 +111,8 @@ makeGate done (Gate i x y) = case (x', y') of
         x'  = lookupDone done x
         y'  = lookupDone done y
 
-lookupDone done 0 = Just HAST.F
-lookupDone done 1 = Just HAST.T
+lookupDone done 0 = Just HAST.T
+lookupDone done 1 = Just HAST.F
 lookupDone done i = lookup (varId i) done
 
 makeLatch done (Latch i x nm) = HAST.XNor var (setSign x x')

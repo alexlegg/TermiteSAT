@@ -161,8 +161,11 @@ extern "C" {
         vector<Enode*> interpolants;
         ctx->getSingleInterpolant(interpolants);
 
+        cout << "interpolating" << endl;
+
         if (interpolants.size() == 1) {
             bool success;
+            cout << "succ" << endl;
             interp = enodeToBDD(interpolants[0], project, success);
             if (!success) {
                 cout << "Error reducing cubes" << endl;

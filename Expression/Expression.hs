@@ -438,7 +438,9 @@ lookupExpressionC' c i = do
         (Just e)    -> return $ Just (e, c)
 
 lookupExpressionAndCopy :: MonadIO m => Int -> Int -> ExpressionT m (Maybe (Expression, Int))
-lookupExpressionAndCopy mc i = do
+lookupExpressionAndCopy _ 1     = return $ Just $ (Expression { eindex = 1, expr = ETrue }, 0)
+lookupExpressionAndCopy _ 2     = return $ Just $ (Expression { eindex = 2, expr = EFalse }, 0)
+lookupExpressionAndCopy mc i    = do
     e <- mapMUntilJust (\c -> lookupExpressionC' c i) [0..mc]
     ExprManager{..} <- get
     if isNothing e
@@ -466,12 +468,16 @@ lookupVarC c v = do
         (Just i)    -> return $ Just (Expression { eindex = i, expr = ELit v })
 
 getDependenciesC :: MonadIO m => Int -> Int -> ExpressionT m (Maybe ISet.IntSet)
-getDependenciesC c i = do
+getDependenciesC _ 1    = return $ Just (ISet.singleton 1)
+getDependenciesC _ 2    = return $ Just (ISet.singleton 2)
+getDependenciesC c i    = do
     CopyManager{..} <- getCopyManager c
     return $ IMap.lookup i depMap
 
 getDependencies :: MonadIO m => Int -> Int -> ExpressionT m ISet.IntSet
-getDependencies mc i = do
+getDependencies _ 1     = return $ ISet.singleton 1
+getDependencies _ 2     = return $ ISet.singleton 2
+getDependencies mc i    = do
     deps <- mapMUntilJust (\c -> getDependenciesC c i) [0..mc]
     ExprManager{..} <- get
     if isNothing deps

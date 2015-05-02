@@ -62,6 +62,7 @@ initDefaultMoves spec rank s = do
     (_, fE, _)  <- makeFml spec Existential s gt True
     rE          <- satSolve (gtMaxCopy gt) Nothing fE
 
+
     defaultEx <- if satisfiable rE
         then do
             moves   <- mapM (getVarsAtRank (cont spec) (fromJust (model rE)) 0) [1..rank]
@@ -161,6 +162,11 @@ findCandidate player spec s gt = do
     (es, f, gt')    <- makeFml spec player s gt True
     res             <- satSolve (gtMaxCopy gt') Nothing f
 
+    fp <- liftE $ printExpression f
+    liftIO $ writeFile ("fml" ++ show player) fp
+
+    dumpDimacs (gtMaxCopy gt') f ("dimacs" ++ show player)
+
     if satisfiable res
     then do
         (Just m)    <- shortenStrategy player gt' f (model res) es
@@ -234,11 +240,15 @@ learnWinning spec player s gt = do
     (s', gt') <- case gts of
         []      -> return $ (s, gt)
         (t:[])  -> do
-            (Just core) <- getLosingStates spec player t
-            liftIO $ putStrLn (show core)
-            coreExps    <- liftE $ mapM (assignmentToExpression 0) core
-            allCores    <- liftE $ disjunct coreExps
-            return $ (allCores, gtRebase 0 t)
+            core        <- getLosingStates spec player t
+            case core of
+                (Just c) -> do
+                    coreExps    <- liftE $ mapM (assignmentToExpression 0) c
+                    allCores    <- liftE $ disjunct coreExps
+                    return $ (allCores, gtRebase 0 t)
+                Nothing -> do
+                    coreExp     <- liftE $ trueExpr
+                    return (coreExp, gtRebase 0 t)
         _       -> throwError "I think this is an error?"
 
 
@@ -267,6 +277,10 @@ interpolateTree spec player s gt' = do
             ir <- interpolate (gtMaxCopy gt) project fmlA fmlB
             if (not (success ir))
             then do
+                sp <- liftE $ printExpression s
+                liftIO $ putStrLn sp
+                liftIO $ putStrLn (printTree spec gtA)
+                liftIO $ putStrLn (printTree spec gtB)
                 throwError "Interpolation failed"
             else do
                 let cube'   = map (filter (((==) StateVar) . assignmentSection)) (fromJust (interpolant ir))

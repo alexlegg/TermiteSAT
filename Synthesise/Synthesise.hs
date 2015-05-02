@@ -215,18 +215,27 @@ unrollSpec spec = do
     t'  <- unrollExpression (last (t spec))
     cg' <- unrollExpression (last (cg spec))
     ug' <- unrollExpression (last (ug spec))
-    u'  <- unrollExpression (last (u spec))
-    vc' <- unrollExpression (last (vc spec))
-    vu' <- unrollExpression (last (vu spec))
 
-    let spec' = spec {
-          t   = t spec ++ [t']
-        , cg  = cg spec ++ [cg']
-        , ug  = ug spec ++ [ug']
-        , u   = u spec ++ [u']
-        , vc  = vc spec ++ [vc']
-        , vu  = vu spec ++ [vu']
-    }
+    spec' <- if (useFair spec)
+        then do
+            u'  <- unrollExpression (last (u spec))
+            vc' <- unrollExpression (last (vc spec))
+            vu' <- unrollExpression (last (vu spec))
+
+            return spec {
+                  t   = t spec ++ [t']
+                , cg  = cg spec ++ [cg']
+                , ug  = ug spec ++ [ug']
+                , u   = u spec ++ [u']
+                , vc  = vc spec ++ [vc']
+                , vu  = vu spec ++ [vu']
+            }
+        else do
+            return spec {
+                  t   = t spec ++ [t']
+                , cg  = cg spec ++ [cg']
+                , ug  = ug spec ++ [ug']
+            }
 
     initManager (map exprIndex ((t spec') ++ (cg spec') ++ (ug spec') ++ (u spec') ++ (vc spec') ++ (vu spec')))
     return spec'
