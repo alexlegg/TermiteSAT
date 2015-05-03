@@ -748,10 +748,10 @@ printExpression' tabs s e = do
     return $ t ++ s ++ case expr e of
         (ETrue)         -> "T"
         (EFalse)        -> "F"
-        (EConjunct _)   -> "conj {\n" ++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}"
-        (EDisjunct _)   -> "disj {\n" ++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}"
-        (ENot _)        -> "not {\n"++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}" 
-        (ELit v)        -> show v
+        (EConjunct _)   -> "conj (" ++ show (eindex e) ++ " {\n" ++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}"
+        (EDisjunct _)   -> "disj (" ++ show (eindex e) ++ ") {\n" ++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}"
+        (ENot _)        -> "not (" ++ show (eindex e) ++ ") {\n"++ intercalate ",\n" pcs ++ "\n" ++ t ++ "}" 
+        (ELit v)        -> "(" ++ show (eindex e) ++ ") " ++ show v
 
 setCopy :: MonadIO m => (Map.Map (Section, Int) Int) -> Expression -> ExpressionT m Expression
 setCopy cMap e = traverseExpression mc f e

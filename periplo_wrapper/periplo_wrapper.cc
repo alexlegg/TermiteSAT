@@ -133,6 +133,8 @@ extern "C" {
         ctx->partition++;
         if (r == l_False) {
             return 0;
+        } else if (r == l_True) {
+            return 1;
         } else {
             return 1;
         }
@@ -161,11 +163,8 @@ extern "C" {
         vector<Enode*> interpolants;
         ctx->getSingleInterpolant(interpolants);
 
-        cout << "interpolating" << endl;
-
         if (interpolants.size() == 1) {
             bool success;
-            cout << "succ" << endl;
             interp = enodeToBDD(interpolants[0], project, success);
             if (!success) {
                 cout << "Error reducing cubes" << endl;

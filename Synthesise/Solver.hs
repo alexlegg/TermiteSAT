@@ -162,11 +162,6 @@ findCandidate player spec s gt = do
     (es, f, gt')    <- makeFml spec player s gt True
     res             <- satSolve (gtMaxCopy gt') Nothing f
 
-    fp <- liftE $ printExpression f
-    liftIO $ writeFile ("fml" ++ show player) fp
-
-    dumpDimacs (gtMaxCopy gt') f ("dimacs" ++ show player)
-
     if satisfiable res
     then do
         (Just m)    <- shortenStrategy player gt' f (model res) es
@@ -279,8 +274,31 @@ interpolateTree spec player s gt' = do
             then do
                 sp <- liftE $ printExpression s
                 liftIO $ putStrLn sp
+                liftIO $ putStrLn (printTree spec gt)
                 liftIO $ putStrLn (printTree spec gtA)
                 liftIO $ putStrLn (printTree spec gtB)
+
+                fmlAp <- liftE $ printExpression fmlA
+                fmlBp <- liftE $ printExpression fmlB
+                liftIO $ writeFile "fmlA" fmlAp
+                liftIO $ writeFile "fmlB" fmlBp
+
+                both <- liftE $ conjunctTemp (gtMaxCopy gt) [fmlA, fmlB]
+                rboth <- satSolve (gtMaxCopy gt) Nothing both
+                liftIO $ putStrLn (show (satisfiable rboth))
+
+                (_, blah, _)  <- makeFml spec player s gt True
+                rblah <- satSolve (gtMaxCopy gt) Nothing blah
+                liftIO $ putStrLn (show (satisfiable rblah))
+
+                bothp <- liftE $ printExpression both
+                liftIO $ writeFile "intFml" bothp
+                gtSetMoves <- setMoves player spec (fromJust (model rboth)) (gtRoot gt)
+                liftIO $ putStrLn (printTree spec gtSetMoves)
+
+                blahp <- liftE $ printExpression blah
+                liftIO $ writeFile "satFml" blahp
+
                 throwError "Interpolation failed"
             else do
                 let cube'   = map (filter (((==) StateVar) . assignmentSection)) (fromJust (interpolant ir))
