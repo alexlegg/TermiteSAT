@@ -159,8 +159,7 @@ doMinimiseCore max assumptions clauses = do
             return $ Just (map (map fromIntegral) cores)
         else do
             liftIO $ c_glucose_delete solver
-            liftIO $ putStrLn "minimise_core -> UNSAT w/ no core"
-            return Nothing
+            return (Just [])
 
 addAssumptions solver ass = do
     forM_ ass (c_addAssumption solver . fromIntegral)

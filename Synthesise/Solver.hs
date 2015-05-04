@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards, ViewPatterns #-}
 module Synthesise.Solver (
       checkRank
     , checkStrategy
@@ -126,7 +126,7 @@ buildStratGameTree player gt strat = gtParent $ gtParent $ foldl (buildStratGame
 
 solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Maybe GameTree)
 solveAbstract player spec s gt = do
-    liftIO $ putStrLn ("Solve abstract for " ++ show player)
+---    liftIO $ putStrLn ("Solve abstract for " ++ show player)
 ---    pLearn <- printLearnedStates spec player
     liftLog $ logSolve gt player []
 
@@ -141,19 +141,19 @@ solveAbstract player spec s gt = do
 
 refinementLoop :: Player -> CompiledSpec -> Expression -> Maybe GameTree -> GameTree -> GameTree -> SolverT (Maybe GameTree)
 refinementLoop player spec s Nothing origGT absGt = do
-    liftIO $ putStrLn ("Could not find a candidate for " ++ show player)
+---    liftIO $ putStrLn ("Could not find a candidate for " ++ show player)
     return Nothing
 refinementLoop player spec s (Just cand) origGT absGT = do
     v <- verify player spec s origGT cand
     case v of
         (Just cex) -> do
-            liftIO $ putStrLn ("Counterexample found against " ++ show player)
+---            liftIO $ putStrLn ("Counterexample found against " ++ show player)
             absGT' <- refine absGT cex
             liftLog $ logRefine
             cand' <- solveAbstract player spec s absGT'
             refinementLoop player spec s cand' origGT absGT'
         Nothing -> do
-            liftIO $ putStrLn ("Verified candidate for " ++ show player)
+---            liftIO $ putStrLn ("Verified candidate for " ++ show player)
             return (Just cand)
     
 
@@ -172,11 +172,9 @@ findCandidate player spec s gt = do
     else do
         ls <- get
         if (learningType ls == BoundedLearning)
-        then do
-            mapM_ (learnStates spec player) (gtUnsetNodes gt)
-        else do
-            learnWinning spec player s gt
-            --mapM_ (learnStates spec player) (gtUnsetNodes gt)
+            then mapM_ (learnStates spec player) (gtUnsetNodes gt)
+            else learnWinning spec player s gt
+
         liftLog $ logCandidate Nothing
         return Nothing
 
@@ -229,25 +227,23 @@ getLosingStates spec player ogt = do
 
 
 learnWinning :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ()
-learnWinning spec player s gt = do
-    sp <- liftE $ printExpression s
-    let gts = gtUnsetNodes gt
-    (s', gt') <- case gts of
-        []      -> return $ (s, gt)
-        (t:[])  -> do
-            core        <- getLosingStates spec player t
-            case core of
-                (Just c) -> do
-                    coreExps    <- liftE $ mapM (assignmentToExpression 0) c
-                    allCores    <- liftE $ disjunct coreExps
-                    return $ (allCores, gtRebase 0 t)
-                Nothing -> do
-                    coreExp     <- liftE $ trueExpr
-                    return (coreExp, gtRebase 0 t)
-        _       -> throwError "I think this is an error?"
-
-
-    interpolateTree spec player s' (gtExtend gt')
+learnWinning spec player s gt@(gtUnsetNodes -> []) = do
+    -- Learn from the root of the tree
+    interpolateTree spec player s (gtExtend gt)
+learnWinning spec player s (gtUnsetNodes -> gt:[]) = do
+    -- Learn from the highest node under the fixed prefix
+    core <- getLosingStates spec player gt
+    case core of
+        (Just c) -> do
+            when (c == []) $ throwError "empty core"
+            coreExps    <- liftE $ mapM (assignmentToExpression 0) c
+            allCores    <- liftE $ disjunct coreExps
+            interpolateTree spec player allCores (gtExtend (gtRebase 0 gt))
+        Nothing -> do
+            liftIO $ putStrLn "lost in prefix"
+            -- Can't find a core, so we must have lost in the prefix
+            return ()
+learnWinning spec player s _ = throwError "Found more than one unset node in learnWinning"
 
 interpolateTree :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ()
 interpolateTree spec player s gt' = do
@@ -273,6 +269,7 @@ interpolateTree spec player s gt' = do
             if (not (success ir))
             then do
                 sp <- liftE $ printExpression s
+                liftIO $ putStrLn (show player)
                 liftIO $ putStrLn sp
                 liftIO $ putStrLn (printTree spec gt)
                 liftIO $ putStrLn (printTree spec gtA)
