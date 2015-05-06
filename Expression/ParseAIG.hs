@@ -101,7 +101,8 @@ makeGates done gates    = makeGates (done ++ map (gateId >< fromJust) done') (ma
         loop            = map (makeGate done) gates
         (done', gates') = partition (isJust . snd) (zip gates loop)
 
-setSign x ast | odd x       = HAST.Not ast
+setSign x ast | x <= 1      = ast
+              | odd x       = HAST.Not ast
               | otherwise   = ast
 
 makeGate done (Gate i x y) = case (x', y') of
@@ -111,8 +112,8 @@ makeGate done (Gate i x y) = case (x', y') of
         x'  = lookupDone done x
         y'  = lookupDone done y
 
-lookupDone done 0 = Just HAST.T
-lookupDone done 1 = Just HAST.F
+lookupDone done 0 = Just HAST.F
+lookupDone done 1 = Just HAST.T
 lookupDone done i = lookup (varId i) done
 
 makeLatch done (Latch i x nm) = HAST.XNor var (setSign x x')
@@ -120,7 +121,7 @@ makeLatch done (Latch i x nm) = HAST.XNor var (setSign x x')
         var     = makeVarAST $ makeVar (fromMaybe ("l" ++ show i) nm) StateVar 0
         Just x' = lookupDone done x
 
-makeOutput done (Output i nm) = HAST.XNor var x'
+makeOutput done (Output i nm) = HAST.XNor var (setSign i x')
     where
         var     = makeVarAST $ makeVar (fromMaybe ("o" ++ show i) nm) StateVar 0
         Just x' = lookupDone done i

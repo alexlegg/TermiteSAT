@@ -257,7 +257,6 @@ getMoves rank player gt (m1, m2, c) = m1' ++ m2' ++ next
             then concatMap (getMoves (rank-1) player (fromJust c)) (gtSteps (fromJust c))
             else []
 
-
 getTransitions :: Int -> GameTree -> (Move, Move, Maybe GameTree) -> [Construct]
 getTransitions rank gt (_, _, c) = (CTransition rank parentCopy copy1 copy2) : next
     where
