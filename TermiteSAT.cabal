@@ -82,6 +82,7 @@ executable TermiteSAT
 executable TermiteSAT-prof
   if flag(profiling)
     build-depends:        base
+                        , MissingH
                         , mtl
                         , parsec
                         , errors

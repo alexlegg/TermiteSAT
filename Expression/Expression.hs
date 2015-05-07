@@ -628,53 +628,53 @@ unrollExpression = traverseExpression 0 shiftVar
 shiftVar v = v {rank = rank v + 1}
 
 liftConjuncts :: Expression -> [Var]
-liftConjuncts Expression { expr = EConjunct vs }    = vs
-liftConjuncts Expression { expr = ETrue }           = []
-liftConjuncts Expression { eindex = i }             = [Var Pos i]
+liftConjuncts Expression { expr = EConjunct vs }        = vs
+liftConjuncts Expression { expr = ETrue }               = []
+liftConjuncts Expression { expr = ENot (Var Pos i) }    = [Var Neg i]
+liftConjuncts Expression { expr = ENot (Var Neg i) }    = [Var Pos i]
+liftConjuncts Expression { eindex = i }                 = [Var Pos i]
 
-liftDisjuncts Expression { expr = (EDisjunct vs) }  = vs
-liftDisjuncts Expression { expr = EFalse }          = []
-liftDisjuncts Expression { eindex = i }             = [Var Pos i]
+conjunct' c f []                = f c EFalse
+conjunct' c f ((Var Pos 2):_)   = throwError "blah"
+conjunct' c f ((Var Pos i):[])  = (fmap fromJust) $ lookupExpression c i
+conjunct' c f ((Var Neg i):[])  = do
+    e <- (fmap fromJust) $ lookupExpression c i
+    negation' c f e
+conjunct' c f es                = f c (EConjunct es)
 
 -- |The 'conjunct' function takes a list of Expressions and produces one conjunction Expression
 conjunct :: MonadIO m => [Expression] -> ExpressionT m Expression
 conjunct = conjunctC 0
 
 conjunctC :: MonadIO m => Int -> [Expression] -> ExpressionT m Expression
-conjunctC c []      = addExpression c EFalse
-conjunctC c (e:[])  = return e
-conjunctC c es      = addExpression c (EConjunct (concatMap liftConjuncts es))
----conjunctC c es      = case (nub (concatMap liftConjuncts es)) of
----    ((Var Pos i):[])    -> (liftM fromJust) $ lookupExpression c i
----    es'                 -> addExpression c (EConjunct es')
+conjunctC c es = conjunct' c addExpression (concatMap liftConjuncts es)
 
 conjunctTemp :: MonadIO m => Int -> [Expression] -> ExpressionT m Expression
-conjunctTemp mc []      = addTempExpression mc EFalse
-conjunctTemp mc (e:[])  = return e
-conjunctTemp mc es      = addTempExpression mc (EConjunct (concatMap liftConjuncts es))
----conjunctTemp mc es      = case (nub (concatMap liftConjuncts es)) of
----    ((Var Pos i):[])    -> return $ fromJust $ find ((==) i . exprIndex) es
----    es'                 -> addTempExpression mc (EConjunct es')
+conjunctTemp mc es = conjunct' mc addTempExpression (concatMap liftConjuncts es)
+
+liftDisjuncts Expression {expr = (EDisjunct vs)}    = vs
+liftDisjuncts Expression {expr = EFalse}            = []
+liftDisjuncts Expression {expr = ENot (Var Pos i)}  = [Var Neg i]
+liftDisjuncts Expression {expr = ENot (Var Neg i)}  = [Var Pos i]
+liftDisjuncts Expression {eindex = i}               = [Var Pos i]
+
+disjunct' c f []                = f c ETrue
+disjunct' c f ((Var Pos 1):_)   = throwError "blah 2"
+disjunct' c f ((Var Pos i):[])  = (fmap fromJust) $ lookupExpression c i
+disjunct' c f ((Var Neg i):[])  = do
+    e <- (fmap fromJust) $ lookupExpression c i
+    negation' c f e
+disjunct' c f es                = f c (EDisjunct es)
 
 -- |The 'disjunct' function takes a list of Expressions and produces one disjunction Expression
 disjunct :: MonadIO m => [Expression] -> ExpressionT m Expression
 disjunct = disjunctC 0
 
 disjunctC :: MonadIO m => Int -> [Expression] -> ExpressionT m Expression
-disjunctC c []      = addExpression c ETrue
-disjunctC c (e:[])  = return e
-disjunctC c es      = addExpression c (EDisjunct (concatMap liftDisjuncts es))
----disjunctC c es      = case (nub (concatMap liftDisjuncts es)) of
----    ((Var Pos i):[])    -> return $ fromJust $ find ((==) i . exprIndex) es
----    es'                 -> addExpression c (EDisjunct es')
+disjunctC c es = disjunct' c addExpression (concatMap liftDisjuncts es)
 
 disjunctTemp :: MonadIO m => Int -> [Expression] -> ExpressionT m Expression
-disjunctTemp mc []      = addTempExpression mc ETrue
-disjunctTemp mc (e:[])  = return e
-disjunctTemp mc es      = addTempExpression mc (EDisjunct (concatMap liftDisjuncts es))
----disjunctTemp mc es      = case (nub (concatMap liftDisjuncts es)) of
----    ((Var Pos i):[])    -> return $ fromJust $ find ((==) i . exprIndex) es
----    es'                 -> addTempExpression mc (EDisjunct es')
+disjunctTemp mc es = disjunct' mc addTempExpression (concatMap liftDisjuncts es)
 
 makeSignsFromValue :: Int -> Int -> [Sign]
 makeSignsFromValue v sz = map f [0..(sz-1)]
@@ -702,15 +702,19 @@ implicateC c a b = addExpression c (EDisjunct [Var Neg (eindex a), Var Pos (eind
 implicateTemp :: MonadIO m => Int -> Expression -> Expression -> ExpressionT m Expression
 implicateTemp mc a b = addTempExpression mc (EDisjunct [Var Neg (eindex a), Var Pos (eindex b)])
 
+negation' c f (Expression {expr = ENot (Var Pos e)})    = (fmap fromJust) $ lookupExpression c e
+negation' c f (Expression {expr = EFalse})              = f c ETrue
+negation' c f (Expression {expr = ETrue})               = f c EFalse
+negation' c f (Expression {eindex = i})                 = f c (ENot (Var Pos i))
+
 negation :: MonadIO m => Expression -> ExpressionT m Expression
 negation = negationC 0
 
 negationC :: MonadIO m => Int -> Expression -> ExpressionT m Expression
-negationC c x = addExpression c (ENot (Var Pos (eindex x)))
+negationC c = negation' c addExpression
 
 negationTemp :: MonadIO m => Int -> Expression -> ExpressionT m Expression
-negationTemp mc x = do
-    addTempExpression mc (ENot (Var Pos (eindex x)))
+negationTemp c = negation' c addTempExpression
 
 trueExpr :: MonadIO m => ExpressionT m Expression
 trueExpr = addExpression 0 ETrue
