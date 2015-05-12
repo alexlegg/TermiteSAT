@@ -55,6 +55,7 @@ satSolve mc a e = do
     assumptions <- liftE $ maybeM [] (mapM (assignmentToVar mc)) a
     let as      = map (\a -> if sign a == Pos then var a else -(var a)) assumptions
     (time, res) <- liftIO $ timeItT $ callSolver maxId as clauses
+---    liftIO $ putStrLn $ "sat " ++ (show ((fromInteger $ round $ (time * 10)) / 10.0))
     liftIO $ modifyIORef totalTime (time +)
     return res
 

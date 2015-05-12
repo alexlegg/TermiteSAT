@@ -281,6 +281,7 @@ makeGoal spec player CGoal{..} = do
     let g   = goalFor player spec cgRank
     cached  <- liftE $ getCached cgRank cgCopy cgCopy cgCopy (exprIndex g)
     when (isNothing cached) $ do
+---        liftIO $ putStrLn "make goal"
         cg      <- liftE $ setCopy (Map.singleton (StateVar, cgRank) cgCopy) g
         liftE $ cacheStep cgRank cgCopy cgCopy cgCopy (exprIndex g) cg
     return Nothing
@@ -301,6 +302,7 @@ blockExpression CBlocked{..} = do
     case cached of
         (Just b)    -> return (Just b)
         Nothing     -> do
+---            liftIO $ putStrLn "make Blocking expression"
             b <- liftE $ blockAssignment cbCopy as
             liftE $ cacheMove cbCopy (BlockedState, as) b
             return (Just b)
@@ -315,6 +317,8 @@ makeTransition spec first CTransition{..} = do
         step <- liftE $ getCached ctRank ctParentCopy ctCopy1 ctCopy2 (exprIndex (t !! i))
 
         when (not (isJust step)) $ do
+---            liftIO $ putStrLn "make new step"
+---            liftIO $ putStrLn (show (ctRank, ctParentCopy, ctCopy1, ctCopy2))
             step <- if ctCopy1 == 0 && ctCopy2 == 0 && ctParentCopy == 0
                 then return (t !! i)
                 else do
@@ -364,6 +368,7 @@ makeMove spec player CMove{..} = do
     case cached of
         (Just m)    -> return (Just m)
         Nothing     -> do
+---            liftIO $ putStrLn "makeMove"
             move <- if isHatMove
                 then liftE $ makeHatMove cmCopy (vh !! i) cmAssignment
                 else liftE $ assignmentToExpression cmCopy cmAssignment

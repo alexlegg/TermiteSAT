@@ -62,10 +62,9 @@ initDefaultMoves spec rank s = do
     (_, fE, _)  <- makeFml spec Existential s gt True
     rE          <- satSolve (gtMaxCopy gt) Nothing fE
 
-
     defaultEx <- if satisfiable rE
         then do
-            moves   <- mapM (getVarsAtRank (cont spec) (fromJust (model rE)) 0) [1..rank]
+            moves   <- mapM (getVarsAtRank ContVar (fromJust (model rE)) 0) [1..rank]
             return $ Map.fromList (zip [1..rank] moves)
         else do
             -- No way to win at this rank so set anything
@@ -77,7 +76,7 @@ initDefaultMoves spec rank s = do
 
     defaultUn <- if satisfiable rU
         then do
-            moves   <- mapM (getVarsAtRank (ucont spec) (fromJust (model rU)) 0) [1..rank]
+            moves   <- mapM (getVarsAtRank UContVar (fromJust (model rU)) 0) [1..rank]
             return $ Map.fromList (zip [1..rank] moves)
         else do
             -- No way to win at this rank so set anything
@@ -164,7 +163,8 @@ findCandidate player spec s gt = do
 
     if satisfiable res
     then do
-        (Just m)    <- shortenStrategy player gt' f (model res) es
+---        (Just m)    <- shortenStrategy player gt' f (model res) es
+        let Just m  = model res
         gt'         <- setMoves player spec m (gtRoot gt')
         outGt'      <- setMoves player spec m (gtRoot (gtExtend gt'))
         liftLog $ logCandidate (Just outGt')
@@ -240,10 +240,12 @@ learnWinning spec player s (gtUnsetNodes -> gt:[]) = do
             allCores    <- liftE $ disjunct coreExps
             interpolateTree spec player allCores (gtExtend (gtRebase 0 gt))
         Nothing -> do
-            liftIO $ putStrLn "lost in prefix"
+---            liftIO $ putStrLn "lost in prefix"
             -- Can't find a core, so we must have lost in the prefix
             return ()
-learnWinning spec player s _ = throwError "Found more than one unset node in learnWinning"
+learnWinning spec player s gt = do
+    liftIO $ putStrLn (printTree spec gt)
+    throwError "Found more than one unset node in learnWinning"
 
 interpolateTree :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ()
 interpolateTree spec player s gt' = do
@@ -368,16 +370,16 @@ setMoves player spec model gt = do
     let f       = if player == gtFirstPlayer gt then setMovesPlayer else setMovesOpp 
     cs          <- mapM (f player spec model) (gtChildren gt)
     let gt'     = gtSetChildren gt cs
-    init        <- getVarsAtRank (svars spec) model 0 (gtBaseRank gt)
+    init        <- getVarsAtRank StateVar model 0 (gtBaseRank gt)
     return      $ gtSetInit init gt'
 
 setMovesPlayer player spec model gt = do
-    let vars    = if player == Existential then cont spec else ucont spec
+    let vars    = if player == Existential then ContVar else UContVar
     move        <- getVarsAtRank vars model (gtCopyId gt) (gtRank gt)
 
     gt'         <- case player of
         Universal   -> do
-            state <- getVarsAtRank (svars spec) model (gtCopyId gt) (gtRank gt - 1)
+            state <- getVarsAtRank StateVar model (gtCopyId gt) (gtRank gt - 1)
             return $ gtSetMove (gtSetState gt state) move
         Existential -> 
             return $ gtSetMove gt move
@@ -388,10 +390,10 @@ setMovesPlayer player spec model gt = do
 setMovesOpp player spec model gt = do
     gt' <- if opponent player == Universal
         then do
-            state <- getVarsAtRank (svars spec) model (gtCopyId (gtParent gt)) (gtRank gt - 1)
+            state <- getVarsAtRank StateVar model (gtCopyId (gtParent gt)) (gtRank gt - 1)
             return $ gtSetState gt state
         else return gt
-    let vars    = if opponent player == Existential then cont spec else ucont spec
+    let vars    = if opponent player == Existential then ContVar else UContVar
     move        <- getVarsAtRank vars model (gtCopyId gt) (gtRank gt)
     let gtm     = gtMove gt
     cs          <- mapM (setMovesPlayer player spec model) (gtChildren gt')
@@ -402,15 +404,10 @@ eqMoves xs ys = all id $ map (uncurry eqAssignments) $ zip xs ys
     eqAssignments (Assignment s1 v1) (Assignment s2 v2) = s1 == s2 && eqVars v1 v2
     eqVars v1 v2 = v1 {ecopy = 0} == v2 {ecopy = 0}
 
-getVarsAtRank vars model cpy rnk = do
-    let vars' = map (\v -> v {rank = rnk, ecopy = cpy}) vars
-    ve <- liftE $ mapM lookupVar vars'
-    when (any isNothing ve) $ throwError ("Bad expression:\n" ++ interMap "\n" show (zip vars' ve))
-    -- Lookup the dimacs equivalents
-    let vd = zip (map exprIndex (catMaybes ve)) vars'
-    -- Construct assignments
-    when (null vd) $ throwError $ "Bad lookup " ++ show cpy ++ " " ++ show rnk
-    return $ map (makeAssignment . (mapFst (\i -> model !! (i-1)))) vd
+getVarsAtRank sect model cpy rnk = do
+    vars <- liftE $ getVars sect rnk cpy
+    let as = Map.mapWithKey (\i v -> makeAssignment (model !! (i-1), v)) vars
+    return $ Map.elems as
 
 getConflicts vars conflicts cpy rnk = do
     let vs  = map (\v -> v {rank = rnk, ecopy = cpy}) vars

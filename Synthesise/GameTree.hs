@@ -610,7 +610,7 @@ appendMove r mc mn cex n
         addNew              = if r <= 1 then appendNode else append2Nodes1st
         addMove (c, i, x) y = addNew c i (snodeMove y) (snodeState y) x
 
-equalModCopy (Just xs) (Just ys)    = all (uncurry aEqualModCopy) (zip xs ys)
+equalModCopy (Just xs) (Just ys)    = all (uncurry aEqualModCopy) (zip (sort xs) (sort ys))
     where
         aEqualModCopy (Assignment sx x) (Assignment sy y) = sx == sy && x {ecopy = 0} == y {ecopy = 0}
 equalModCopy _ _                    = False
@@ -665,7 +665,7 @@ tab ind = concat (replicate ind "| ") ++ "|-"
 
 printMove :: CompiledSpec -> Move -> String
 printMove spec Nothing   = "Nothing"
-printMove spec (Just as) = interMap ", " (printVar spec) vs
+printMove spec (Just as) = interMap ", " (printVar spec) (map (\a -> [a]) as)
     where
         vs = groupBy f (sortBy g as)
         f (Assignment _ x) (Assignment _ y) = varname x == varname y

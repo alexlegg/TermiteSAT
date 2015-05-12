@@ -48,17 +48,21 @@ unboundedLoop init spec k = do
     liftIO $ putStrLn "-----"
     liftIO $ putStrLn $ "Unbounded Loop " ++ show k
 
+    liftIO $ hPutStrLn stderr $ "Unbounded Loop " ++ show k
+
     ls <- get 
     
----    when (k == 17) $ do
----        liftIO $ withFile "winningMay" WriteMode $ \h -> do
----            forM (Map.toList (winningMay ls)) $ \(r, wm) -> do
----                hPutStrLn h (show r)
----                forM (sort (map sort (Set.toList wm))) $ \s ->
----                    hPutStrLn h (printMove spec (Just (sort s)))
----                hPutStrLn h "--"
----            return ()
----        throwError "stop"
+    liftIO $ withFile ("winningMay" ++ show k) WriteMode $ \h -> do
+        forM (Map.toList (winningMay ls)) $ \(r, wm) -> do
+            hPutStrLn h (show r)
+            forM (Set.toList wm) $ \s ->
+                hPutStrLn h (printMove spec (Just (sort (Set.toList s))))
+            hPutStrLn h "--"
+        return ()
+
+    liftIO $ withFile ("winningMust" ++ show k) WriteMode $ \h -> do
+        forM (Set.toList (winningMust ls)) $ \s ->
+            hPutStrLn h (printMove spec (Just (sort (Set.toList s))))
 
     exWins <- checkInit k init (map Set.toList (Set.toList (winningMust ls))) (head (cg spec))
 

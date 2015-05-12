@@ -86,6 +86,7 @@ interpolate mc project a b = do
     t2  <- liftIO $ getCPUTime
     let t = fromIntegral (t2-t1) * 1e-12 :: Double
     liftIO $ modifyIORef totalTime (\total -> t + total)
+---    liftIO $ putStrLn $ "int " ++ (show ((fromInteger $ round $ (t * 10)) / 10.0))
     return r
 
 interpolate' mc project a b = do
@@ -97,6 +98,8 @@ interpolate' mc project a b = do
     tA2     <- liftIO $ getCPUTime
     let tA = fromIntegral (tA2-tA1) * 1e-12 :: Double
     liftIO $ modifyIORef enodeATime (\total -> tA + total)
+
+---    liftIO $ putStrLn $ "intA " ++ (show ((fromInteger $ round $ (tA * 10)) / 10.0))
 
     if (rA == 0)
     then do
@@ -112,6 +115,8 @@ interpolate' mc project a b = do
         tB2     <- liftIO $ getCPUTime
         let tB = fromIntegral (tB2-tB1) * 1e-12 :: Double
         liftIO $ modifyIORef enodeBTime (\total -> tB + total)
+
+---        liftIO $ putStrLn $ "intB " ++ (show ((fromInteger $ round $ (tB * 10)) / 10.0))
 
         if (rB == 1)
         then do

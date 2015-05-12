@@ -63,6 +63,7 @@ module Expression.Expression (
     , assignmentSection
     , assignmentRank
     , assignmentCopy
+    , getVars
     ) where
 
 import Control.Monad.State
@@ -185,6 +186,7 @@ data CopyManager = CopyManager {
     , stepCache     :: Map.Map (Int, Int, Int, Int, Int) ExprId
     , moveCache     :: Map.Map (MoveCacheType, [Assignment]) ExprId
     , dimacsCache   :: IMap.IntMap [SV.Vector CInt]
+    , copyVars      :: Map.Map Int ExprVar
 } deriving (Eq)
 
 data Section = StateVar | ContVar | UContVar | HatVar
@@ -216,6 +218,7 @@ emptyCopyManager mi incr = CopyManager {
     , stepCache     = Map.empty
     , moveCache     = Map.empty
     , dimacsCache   = IMap.empty
+    , copyVars      = Map.empty
 }
 
 clearTempExpressions :: MonadIO m => ExpressionT m ()
@@ -227,14 +230,11 @@ clearTempExpressions = do
 initManager :: MonadIO m => [Int] -> ExpressionT m ()
 initManager save = do
     m@ExprManager{..} <- get
-    let (Just c0) = IMap.lookup 0 copyManagers
-    put $ m { mgrMaxIndices = 100 }
+    let (Just c0)   = IMap.lookup 0 copyManagers
+    let incr        = ceiling ((fromIntegral (maxIndex c0)) * 1.5)
+    put $ m { mgrMaxIndices = incr }
     setCopyManager 0 (c0 { maxIndex = ceiling ((fromIntegral (maxIndex c0)) * 1.5) })
     clearCopyManagers
-
----    forM (IMap.toList (parentMap c0)) $ \(i, ps) -> do
----        when ((not (i `elem` save)) && ISet.null ps) $ do
----            freeIndex 0 i
 
     return ()
 
@@ -253,9 +253,11 @@ initCopyMaps mc = do
 initCopyMap c = do
     ExprManager{..} <- get
     let vars = Set.toList variables
-    mapM_ (addExpression c . f) vars
+    es <- mapM (addExpression c . f) vars
+    return ()
     where
         f v = ELit (v { ecopy = c })
+        unlit (ELit v)  = v
 
 getCopyManager :: MonadIO m => Int -> ExpressionT m CopyManager
 getCopyManager c = do
@@ -327,11 +329,14 @@ freeIndex mc i = do
 
 insertExpression :: MonadIO m => Int -> Expr -> ExpressionT m Expression
 insertExpression _ (ELit v) = do
+    --Lits are always put into copy 0
     when (ecopy v == 0) $ do
         m <- get
         put m { variables = Set.insert v (variables m) }
-
-    insertExpression' 0 (ELit v)
+    e <- insertExpression' 0 (ELit v)
+    cm <- getCopyManager 0
+    setCopyManager 0 (cm { copyVars = Map.insert (eindex e) v (copyVars cm)})
+    return e
 insertExpression c e        = insertExpression' c e
 
 insertExpression' c e = do
@@ -342,9 +347,9 @@ insertExpression' c e = do
         mgr <- get
         let maxCopies = IMap.size (copyManagers mgr)
 
----        when (c+1 < maxCopies) $ do
----            liftIO $ putStrLn ("Flushing managers: " ++ show (c+1) ++ " - " ++ show maxCopies)
----            --analyseManagers
+        when (c+1 < maxCopies) $ do
+            liftIO $ putStrLn ("Flushing managers: " ++ show (c+1) ++ " - " ++ show maxCopies)
+            --analyseManagers
 
         let copyManagers' = IMap.filterWithKey (\k _ -> k <= c) (copyManagers mgr)
         when (copyManagers mgr /= copyManagers') $ do
@@ -448,6 +453,12 @@ lookupExpressionAndCopy mc i    = do
         Nothing     -> return Nothing
         (Just exp)  -> return $ Just ((Expression { eindex = i, expr = exp }), -1)
     else return e
+
+getVars :: MonadIO m => Section -> Int -> Int -> ExpressionT m (Map.Map Int ExprVar)
+getVars s r c = do
+    cm <- getCopyManager 0
+    let vars = Map.filter (\v -> varsect v == s && rank v == r && ecopy v == c) (copyVars cm)
+    return vars
 
 lookupVar :: MonadIO m => ExprVar -> ExpressionT m (Maybe Expression)
 lookupVar v = do
