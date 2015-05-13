@@ -19,7 +19,7 @@ import Expression.Compile
 import Control.Monad.State
 import Control.Monad
 import Data.Maybe
-import Data.List
+import Data.List as L
 import Data.String
 import System.IO
 import qualified Data.ByteString as BS
@@ -97,11 +97,19 @@ outputLog spec trace = H.docTypeHtml $ do
     H.head $ do
         H.title "TermiteSAT Trace"
         link ! rel "stylesheet" ! href "debug.css"
-        script ! src "http://code.jquery.com/jquery-1.11.0.min.js" $ ""
-        script ! src "http://code.jquery.com/jquery-1.11.0.min.js" $ ""
+        link ! rel "stylesheet" ! href "http://code.jquery.com/ui/1.11.4/themes/ui-lightness/jquery-ui.css"
+        script ! src "http://code.jquery.com/jquery-1.11.3.min.js" $ ""
         script ! src "http://code.jquery.com/jquery-migrate-1.2.1.min.js" $ ""
+        script ! src "http://code.jquery.com/ui/1.11.3/jquery-ui.min.js" $ ""
         script ! src "debug.js" $ ""
-    H.body (outputTrace spec trace)
+    H.body $ do
+        H.div ! A.id "options" $ img ! src "options.png"
+        H.div ! A.id "optionsVarnames" $ do
+            let getNames = nub . sort . (L.map varname)
+            let allVars = getNames (svars spec) ++ getNames (cont spec) ++ getNames (ucont spec)
+            toHtml $ intercalate ", " allVars
+        H.div ! A.id "optionsDialog" $ "Select variables to show/hide"
+        outputTrace spec trace
         
 outputTrace spec trace = H.div ! class_ (fromString ("trace " ++ (show (player trace)))) $ do
     h3 $ do
@@ -110,15 +118,21 @@ outputTrace spec trace = H.div ! class_ (fromString ("trace " ++ (show (player t
     hr
     H.div ! class_ "input gametree" $ do
         h3 "Input GT"
-        pre $ toHtml (printTree spec (inputGT trace))
+        br
+        outputTree spec (gtRoot (inputGT trace))
+        br
 
-        when (not (null (prevLearned trace))) $ H.div ! class_ "previousLearning" $ do
-            h3 "Previously Learnt"
-            pre $ toHtml (intercalate "\n" (prevLearned trace))
+---        when (not (null (prevLearned trace))) $ H.div ! class_ "previousLearning" $ do
+---            h3 "Previously Learnt"
+---            pre $ toHtml (intercalate "\n" (prevLearned trace))
 
         H.div ! class_ "candidate gametree" $ do
             h3 "Candidate"
-            pre $ toHtml $ maybe "Nothing" (printTree spec) (candidate trace)
+            br
+            case candidate trace of
+                Nothing     -> "Nothing"
+                Just tree   -> outputTree spec (gtRoot tree)
+            br
 
         when (isJust (learned trace)) $ H.div ! class_ "learning" $ do
             h3 "Losing States"
@@ -128,7 +142,36 @@ outputTrace spec trace = H.div ! class_ (fromString ("trace " ++ (show (player t
 
         H.div ! class_ "result gametree" $ do
             h3 "Result"
-            pre $ toHtml (maybe "Nothing" (printTree spec) (result trace))
+            br
+            case result trace of
+                Nothing     -> "Nothing"
+                Just tree   -> outputTree spec (gtRoot tree)
+            br
+
+outputVar spec v = do
+    H.span ! class_ (toValue ("var_" ++ vname)) $ toHtml (printVar spec v)
+    where
+        vname = let (Assignment _ vi) = (L.head v) in varname vi
+
+outputMove spec Nothing = "Nothing" >> return ()
+outputMove spec (Just m) = do
+    mapM_ (outputVar spec) (groupMoveVars m)
+
+groupMoveVars as = groupBy f (sortBy g as)
+    where
+        f (Assignment _ x) (Assignment _ y) = varname x == varname y
+        g (Assignment _ x) (Assignment _ y) = compare (varname x) (varname y)
+
+outputTree spec gt = do
+    H.div ! class_ "tree" $ do
+        case gtPlayer gt of
+            Existential -> "E "
+            Universal   -> "U "
+        outputMove spec (gtMove gt)
+        when (gtPlayer gt == Universal) $ do
+            " | "
+            outputMove spec (gtState gt)
+        mapM_ (outputTree spec) (gtChildren gt)
 
 outputVerifyRefine spec (vs, r) = do
     hr

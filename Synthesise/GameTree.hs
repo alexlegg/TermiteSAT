@@ -4,6 +4,7 @@ module Synthesise.GameTree (
     , Player(..)
     , Move(..)
     , printMove
+    , printVar
     , opponent
 
     -- Queries on GameTrees

@@ -17,3 +17,36 @@ h3 {
     padding: 0;
     margin: 0;
 }
+
+div.tree {
+    padding-left: 12px;
+    font-family: monospace;
+    border-left: 2px solid black;
+}
+
+div.tree span {
+    margin-right: 8px;
+}
+
+div.tree span:not([style*="display:none"]):not(:last-of-type):after {
+    content: ",";
+}
+
+div#options {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+}
+
+div#options img {
+    width: 50px;
+    height: 50px;
+}
+
+div#options img:hover {
+    cursor: pointer;
+}
+
+div#optionsVarnames {
+    display: none;
+}
