@@ -170,6 +170,8 @@ findCandidate player spec s gt = do
         liftLog $ logCandidate (Just outGt')
         return (Just gt')
     else do
+        liftIO $ putStrLn $ "losing candidate " ++ show player
+---        when (player == Existential) $ liftIO $ putStrLn $ "Losing candidate"
         ls <- get
         if (learningType ls == BoundedLearning)
             then mapM_ (learnStates spec player) (gtUnsetNodes gt)
@@ -201,10 +203,10 @@ learnStates spec player ogt = do
         if player == Existential
         then do
             put $ ls { winningMay    = alterAll (insertIntoSet cube) [1..rank] (winningMay ls) }
-            liftLog $ logLosingState (printMove spec (Just (head cube)))
+            liftLog $ logLosingState (head cube)
         else do
             put $ ls { winningMust   = foldl insertCube (winningMust ls) cube }
-            liftLog $ logLosingState (printMove spec (Just (head cube)))
+            liftLog $ logLosingState (head cube)
 
 getLosingStates :: CompiledSpec -> Player -> GameTree -> SolverT (Maybe [[Assignment]])
 getLosingStates spec player ogt = do
@@ -229,7 +231,10 @@ getLosingStates spec player ogt = do
 learnWinning :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ()
 learnWinning spec player s gt@(gtUnsetNodes -> []) = do
     -- Learn from the root of the tree
-    interpolateTree spec player s (gtExtend gt)
+    found <- interpolateTree spec player s (gtExtend gt)
+---    when (player == Existential) $ liftIO $ putStrLn $ "interpolateTree " ++ show found
+    liftIO $ putStrLn ("interpolateTree" ++ show found)
+    return ()
 learnWinning spec player s (gtUnsetNodes -> gt:[]) = do
     -- Learn from the highest node under the fixed prefix
     core <- getLosingStates spec player gt
@@ -238,16 +243,29 @@ learnWinning spec player s (gtUnsetNodes -> gt:[]) = do
             when (c == []) $ throwError "empty core"
             coreExps    <- liftE $ mapM (assignmentToExpression 0) c
             allCores    <- liftE $ disjunct coreExps
-            interpolateTree spec player allCores (gtExtend (gtRebase 0 gt))
+            found <- interpolateTree spec player allCores (gtExtend (gtRebase 0 gt))
+---            when (player == Existential) $ liftIO $ putStrLn $ "interpolateTree " ++ show found
+            when (found == False && player == Existential) $ do
+                liftIO $ putStrLn "no interp"
+                coresp <- liftE $ printExpression allCores
+                liftIO $ putStrLn coresp
+                liftIO $ putStrLn (printTree spec gt)
+                liftIO $ putStrLn (printTree spec (gtExtend (gtRebase 0 gt)))
+                Just (gtA, gtB, fmlA, fmlB) <- makeSplitFmls spec player allCores (gtExtend (gtRebase 0 gt))
+                fmlAp <- liftE $ printExpression fmlA
+                liftIO $ putStrLn fmlAp
+            liftIO $ putStrLn ("interpolateTree" ++ show found)
+            return ()
         Nothing -> do
----            liftIO $ putStrLn "lost in prefix"
+            liftIO $ putStrLn $ "lost in prefix"
+            liftLog $ logLostInPrefix
             -- Can't find a core, so we must have lost in the prefix
             return ()
 learnWinning spec player s gt = do
     liftIO $ putStrLn (printTree spec gt)
     throwError "Found more than one unset node in learnWinning"
 
-interpolateTree :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ()
+interpolateTree :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT Bool
 interpolateTree spec player s gt' = do
     let gt = normaliseCopies gt'
     fmls <- makeSplitFmls spec player s gt
@@ -270,34 +288,6 @@ interpolateTree spec player s gt' = do
             ir <- interpolate (gtMaxCopy gt) project fmlA fmlB
             if (not (success ir))
             then do
-                sp <- liftE $ printExpression s
-                liftIO $ putStrLn (show player)
-                liftIO $ putStrLn sp
-                liftIO $ putStrLn (printTree spec gt)
-                liftIO $ putStrLn (printTree spec gtA)
-                liftIO $ putStrLn (printTree spec gtB)
-
-                fmlAp <- liftE $ printExpression fmlA
-                fmlBp <- liftE $ printExpression fmlB
-                liftIO $ writeFile "fmlA" fmlAp
-                liftIO $ writeFile "fmlB" fmlBp
-
-                both <- liftE $ conjunctTemp (gtMaxCopy gt) [fmlA, fmlB]
-                rboth <- satSolve (gtMaxCopy gt) Nothing both
-                liftIO $ putStrLn (show (satisfiable rboth))
-
-                (_, blah, _)  <- makeFml spec player s gt True
-                rblah <- satSolve (gtMaxCopy gt) Nothing blah
-                liftIO $ putStrLn (show (satisfiable rblah))
-
-                bothp <- liftE $ printExpression both
-                liftIO $ writeFile "intFml" bothp
-                gtSetMoves <- setMoves player spec (fromJust (model rboth)) (gtRoot gt)
-                liftIO $ putStrLn (printTree spec gtSetMoves)
-
-                blahp <- liftE $ printExpression blah
-                liftIO $ writeFile "satFml" blahp
-
                 throwError "Interpolation failed"
             else do
                 let cube'   = map (filter (((==) StateVar) . assignmentSection)) (fromJust (interpolant ir))
@@ -308,8 +298,9 @@ interpolateTree spec player s gt' = do
 ---                liftIO $ mapM (putStrLn . printMove spec . Just) cube
 ---                liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
 ---                liftIO $ putStrLn ""
---
 ---                liftIO $ mapM (\c -> putStrLn $ "learnWinning " ++ show c) cube
+
+                liftLog $ mapM logLosingState cube''
 
                 when (any (\cs -> not $ all (\a -> assignmentRank a == assignmentRank (head cs)) cs) cube') $ do
                     throwError "Not all cubes of the same rank"
@@ -327,7 +318,8 @@ interpolateTree spec player s gt' = do
                     }
 
                 interpolateTree spec player s gtA
-    else return ()
+                return True
+    else return False
 
 alterAll :: Ord k => (Maybe a -> Maybe a) -> [k] -> Map.Map k a -> Map.Map k a
 alterAll f (k:[]) m = Map.alter f k m

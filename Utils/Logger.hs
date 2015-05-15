@@ -10,6 +10,7 @@ module Utils.Logger (
     , logDumpLog
     , logLosingState
     , logCandidate
+    , logLostInPrefix
     , logSpec
     ) where
 
@@ -21,6 +22,7 @@ import Control.Monad
 import Data.Maybe
 import Data.List as L
 import Data.String
+import qualified Data.Set as Set
 import System.IO
 import qualified Data.ByteString as BS
 import Text.Blaze.Html5 as H
@@ -33,7 +35,8 @@ data SynthTrace = SynthTrace {
       inputGT           :: GameTree
     , candidate         :: Maybe GameTree
     , prevLearned       :: [String]
-    , learned           :: Maybe String
+    , learned           :: [Set.Set Assignment]
+    , lostInPrefix      :: Maybe Bool
     , player            :: Player
     , result            :: Maybe GameTree
     , verification      :: [[SynthTrace]]
@@ -107,7 +110,7 @@ outputLog spec trace = H.docTypeHtml $ do
         H.div ! A.id "optionsVarnames" $ do
             let getNames = nub . sort . (L.map varname)
             let allVars = getNames (svars spec) ++ getNames (cont spec) ++ getNames (ucont spec)
-            toHtml $ intercalate ", " allVars
+            toHtml $ intercalate ", " (L.map sanitise allVars)
         H.div ! A.id "optionsDialog" $ "Select variables to show/hide"
         outputTrace spec trace
         
@@ -134,9 +137,11 @@ outputTrace spec trace = H.div ! class_ (fromString ("trace " ++ (show (player t
                 Just tree   -> outputTree spec (gtRoot tree)
             br
 
-        when (isJust (learned trace)) $ H.div ! class_ "learning" $ do
+        when (not (null (learned trace))) $ H.div ! class_ "learning" $ do
             h3 "Losing States"
-            pre $ toHtml $ fromJust (learned trace)
+            if (lostInPrefix trace == Just True)
+                then "Lost in Prefix"
+                else pre $ toHtml $ intercalate "\n" $ L.map (printMove spec . Just . Set.toList) (learned trace)
 
         H.div ! class_ "verifyRefineLoop" $ forM_ (paddedZip (verification trace) (refinement trace)) (outputVerifyRefine spec)
 
@@ -148,8 +153,10 @@ outputTrace spec trace = H.div ! class_ (fromString ("trace " ++ (show (player t
                 Just tree   -> outputTree spec (gtRoot tree)
             br
 
+sanitise = filter (\c -> c /= '<' && c /= '>')
+
 outputVar spec v = do
-    H.span ! class_ (toValue ("var_" ++ vname)) $ toHtml (printVar spec v)
+    H.span ! class_ (toValue ("var_" ++ sanitise vname)) $ toHtml (printVar spec v)
     where
         vname = let (Assignment _ vi) = (L.head v) in varname vi
 
@@ -224,7 +231,8 @@ logSolve gt player pLearn = do
               inputGT = gt
             , candidate = Nothing
             , prevLearned = pLearn
-            , learned = Nothing
+            , learned = []
+            , lostInPrefix = Nothing
             , player = player
             , result = Nothing
             , verification = []
@@ -266,11 +274,19 @@ logRefine = do
         let currentTrace = follow (fromJust trace) crumb
         put $ log { crumb = crumb ++ [RefineCrumb (length (refinement currentTrace))] }
 
-logLosingState :: Monad m => String -> LoggerT m ()
+logLosingState :: Monad m => [Assignment] -> LoggerT m ()
 logLosingState s = do
     log@Log{..} <- get
+    return ()
     when (debugMode /= NoDebug) $ do
-        put $ log { trace = Just $ updateAt (\t -> t { learned = Just s }) crumb (fromJust trace) }
+        put $ log { trace = Just $ updateAt (\t -> t { learned = learned t ++ [Set.fromList s] }) crumb (fromJust trace) }
+
+logLostInPrefix :: Monad m => LoggerT m ()
+logLostInPrefix = do
+    log@Log{..} <- get
+    return ()
+    when (debugMode /= NoDebug) $ do
+        put $ log { trace = Just $ updateAt (\t -> t { lostInPrefix = Just True }) crumb (fromJust trace) }
 
 logSpec :: Monad m => CompiledSpec -> LoggerT m ()
 logSpec cspec = do
