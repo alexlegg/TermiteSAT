@@ -38,13 +38,14 @@ module Synthesise.GameTree (
     , gtIsPrefix
     , gtCopiesAndRanks
     , gtPlayer
+    , gtLostInPrefix
 
     -- Modifiers
     , gtNew
     , gtLeaves
     , makePathTree
-    , gtCached
     , gtSetMove
+    , gtSetExWins
     , gtSetState
     , gtSetInit
     , gtSetExprIds
@@ -90,7 +91,7 @@ data Node (t :: NodeType) (p :: Player) where
         , uNodeId       :: Int
         , uMove         :: Move
         , uState        :: Move
-        , uChanged      :: Bool
+        , uExWins       :: Maybe Bool
         , uExprId       :: (Maybe Int, Maybe Int)
         , uChildren     :: [Node InternalNode Existential]
     } -> Node InternalNode Universal
@@ -99,7 +100,6 @@ data Node (t :: NodeType) (p :: Player) where
           eCopy         :: Int
         , eNodeId       :: Int
         , eMove         :: Move
-        , eChanged      :: Bool
         , eExprId       :: (Maybe Int, Maybe Int)
         , eChildren     :: [Node InternalNode Universal]
     } -> Node InternalNode Existential
@@ -108,7 +108,6 @@ data Node (t :: NodeType) (p :: Player) where
           suCopy        :: Int
         , suNodeId      :: Int
         , suState       :: Move
-        , suChanged     :: Bool
         , suExprId      :: (Maybe Int, Maybe Int)
         , suChildren    :: [Node InternalNode Existential]
     } -> Node RootNode Universal
@@ -117,7 +116,6 @@ data Node (t :: NodeType) (p :: Player) where
           seCopy        :: Int
         , seNodeId      :: Int
         , seState       :: Move
-        , seChanged     :: Bool
         , seExprId      :: (Maybe Int, Maybe Int)
         , seChildren    :: [Node InternalNode Universal]
     } -> Node RootNode Existential
@@ -151,10 +149,10 @@ instance SNodeC RootNode Existential where
     toNode _                = error "Conversion to SE Node failed"
 
 newNode :: SNode -> Int -> Int -> Move -> Move -> SNode
-newNode (SNode E{}) id c m s    = SNode $ U { uCopy = c, uNodeId = id, uMove = m, uChanged = False, uExprId = (Nothing, Nothing), uState = s, uChildren = [] }
-newNode (SNode U{}) id c m s    = SNode $ E { eCopy = c, eNodeId = id, eMove = m, eChanged = False, eExprId = (Nothing, Nothing), eChildren = [] }
-newNode (SNode SE{}) id c m s   = SNode $ U { uCopy = c, uNodeId = id, uMove = m, uChanged = False, uExprId = (Nothing, Nothing), uState = s, uChildren = [] }
-newNode (SNode SU{}) id c m s   = SNode $ E { eCopy = c, eNodeId = id, eMove = m, eChanged = False, eExprId = (Nothing, Nothing), eChildren = [] }
+newNode (SNode E{}) id c m s    = SNode $ U { uCopy = c, uNodeId = id, uMove = m, uExprId = (Nothing, Nothing), uState = s, uExWins = Nothing, uChildren = [] }
+newNode (SNode U{}) id c m s    = SNode $ E { eCopy = c, eNodeId = id, eMove = m, eExprId = (Nothing, Nothing), eChildren = [] }
+newNode (SNode SE{}) id c m s   = SNode $ U { uCopy = c, uNodeId = id, uMove = m, uExprId = (Nothing, Nothing), uState = s, uExWins = Nothing, uChildren = [] }
+newNode (SNode SU{}) id c m s   = SNode $ E { eCopy = c, eNodeId = id, eMove = m, eExprId = (Nothing, Nothing), eChildren = [] }
 
 children :: SNode -> [SNode]
 children (SNode n@U{})  = map SNode (uChildren n)
@@ -174,23 +172,20 @@ snodeMove (SNode n@E{})     = eMove n
 snodeMove (SNode n@SU{})    = suState n
 snodeMove (SNode n@SE{})    = seState n
 
-isChanged :: SNode -> Bool
-isChanged (SNode n@U{})     = uChanged n
-isChanged (SNode n@E{})     = eChanged n
-isChanged (SNode n@SU{})    = suChanged n
-isChanged (SNode n@SE{})    = seChanged n
-
-setChanged :: SNode -> Bool -> SNode
-setChanged (SNode n@U{}) c  = SNode (n { uChanged = c })
-setChanged (SNode n@E{}) c  = SNode (n { eChanged = c })
-setChanged (SNode n@SU{}) c = SNode (n { suChanged = c })
-setChanged (SNode n@SE{}) c = SNode (n { seChanged = c })
-
 setMove :: Move -> SNode -> SNode
-setMove m (SNode n@U{..})   = SNode (n { uMove = m, uChanged = uChanged || m /= uMove })
-setMove m (SNode n@E{..})   = SNode (n { eMove = m, eChanged = eChanged || m /= eMove })
-setMove s (SNode n@SU{..})  = SNode (n { suState = s, suChanged = suChanged || s /= suState })
-setMove s (SNode n@SE{..})  = SNode (n { seState = s, seChanged = seChanged || s /= seState })
+setMove m (SNode n@U{..})   = SNode (n { uMove = m })
+setMove m (SNode n@E{..})   = SNode (n { eMove = m })
+setMove s (SNode n@SU{..})  = SNode (n { suState = s })
+setMove s (SNode n@SE{..})  = SNode (n { seState = s })
+
+exWins :: SNode -> Maybe Bool
+exWins (SNode n@U{})    = uExWins n
+exWins (SNode n@SU{})   = Nothing
+exWins _                = error "Tried to get ExWins for wrong node type"
+
+setExWins :: Maybe Bool -> SNode -> SNode
+setExWins ew (SNode n@U{..})    = SNode (n { uExWins = ew })
+setExWins _ _                   = error "Tried to set ExWins for wrong node type"
 
 snodeState :: SNode -> Move
 snodeState (SNode n@U{})     = uState n
@@ -292,14 +287,14 @@ gtNew Existential r = ETree {
     , maxCopy   = 0
     , maxId     = 1
     , crumb     = []
-    , eroot     = SU { suCopy = 0, suNodeId = 0, suState = Nothing, suChanged = False, suExprId = (Nothing, Nothing), suChildren = [] } }
+    , eroot     = SU { suCopy = 0, suNodeId = 0, suState = Nothing, suExprId = (Nothing, Nothing), suChildren = [] } }
 
 gtNew Universal r   = UTree { 
       baseRank  = r
     , maxCopy   = 0
     , maxId     = 1
     , crumb     = []
-    , uroot     = SE { seCopy = 0, seNodeId = 0, seState = Nothing, seChanged = False, seExprId = (Nothing, Nothing), seChildren = [] } }
+    , uroot     = SE { seCopy = 0, seNodeId = 0, seState = Nothing, seExprId = (Nothing, Nothing), seChildren = [] } }
 
 -- |Calculates rank of a node (based on base rank)
 gtRank :: GameTree -> Int
@@ -491,13 +486,11 @@ makePathTree gt = setCrumb (updateRoot gt (makePN (crumb gt))) (replicate (lengt
         makePN [] n     = n
         makePN (c:cs) n = setChildren n [makePN cs (children n !! c)]
 
-gtCached :: GameTree -> GameTree
-gtCached gt = setRoot gt (mapChildren (root gt))
-    where
-        mapChildren n = setChildren (setChanged n False) (map mapChildren (children n))
-
 gtSetMove :: GameTree -> [Assignment] -> GameTree
 gtSetMove gt as = updateGTCrumb gt (setMove (Just as))
+
+gtSetExWins :: GameTree -> Maybe Bool -> GameTree
+gtSetExWins gt ew = updateGTCrumb gt (setExWins ew)
 
 gtSetState :: GameTree -> [Assignment] -> GameTree
 gtSetState gt as = updateGTCrumb gt (setState (Just as))
@@ -644,7 +637,6 @@ printNode spec r t cs n = tab t
     ++ show (copy n) ++ " "
 ---    ++ show (nodeId n) ++ " "
 ---    ++ "(" ++ show (exprId n) ++ ") "
----    ++ show (isChanged n) ++ " "
     ++ printMove spec (snodeMove n) 
     ++ maybe "" ((" | " ++) . printMove spec) (getStateIfU n) 
     ++ "\n" ++ concatMap (uncurry (printNode spec (r-1) (t+1))) (nextC cs (children n))
@@ -740,3 +732,10 @@ gtIsPrefix gt = not $ hasNothingMove (root gt)
 
 gtPlayer :: GameTree -> Player
 gtPlayer gt = if (isUNode (followGTCrumb gt)) then Universal else Existential
+
+gtLostInPrefix :: GameTree -> Bool
+gtLostInPrefix (gtAtBottom -> True) = False
+gtLostInPrefix gt                   = fromMaybe False (exWins (endOfPrefix (root gt)))
+    where
+        endOfPrefix n@(children -> c:[])    = if (isNothing (snodeMove c)) then c else endOfPrefix c
+        endOfPrefix _                       = error "Called gtLostInPrefix on branching gt"

@@ -4,6 +4,7 @@ module Synthesise.GameFormula (
     , makeSplitFmls
     , makeInitCheckFml
     , makeUniversalWinCheckFml
+    , goalFor
     ) where
 
 import qualified Data.Map as Map

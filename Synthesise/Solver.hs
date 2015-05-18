@@ -163,14 +163,17 @@ findCandidate player spec s gt = do
 
     if satisfiable res
     then do
----        (Just m)    <- shortenStrategy player gt' f (model res) es
-        let Just m  = model res
+        (Just m)    <- shortenStrategy player gt' f (model res) es
+---        let sLens = if (player == Existential) 
+---            then strategyLengths gt es m
+---            else []
+---        let Just m  = model res
         gt'         <- setMoves player spec m (gtRoot gt')
         outGt'      <- setMoves player spec m (gtRoot (gtExtend gt'))
         liftLog $ logCandidate (Just outGt')
         return (Just gt')
     else do
-        liftIO $ putStrLn $ "losing candidate " ++ show player
+---        liftIO $ putStrLn $ "losing candidate " ++ show player
 ---        when (player == Existential) $ liftIO $ putStrLn $ "Losing candidate"
         ls <- get
         if (learningType ls == BoundedLearning)
@@ -233,7 +236,7 @@ learnWinning spec player s gt@(gtUnsetNodes -> []) = do
     -- Learn from the root of the tree
     found <- interpolateTree spec player s (gtExtend gt)
 ---    when (player == Existential) $ liftIO $ putStrLn $ "interpolateTree " ++ show found
-    liftIO $ putStrLn ("interpolateTree" ++ show found)
+---    liftIO $ putStrLn ("interpolateTree" ++ show found)
     return ()
 learnWinning spec player s (gtUnsetNodes -> gt:[]) = do
     -- Learn from the highest node under the fixed prefix
@@ -245,19 +248,19 @@ learnWinning spec player s (gtUnsetNodes -> gt:[]) = do
             allCores    <- liftE $ disjunct coreExps
             found <- interpolateTree spec player allCores (gtExtend (gtRebase 0 gt))
 ---            when (player == Existential) $ liftIO $ putStrLn $ "interpolateTree " ++ show found
-            when (found == False && player == Existential) $ do
-                liftIO $ putStrLn "no interp"
-                coresp <- liftE $ printExpression allCores
-                liftIO $ putStrLn coresp
-                liftIO $ putStrLn (printTree spec gt)
-                liftIO $ putStrLn (printTree spec (gtExtend (gtRebase 0 gt)))
-                Just (gtA, gtB, fmlA, fmlB) <- makeSplitFmls spec player allCores (gtExtend (gtRebase 0 gt))
-                fmlAp <- liftE $ printExpression fmlA
-                liftIO $ putStrLn fmlAp
-            liftIO $ putStrLn ("interpolateTree" ++ show found)
+---            when (found == False && player == Existential) $ do
+---                liftIO $ putStrLn "no interp"
+---                coresp <- liftE $ printExpression allCores
+---                liftIO $ putStrLn coresp
+---                liftIO $ putStrLn (printTree spec gt)
+---                liftIO $ putStrLn (printTree spec (gtExtend (gtRebase 0 gt)))
+---                Just (gtA, gtB, fmlA, fmlB) <- makeSplitFmls spec player allCores (gtExtend (gtRebase 0 gt))
+---                fmlAp <- liftE $ printExpression fmlA
+---                liftIO $ putStrLn fmlAp
+---            liftIO $ putStrLn ("interpolateTree" ++ show found)
             return ()
         Nothing -> do
-            liftIO $ putStrLn $ "lost in prefix"
+---            liftIO $ putStrLn $ "lost in prefix"
             liftLog $ logLostInPrefix
             -- Can't find a core, so we must have lost in the prefix
             return ()
@@ -354,6 +357,9 @@ verifyLoop :: Player -> CompiledSpec -> Expression -> (Int, GameTree) -> SolverT
 verifyLoop player spec s (i, gt) = do
     liftLog $ logVerify i
     let oppGame = appendChild gt
+    when (player == Universal) $ do
+        when (gtLostInPrefix oppGame) $ do
+            liftIO $ putStrLn (printTree spec oppGame)
     solveAbstract player spec s oppGame
 
 refine gt cex = return $ appendNextMove gt cex
@@ -371,8 +377,9 @@ setMovesPlayer player spec model gt = do
 
     gt'         <- case player of
         Universal   -> do
-            state <- getVarsAtRank StateVar model (gtCopyId gt) (gtRank gt - 1)
-            return $ gtSetMove (gtSetState gt state) move
+            state   <- getVarsAtRank StateVar model (gtCopyId gt) (gtRank gt - 1)
+            let gt' = gtSetExWins gt Nothing
+            return $ gtSetMove (gtSetState gt' state) move
         Existential -> 
             return $ gtSetMove gt move
 
@@ -382,8 +389,13 @@ setMovesPlayer player spec model gt = do
 setMovesOpp player spec model gt = do
     gt' <- if opponent player == Universal
         then do
-            state <- getVarsAtRank StateVar model (gtCopyId (gtParent gt)) (gtRank gt - 1)
-            return $ gtSetState gt state
+            let pCopy   = gtCopyId (gtParent gt)
+            let goal    = goalFor Existential spec (gtRank gt - 1)
+            cg          <- liftE $ getCached (gtRank gt - 1) pCopy pCopy pCopy (exprIndex goal)
+            when (isNothing cg) $ throwError "Could not find goal in setMoves"
+            let exWins  = (model !! (exprIndex (fromJust cg))) > 0
+            state       <- getVarsAtRank StateVar model pCopy (gtRank gt - 1)
+            return $ gtSetState (gtSetExWins gt (Just exWins)) state
         else return gt
     let vars    = if opponent player == Existential then ContVar else UContVar
     move        <- getVarsAtRank vars model (gtCopyId gt) (gtRank gt)
