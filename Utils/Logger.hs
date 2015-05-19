@@ -174,6 +174,7 @@ outputTree spec gt = do
         case gtPlayer gt of
             Existential -> "E "
             Universal   -> "U "
+        when (gtPlayer gt == Universal && gtExWins gt == Just True) $ "EXWINS: "
         outputMove spec (gtMove gt)
         when (gtPlayer gt == Universal) $ do
             " | "

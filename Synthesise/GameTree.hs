@@ -19,6 +19,7 @@ module Synthesise.GameTree (
     , gtMoves
     , gtMove
     , gtState
+    , gtExWins
     , gtCopyId
     , gtNodeId
     , gtParent
@@ -354,6 +355,9 @@ nodeStates :: [Int] -> SNode -> [Move]
 nodeStates [] n     = [snodeState n]
 nodeStates (c:cs) n = snodeState n : nodeStates cs (children n !! c)
 
+gtExWins :: GameTree -> Maybe Bool
+gtExWins gt = exWins (followGTCrumb gt)
+
 -- |Returns the move at the current node
 gtMove :: GameTree -> Move
 gtMove = snodeMove . followGTCrumb
@@ -519,8 +523,9 @@ projectNodes n p
         let move    = setMove (snodeMove p) (setChildren n cs)
         let state   = setStateIfU (snodeState p) move
         let ids     = setExprId (exprId p) state
-        return ids
-    | otherwise = D.trace (show (snodeMove n) ++ show (snodeMove p)) $ Nothing
+        let exw     = if isUNode ids then setExWins (exWins p) ids else ids
+        return exw
+    | otherwise = Nothing
 
 appendChild :: GameTree -> GameTree
 appendChild gt = gt' { maxCopy = c, maxId = n }
@@ -665,7 +670,7 @@ printMove spec (Just as) = interMap ", " (printVar spec) (map (\a -> [a]) as)
         g (Assignment _ x) (Assignment _ y) = compare (varname x) (varname y)
 
 printVar :: CompiledSpec -> [Assignment] -> String
-printVar spec as = vname ++ show vrank ++ {- "_" ++ show vcopy ++ -} " = " ++ valsToEnums vi vals
+printVar spec as = vname ++ show vrank ++ "_" ++ show vcopy ++ " = " ++ valsToEnums vi vals
     where
         vname       = let (Assignment _ v) = (head as) in varname v
         vrank       = let (Assignment _ v) = (head as) in rank v

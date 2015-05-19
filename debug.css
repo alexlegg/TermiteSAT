@@ -50,3 +50,7 @@ div#options img:hover {
 div#optionsVarnames {
     display: none;
 }
+
+div.exwins {
+    font-weight: bold;
+}

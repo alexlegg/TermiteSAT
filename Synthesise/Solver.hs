@@ -164,9 +164,6 @@ findCandidate player spec s gt = do
     if satisfiable res
     then do
         (Just m)    <- shortenStrategy player gt' f (model res) es
----        let sLens = if (player == Existential) 
----            then strategyLengths gt es m
----            else []
 ---        let Just m  = model res
         gt'         <- setMoves player spec m (gtRoot gt')
         outGt'      <- setMoves player spec m (gtRoot (gtExtend gt'))
@@ -389,9 +386,9 @@ setMovesPlayer player spec model gt = do
 setMovesOpp player spec model gt = do
     gt' <- if opponent player == Universal
         then do
-            let pCopy   = gtCopyId (gtParent gt)
-            let goal    = goalFor Existential spec (gtRank gt - 1)
-            cg          <- liftE $ getCached (gtRank gt - 1) pCopy pCopy pCopy (exprIndex goal)
+            let pCopy   = gtCopyId gt
+            let goal    = goalFor Existential spec (gtRank gt)
+            cg          <- liftE $ getCached (gtRank gt) pCopy pCopy pCopy (exprIndex goal)
             when (isNothing cg) $ throwError "Could not find goal in setMoves"
             let exWins  = (model !! (exprIndex (fromJust cg))) > 0
             state       <- getVarsAtRank StateVar model pCopy (gtRank gt - 1)
