@@ -20,7 +20,7 @@ output o_err;
 reg reg_ready;
 reg reg_grant0;
 reg reg_grant1;
-reg [3:0] fair_cnt;
+reg [1:0] fair_cnt;
 reg sys_fair1_done;
 reg sys_fair2_done;
 
@@ -38,7 +38,7 @@ assign sys_safety2 = ~( ~(reg_ready) | (reg_grant1 ^~ controllable_master));
 assign sys_fair1 = ( (~controllable_master) | (~i_req0) );
 assign sys_fair2 = ( controllable_master | (~i_req1) );
 
-assign fair_err = fair_cnt >= 4'b1000;
+assign fair_err = fair_cnt >= 4'b10;
 
 assign o_err = sys_safety1 | sys_safety2 | fair_err;
 

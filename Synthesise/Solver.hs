@@ -167,7 +167,7 @@ findCandidate player spec s gt = do
 ---        let Just m  = model res
         gt'         <- setMoves player spec m (gtRoot gt')
         outGt'      <- setMoves player spec m (gtRoot (gtExtend gt'))
-        liftLog $ logCandidate (Just outGt')
+        liftLog $ logCandidate (Just gt')
         return (Just gt')
     else do
 ---        liftIO $ putStrLn $ "losing candidate " ++ show player
@@ -352,16 +352,22 @@ verify player spec s gt cand = do
 
 verifyLoop :: Player -> CompiledSpec -> Expression -> (Int, GameTree) -> SolverT (Maybe GameTree)
 verifyLoop player spec s (i, gt) = do
-    liftLog $ logVerify i
     let oppGame = appendChild gt
-    when (player == Universal) $ do
-        when (gtLostInPrefix oppGame) $ do
-            liftIO $ putStrLn (printTree spec oppGame)
-    solveAbstract player spec s oppGame
+    if (player == Universal && gtLostInPrefix (gtRoot oppGame))
+        then return Nothing
+        else do
+            liftLog $ logVerify i
+            solveAbstract player spec s oppGame
 
 refine gt cex = return $ appendNextMove gt cex
 
-setMoves player spec model gt = do
+wipeTree gt = gtSetChildren (f gt) (map wipeTree (gtChildren gt))
+    where
+        f t@(gtPlayer -> Universal)   = gtSetExWins t Nothing
+        f t@(gtPlayer -> Existential) = t
+
+setMoves player spec model ogt = do
+    let gt      = wipeTree (gtRoot ogt)
     let f       = if player == gtFirstPlayer gt then setMovesPlayer else setMovesOpp 
     cs          <- mapM (f player spec model) (gtChildren gt)
     let gt'     = gtSetChildren gt cs
@@ -387,10 +393,10 @@ setMovesOpp player spec model gt = do
     gt' <- if opponent player == Universal
         then do
             let pCopy   = gtCopyId gt
-            let goal    = goalFor Existential spec (gtRank gt)
-            cg          <- liftE $ getCached (gtRank gt) pCopy pCopy pCopy (exprIndex goal)
+            let goal    = goalFor Existential spec (gtRank gt - 1)
+            cg          <- liftE $ getCached (gtRank gt - 1) pCopy pCopy pCopy (exprIndex goal)
             when (isNothing cg) $ throwError "Could not find goal in setMoves"
-            let exWins  = (model !! (exprIndex (fromJust cg))) > 0
+            let exWins  = (model !! ((exprIndex (fromJust cg)) - 1)) > 0
             state       <- getVarsAtRank StateVar model pCopy (gtRank gt - 1)
             return $ gtSetState (gtSetExWins gt (Just exWins)) state
         else return gt

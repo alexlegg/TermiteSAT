@@ -739,8 +739,8 @@ gtPlayer :: GameTree -> Player
 gtPlayer gt = if (isUNode (followGTCrumb gt)) then Universal else Existential
 
 gtLostInPrefix :: GameTree -> Bool
-gtLostInPrefix (gtAtBottom -> True) = False
-gtLostInPrefix gt                   = fromMaybe False (exWins (endOfPrefix (root gt)))
-    where
-        endOfPrefix n@(children -> c:[])    = if (isNothing (snodeMove c)) then c else endOfPrefix c
-        endOfPrefix _                       = error "Called gtLostInPrefix on branching gt"
+gtLostInPrefix gt
+    | gtPlayer gt == Existential    = any gtLostInPrefix (gtChildren gt)
+    | isNothing (gtMove gt)         = False
+    | gtExWins gt == Just True      = True
+    | otherwise                     = any gtLostInPrefix (gtChildren gt)
