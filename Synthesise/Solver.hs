@@ -347,17 +347,16 @@ verify :: Player -> CompiledSpec -> Expression -> GameTree -> GameTree -> Solver
 verify player spec s gt cand = do
     let og = projectMoves gt cand
     when (not (isJust og)) $ throwError $ "Error projecting, moves didn't match\n" ++ show player ++ printTree spec gt ++ printTree spec cand
-    let leaves = filter (not . gtAtBottom) (map makePathTree (gtLeaves (fromJust og)))
-    mapMUntilJust (verifyLoop (opponent player) spec s) (zip [0..] leaves)
+    let leaves = map appendChild $ filter (not . gtAtBottom) (map makePathTree (gtLeaves (fromJust og)))
+    let leaves' = if opponent player == Universal
+        then filter (not . gtLostInPrefix . gtRoot) leaves
+        else leaves
+    mapMUntilJust (verifyLoop (opponent player) spec s) (zip [0..] leaves')
 
 verifyLoop :: Player -> CompiledSpec -> Expression -> (Int, GameTree) -> SolverT (Maybe GameTree)
 verifyLoop player spec s (i, gt) = do
-    let oppGame = appendChild gt
-    if (player == Universal && gtLostInPrefix (gtRoot oppGame))
-        then return Nothing
-        else do
-            liftLog $ logVerify i
-            solveAbstract player spec s oppGame
+    liftLog $ logVerify i
+    solveAbstract player spec s gt
 
 refine gt cex = return $ appendNextMove gt cex
 

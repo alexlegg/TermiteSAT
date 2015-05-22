@@ -64,8 +64,6 @@ unboundedLoop init spec k = do
         forM (Set.toList (winningMust ls)) $ \s ->
             hPutStrLn h (printMove spec (Just (sort (Set.toList s))))
 
-    when (k == 4) $ throwError "stop"
-
     exWins <- checkInit k init (map Set.toList (Set.toList (winningMust ls))) (head (cg spec))
 
     unWins <- checkUniversalWin spec k
