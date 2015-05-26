@@ -22,6 +22,7 @@ div.tree {
     padding-left: 12px;
     font-family: monospace;
     border-left: 2px solid black;
+    padding-top: 5px;
 }
 
 div.tree span {

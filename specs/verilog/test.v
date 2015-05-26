@@ -50,7 +50,7 @@ assign sys_fair3 = ( (controllable_master == 2'b10) | (~i_req2) );
 
 assign env_fair1 = i_ready;
 
-assign fair_err = fair_cnt >= 4'b1000;
+assign fair_err = fair_cnt >= 4'b0100;
 
 assign o_err = sys_safety1 | sys_safety2 | sys_safety3 | fair_err;
 

@@ -31,20 +31,29 @@ import Synthesise.GameTree
 import Expression.AST
 import SatSolver.Interpolator
 
-synthesise :: Int -> ParsedSpec -> EitherT String (LoggerT IO) (Maybe Int)
-synthesise k spec = do
-    evalStateT (synthesise' k spec BoundedLearning) emptyManager
+synthesise :: Int -> ParsedSpec -> Maybe FilePath -> EitherT String (LoggerT IO) (Maybe Int)
+synthesise k spec def = do
+    evalStateT (synthesise' k spec def BoundedLearning) emptyManager
 
-unboundedSynthesis :: ParsedSpec -> EitherT String (LoggerT IO) (Maybe Int)
-unboundedSynthesis spec = do
-    evalStateT (unbounded spec) emptyManager
+unboundedSynthesis :: ParsedSpec -> Maybe FilePath -> EitherT String (LoggerT IO) (Maybe Int)
+unboundedSynthesis spec def = do
+    evalStateT (unbounded spec def) emptyManager
 
-unbounded spec = do
+unbounded spec def = do
     (init, cspec) <- loadFmls 1 spec
-    evalStateT (unboundedLoop init cspec 1) (emptyLearnedStates UnboundedLearning)
+    defMoves <- case def of
+        Nothing -> return Nothing
+        Just fn -> do
+            (uMoves, eMoves) <- readMovesFile fn
+            uVars <- mapM (mapM (mapFstM lookupVarName)) uMoves
+            let uAss = map (concat . (map (\(var, val) -> makeAssignmentValue var val))) uVars
+            eVars <- mapM (mapM (mapFstM lookupVarName)) eMoves
+            let eAss = map (concat . (map (\(var, val) -> makeAssignmentValue var val))) eVars
+            return $ Just (uAss, eAss)
+    evalStateT (unboundedLoop init cspec defMoves 1) (emptyLearnedStates UnboundedLearning)
 
-unboundedLoop :: Expression -> CompiledSpec -> Int -> SolverT (Maybe Int)
-unboundedLoop init spec k = do
+unboundedLoop :: Expression -> CompiledSpec -> Maybe ([[Assignment]], [[Assignment]]) -> Int -> SolverT (Maybe Int)
+unboundedLoop init spec def k = do
     liftIO $ putStrLn "-----"
     liftIO $ putStrLn $ "Unbounded Loop " ++ show k
 
@@ -75,7 +84,7 @@ unboundedLoop init spec k = do
         then finishedLoop spec Nothing
         else do
             t1  <- liftIO $ getCPUTime
-            r   <- checkRank spec k init
+            r   <- checkRank spec k init def
             t2  <- liftIO $ getCPUTime
             let t = fromIntegral (t2-t1) * 1e-12 :: Double
             liftIO $ printf "checkRank : %6.2fs\n" t
@@ -84,7 +93,7 @@ unboundedLoop init spec k = do
             else do
                 spec' <- liftE $ unrollSpec spec
                 init' <- liftE $ setRank (k+1) init
-                unboundedLoop init' spec' (k+1)
+                unboundedLoop init' spec' def (k+1)
 
 finishedLoop :: CompiledSpec -> Maybe Int -> SolverT (Maybe Int)
 finishedLoop spec r = do
@@ -106,9 +115,18 @@ finishedLoop spec r = do
     return r
 
 
-synthesise' k spec learning = do
+synthesise' k spec def learning = do
     (init, cspec) <- loadFmls k spec
-    r <- evalStateT (checkRank cspec k init) (emptyLearnedStates learning)
+    defMoves <- case def of
+        Nothing -> return Nothing
+        Just fn -> do
+            (uMoves, eMoves) <- readMovesFile fn
+            uVars <- mapM (mapM (mapFstM lookupVarName)) uMoves
+            let uAss = map (concat . (map (\(var, val) -> makeAssignmentValue var val))) uVars
+            eVars <- mapM (mapM (mapFstM lookupVarName)) eMoves
+            let eAss = map (concat . (map (\(var, val) -> makeAssignmentValue var val))) eVars
+            return $ Just (uAss, eAss)
+    r <- evalStateT (checkRank cspec k init defMoves) (emptyLearnedStates learning)
     return $ if r then (Just k) else Nothing
 
 playStrategy :: Int -> ParsedSpec -> FilePath -> EitherT String (LoggerT IO) (Maybe Int)
@@ -262,3 +280,19 @@ readStrategyFile k fn = do
         return (player, strategy)
 
 readValue s = let [l, r] = splitOn " = " s in (l, read r :: Int)
+
+readMovesFile fn = do
+    liftIO $ withFile fn ReadMode $ \h -> do
+        uMoves <- unfoldM (readMove h)
+        eMoves <- unfoldM (readMove h)
+        return (uMoves, eMoves)
+
+readMove h = do
+    eof <- hIsEOF h
+    if eof
+    then return Nothing
+    else do
+        line <- hGetLine h
+        return $ case line of
+            ""      -> Nothing
+            _       -> Just $ map readValue $ splitOn ", " line

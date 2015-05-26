@@ -22,11 +22,13 @@ data Option = InputFile String
             | Bound String
             | DebugMode (Maybe String)
             | Strategy FilePath
+            | DefaultMoves FilePath
 
 data Config = Config { tslFile      :: String
                      , bound        :: Maybe Int
                      , debugMode    :: Int
                      , strategyFile :: Maybe FilePath
+                     , defaultMoves :: Maybe FilePath
                      } deriving (Show, Eq)
 
 defaultConfig = Config {
@@ -34,18 +36,21 @@ defaultConfig = Config {
     , bound         = Nothing
     , debugMode     = 1
     , strategyFile  = Nothing
+    , defaultMoves  = Nothing
     }
 
 options =
-    [ Option ['k']  ["bound"]   (ReqArg Bound "K")      "Bounded reachability unroll length"
-    , Option ['d']  ["debug"]   (OptArg DebugMode "D")  "Debug mode. 0 = None, 1 = Output at end, 2 = Dump throughout"
-    , Option ['s']  ["strat"]   (ReqArg Strategy "FILE") "Strategy file"
+    [ Option ['k']  ["bound"]   (ReqArg Bound "K")              "Bounded reachability unroll length"
+    , Option ['d']  ["debug"]   (OptArg DebugMode "D")          "Debug mode. 0 = None, 1 = Output at end, 2 = Dump throughout, 3 = Dump after each loop"
+    , Option ['s']  ["strat"]   (ReqArg Strategy "FILE")        "Strategy file"
+    , Option ['m']  ["moves"]   (ReqArg DefaultMoves "FILE")    "Default moves files"
     ]
 
-addOption (InputFile fn) c  = c {tslFile = fn}
-addOption (Bound k) c       = c {bound = Just (read k)}
-addOption (DebugMode d) c   = maybe c (\x -> c {debugMode = read x}) d
-addOption (Strategy s) c    = c {strategyFile = Just s}
+addOption (InputFile fn) c      = c {tslFile = fn}
+addOption (Bound k) c           = c {bound = Just (read k)}
+addOption (DebugMode d) c       = maybe c (\x -> c {debugMode = read x}) d
+addOption (Strategy s) c        = c {strategyFile = Just s}
+addOption (DefaultMoves m) c    = c {defaultMoves = Just m}
 
 main = do
     putStrLn "------------------------------------"
@@ -96,13 +101,13 @@ getConfig = do
 run config f = do
     spec <- hoistEither $ parse (tslFile config) f
     case (bound config) of
-        Nothing -> unboundedSynthesis spec
+        Nothing -> unboundedSynthesis spec (defaultMoves config)
         Just k  -> do
             if isJust (strategyFile config)
             then do
                 playStrategy k spec (fromJust (strategyFile config))
             else do
-                synthesise k spec
+                synthesise k spec (defaultMoves config)
 
 parse fn | endswith ".tsl" fn     = parser fn
          | endswith ".aag" fn     = AIG.parser fn

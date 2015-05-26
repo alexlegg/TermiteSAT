@@ -1,0 +1,31 @@
+grant0 = 0, master<1> = 0, master<0> = 0, grant1 = 0, grant2 = 0
+grant0 = 0, master<1> = 0, master<0> = 0, grant1 = 0, grant2 = 0
+grant0 = 0, master<1> = 0, master<0> = 0, grant1 = 0, grant2 = 0
+grant0 = 0, master<1> = 0, master<0> = 0, grant1 = 0, grant2 = 0
+grant0 = 0, master<1> = 0, master<0> = 0, grant1 = 0, grant2 = 0
+grant0 = 0, master<1> = 0, master<0> = 0, grant1 = 0, grant2 = 0
+grant0 = 0, master<1> = 0, master<0> = 0, grant1 = 0, grant2 = 0
+grant0 = 0, master<1> = 0, master<0> = 0, grant1 = 0, grant2 = 0
+grant0 = 0, master<1> = 0, master<0> = 0, grant1 = 0, grant2 = 0
+grant0 = 0, master<1> = 0, master<0> = 0, grant1 = 0, grant2 = 0
+grant0 = 0, master<1> = 0, master<0> = 0, grant1 = 0, grant2 = 0
+grant0 = 0, master<1> = 0, master<0> = 0, grant1 = 0, grant2 = 0
+grant0 = 0, master<1> = 0, master<0> = 0, grant1 = 0, grant2 = 0
+grant0 = 0, master<1> = 0, master<0> = 0, grant1 = 0, grant2 = 0
+grant0 = 0, master<1> = 0, master<0> = 0, grant1 = 0, grant2 = 0
+
+i_ready = 1, i_req0 = 1, i_req1 = 0, i_req2 = 1
+i_ready = 1, i_req0 = 0, i_req1 = 0, i_req2 = 0
+i_ready = 1, i_req0 = 0, i_req1 = 0, i_req2 = 0
+i_ready = 1, i_req0 = 1, i_req1 = 0, i_req2 = 1
+i_ready = 1, i_req0 = 0, i_req1 = 0, i_req2 = 0
+i_ready = 1, i_req0 = 1, i_req1 = 0, i_req2 = 1
+i_ready = 1, i_req0 = 0, i_req1 = 0, i_req2 = 0
+i_ready = 1, i_req0 = 1, i_req1 = 0, i_req2 = 1
+i_ready = 1, i_req0 = 0, i_req1 = 0, i_req2 = 0
+i_ready = 1, i_req0 = 1, i_req1 = 0, i_req2 = 1
+i_ready = 1, i_req0 = 0, i_req1 = 0, i_req2 = 0
+i_ready = 1, i_req0 = 0, i_req1 = 0, i_req2 = 0
+i_ready = 1, i_req0 = 0, i_req1 = 0, i_req2 = 0
+i_ready = 1, i_req0 = 1, i_req1 = 0, i_req2 = 1
+i_ready = 1, i_req0 = 0, i_req1 = 0, i_req2 = 0

@@ -34,9 +34,9 @@ import SatSolver.Interpolator
 import Utils.Logger
 import Utils.Utils
 
-checkRank :: CompiledSpec -> Int -> Expression -> SolverT Bool
-checkRank spec rnk s = do
-    initDefaultMoves spec rnk s
+checkRank :: CompiledSpec -> Int -> Expression -> Maybe ([[Assignment]], [[Assignment]]) -> SolverT Bool
+checkRank spec rnk s def = do
+    initDefaultMoves spec rnk s def
     r <- solveAbstract Universal spec s (gtNew Existential rnk)
     
     satTime <- liftIO $ timeInSAT
@@ -50,8 +50,18 @@ checkRank spec rnk s = do
 
     return (isNothing r)
 
-initDefaultMoves :: CompiledSpec -> Int -> Expression -> SolverT ()
-initDefaultMoves spec rank s = do
+initDefaultMoves :: CompiledSpec -> Int -> Expression -> Maybe ([[Assignment]], [[Assignment]]) -> SolverT ()
+initDefaultMoves spec rank s (Just (uMoves, eMoves)) = do
+    liftIO $ mapM (putStrLn . (printMove spec) . Just) (take rank uMoves)
+    liftIO $ mapM (putStrLn . (printMove spec) . Just) (take rank eMoves)
+    let defaultUn = zipWith (\r m -> (r, map (\a -> setAssignmentRankCopy a r 0) m)) [1..rank] uMoves
+    let defaultEx = zipWith (\r m -> (r, map (\a -> setAssignmentRankCopy a r 0) m)) [1..rank] eMoves
+    ls <- get
+    put $ ls { defaultUnMoves   = Map.fromList defaultUn
+             , defaultExMoves   = Map.fromList defaultEx
+             }
+    return ()
+initDefaultMoves spec rank s Nothing = do
     let gt = gtExtend (gtNew Existential rank)
 
     --Wipe moves from last loop
@@ -82,6 +92,9 @@ initDefaultMoves spec rank s = do
             -- No way to win at this rank so set anything
             let someUnMove  = map (\v -> Assignment Pos v) (ucont spec)
             return $ foldl (\m r -> Map.insert r someUnMove m) Map.empty [1..rank]
+
+    liftIO $ mapM (putStrLn . (printMove spec) . Just) defaultUn
+    liftIO $ mapM (putStrLn . (printMove spec) . Just) defaultEx
 
     ls <- get
     put $ ls { defaultUnMoves   = defaultUn
@@ -240,22 +253,16 @@ learnWinning spec player s (gtUnsetNodes -> gt:[]) = do
     core <- getLosingStates spec player gt
     case core of
         (Just c) -> do
-            when (c == []) $ throwError "empty core"
-            coreExps    <- liftE $ mapM (assignmentToExpression 0) c
-            allCores    <- liftE $ disjunct coreExps
-            found <- interpolateTree spec player allCores (gtExtend (gtRebase 0 gt))
----            when (player == Existential) $ liftIO $ putStrLn $ "interpolateTree " ++ show found
----            when (found == False && player == Existential) $ do
----                liftIO $ putStrLn "no interp"
----                coresp <- liftE $ printExpression allCores
----                liftIO $ putStrLn coresp
----                liftIO $ putStrLn (printTree spec gt)
----                liftIO $ putStrLn (printTree spec (gtExtend (gtRebase 0 gt)))
----                Just (gtA, gtB, fmlA, fmlB) <- makeSplitFmls spec player allCores (gtExtend (gtRebase 0 gt))
----                fmlAp <- liftE $ printExpression fmlA
----                liftIO $ putStrLn fmlAp
+            if (not (null c))
+                then do
+                    coreExps    <- liftE $ mapM (assignmentToExpression 0) c
+                    allCores    <- liftE $ disjunct coreExps
+                    found <- interpolateTree spec player allCores (gtExtend (gtRebase 0 gt))
 ---            liftIO $ putStrLn ("interpolateTree" ++ show found)
-            return ()
+                    return ()
+                else do
+                    liftIO $ putStrLn "empty core"
+                    return ()
         Nothing -> do
 ---            liftIO $ putStrLn $ "lost in prefix"
             liftLog $ logLostInPrefix
