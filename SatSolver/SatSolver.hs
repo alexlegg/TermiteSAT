@@ -6,6 +6,7 @@ module SatSolver.SatSolver (
     , minimiseCore
     , dumpDimacs
     , timeInSAT
+    , totalSATCalls
     ) where
 
 import Foreign
@@ -36,11 +37,21 @@ totalTime :: IORef Double
 {-# NOINLINE totalTime #-}
 totalTime = unsafePerformIO (newIORef 0)
 
+totalCalls :: IORef Int
+{-# NOINLINE totalCalls #-}
+totalCalls = unsafePerformIO (newIORef 0)
+
 timeInSAT :: IO Double
 timeInSAT = do
     t <- readIORef totalTime
     writeIORef totalTime 0
     return t
+
+totalSATCalls :: IO Int
+totalSATCalls = do
+    c <- readIORef totalCalls
+    writeIORef totalCalls 0
+    return c
 
 unsatisfiable :: SatResult -> Bool
 unsatisfiable = not . satisfiable
@@ -57,6 +68,7 @@ satSolve mc a e = do
     (time, res) <- liftIO $ timeItT $ callSolver maxId as clauses
 ---    liftIO $ putStrLn $ "sat " ++ (show ((fromInteger $ round $ (time * 10)) / 10.0))
     liftIO $ modifyIORef totalTime (time +)
+    liftIO $ modifyIORef totalCalls (1 +)
     return res
 
 dumpDimacs :: Int -> Expression -> FilePath -> SolverT ()

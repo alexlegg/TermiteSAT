@@ -40,8 +40,10 @@ checkRank spec rnk s def = do
     r <- solveAbstract Universal spec s (gtNew Existential rnk)
     
     satTime <- liftIO $ timeInSAT
+    satCalls <- liftIO $ totalSATCalls
     (intTime, eA, eB) <- liftIO $ timeInInterpolate
     liftIO $ putStrLn $ "timeInSAT = " ++ (show ((fromInteger $ round $ (satTime * 10)) / 10.0))
+    liftIO $ putStrLn $ "SAT Calls = " ++ (show satCalls)
     liftIO $ putStrLn $ "timeInInterpolate = " ++ (show ((fromInteger $ round $ (intTime * 10)) / 10.0))
     liftIO $ putStrLn $ "timeInEnodeA = " ++ (show ((fromInteger $ round $ (eA * 10)) / 10.0))
     liftIO $ putStrLn $ "timeInEnodeB = " ++ (show ((fromInteger $ round $ (eB * 10)) / 10.0))
