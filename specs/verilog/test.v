@@ -40,17 +40,17 @@ wire fair_err;
 wire o_err;
 
 // G . ready -> (grant[i] <-> X(master = i))
-assign sys_safety1 = ~( ~(reg_ready) | (reg_grant0 ^~ (controllable_master === 2'b00)));
-assign sys_safety2 = ~( ~(reg_ready) | (reg_grant1 ^~ (controllable_master === 2'b01)));
-assign sys_safety3 = ~( ~(reg_ready) | (reg_grant2 ^~ (controllable_master === 2'b10)));
+assign sys_safety1 = ~( ~(reg_ready) | (reg_grant0 ^~ (controllable_master == 2'b00)));
+assign sys_safety2 = ~( ~(reg_ready) | (reg_grant1 ^~ (controllable_master == 2'b01)));
+assign sys_safety3 = ~( ~(reg_ready) | (reg_grant2 ^~ (controllable_master == 2'b10)));
 
-assign sys_fair1 = ( (controllable_master === 2'b00) | (~i_req0) );
-assign sys_fair2 = ( (controllable_master === 2'b01) | (~i_req1) );
-assign sys_fair3 = ( (controllable_master === 2'b10) | (~i_req2) );
+assign sys_fair1 = ( (controllable_master == 2'b00) | (~i_req0) );
+assign sys_fair2 = ( (controllable_master == 2'b01) | (~i_req1) );
+assign sys_fair3 = ( (controllable_master == 2'b10) | (~i_req2) );
 
 assign env_fair1 = i_ready;
 
-assign fair_err = fair_cnt >= 4'b0100;
+assign fair_err = fair_cnt >= 4'b1000;
 
 assign o_err = sys_safety1 | sys_safety2 | sys_safety3 | fair_err;
 

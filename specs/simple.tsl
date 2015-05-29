@@ -19,12 +19,6 @@ FAIR /* uncontrollable transition available */
 /* In these states the controllable player must be idle */
 x == 0
 
-CONT /* Does nothing */
-c == 1
-
-LABELCONSTRAINTS /* Does nothing */
-false
-
 TRANS /* Transition relation */
 {
     /* At the initial state (x==0) the universal player chooses the next state to 

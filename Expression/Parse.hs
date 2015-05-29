@@ -6,7 +6,7 @@ module Expression.Parse (
     parser
     ) where
 
-import Control.Applicative
+import Control.Applicative hiding (optional)
 import Text.Parsec hiding ((<|>), many)
 import Text.Parsec.String
 import Text.Parsec.Expr
@@ -55,9 +55,7 @@ data Decls = Decls {
 data Rels a = Rels {
     initR        :: BinExpr a,
     goalR        :: [BinExpr a],
-    fair         :: [BinExpr a],
-    cont         :: BinExpr a,
-    slRel        :: BinExpr a,
+    fair         :: Maybe [BinExpr a],
     transR       :: CtrlExpr String a
 }
 
@@ -79,7 +77,7 @@ data ValExpr v where
     CaseV     :: [(BinExpr v, ValExpr v)]      -> ValExpr v
     deriving (Show, Functor, Foldable, Traversable)
 
-data BinOpType = And | Or deriving (Show)
+data BinOpType = And | Or | LogEq deriving (Show)
 data PredType  = Eq | Neq deriving (Show)
 
 data BinExpr v where
@@ -97,14 +95,16 @@ parser fn f = do
                     Right m -> m
     Rels{..} <- Rels <$> resolve theMap initR
                      <*> mapM (resolve theMap) goalR
-                     <*> mapM (resolve theMap) fair
-                     <*> resolve theMap cont
-                     <*> resolve theMap slRel
+                     <*> case fair of
+                            (Just f)    -> (liftM Just) $ mapM (resolve theMap) f
+                            Nothing     -> return Nothing
                      <*> resolve theMap transR
 
     Right ParsedSpec { init         = binExprToHAST initR
                      , goal         = head (map binExprToHAST goalR)
-                     , ucont        = Just (head (map binExprToHAST fair))
+                     , ucont        = case fair of
+                                        Just f  -> Just $ head (map binExprToHAST f)
+                                        Nothing -> Nothing
                      , trans        = map (resolveTransLHS theMap) (ctrlExprToHAST transR)
                      , stateVars    = concatMap (declToVarInfo StateVar) stateDecls
                      , ucontVars    = concatMap (declToVarInfo UContVar) outcomeDecls
@@ -146,7 +146,7 @@ resolveTransLHS st (s, f) = f v
 
 --The lexer
 reservedNames = ["case", "true", "false", "else", "abs", "conc", "uint", "bool"]
-reservedOps   = ["!", "&&", "||", "!=", "==", ":=", "<="]
+reservedOps   = ["!", "&&", "||", "!=", "==", ":=", "<=", "<->"]
 
 --Variable types
 boolTyp   t@T.TokenParser{..} = BoolType <$  reserved "bool"
@@ -176,6 +176,7 @@ term      t@T.TokenParser{..} =   parens (binExpr t)
 table     t@T.TokenParser{..} = [[prefix t "!"  Not]
                                 ,[binary t  "&&" (Bin And) AssocLeft]
                                 ,[binary t  "||" (Bin Or)  AssocLeft]
+                                ,[binary t  "<->" (Bin LogEq) AssocLeft]
                                 ]
 
 binary    t@T.TokenParser{..} name fun assoc = Infix  (fun <$ reservedOp name) assoc
@@ -227,12 +228,13 @@ parseRels = Rels
     <*> binExpr lexer
     <*  reserved "GOAL"
     <*> sepEndBy (binExpr lexer) semi
-    <*  reserved "FAIR"
-    <*> sepEndBy (binExpr lexer) semi
-    <*  reserved "CONT"
-    <*> binExpr lexer
-    <*  reserved "LABELCONSTRAINTS"
-    <*> binExpr lexer
+
+    <*> optionMaybe (reserved "FAIR" *> (sepEndBy (binExpr lexer) semi))
+
+    -- These are left in for backwards compatibility
+    <*  optional (reserved "CONT" <*  binExpr lexer)
+    <*  optional (reserved "LABELCONSTRAINTS" <*  binExpr lexer)
+
     <*  reserved "TRANS"
     <*> (Conj <$> sepEndBy (ctrlExpr lexer) semi)
 
@@ -306,6 +308,7 @@ binExprToHAST FalseE            = HAST.F
 binExprToHAST (Not e)           = HAST.Not (binExprToHAST e)
 binExprToHAST (Bin And a b)     = HAST.And (binExprToHAST a) (binExprToHAST b)
 binExprToHAST (Bin Or a b)      = HAST.Or (binExprToHAST a) (binExprToHAST b)
+binExprToHAST (Bin LogEq a b)   = HAST.XNor (binExprToHAST a) (binExprToHAST b)
 binExprToHAST (Pred Eq a b)     = predToHAST a b
 binExprToHAST (Pred Neq a b)    = HAST.Not (predToHAST a b)
 

@@ -54,8 +54,8 @@ checkRank spec rnk s def = do
 
 initDefaultMoves :: CompiledSpec -> Int -> Expression -> Maybe ([[Assignment]], [[Assignment]]) -> SolverT ()
 initDefaultMoves spec rank s (Just (uMoves, eMoves)) = do
-    liftIO $ mapM (putStrLn . (printMove spec) . Just) (take rank uMoves)
-    liftIO $ mapM (putStrLn . (printMove spec) . Just) (take rank eMoves)
+---    liftIO $ mapM (putStrLn . (printMove spec) . Just) (take rank uMoves)
+---    liftIO $ mapM (putStrLn . (printMove spec) . Just) (take rank eMoves)
     let defaultUn = zipWith (\r m -> (r, map (\a -> setAssignmentRankCopy a r 0) m)) [1..rank] uMoves
     let defaultEx = zipWith (\r m -> (r, map (\a -> setAssignmentRankCopy a r 0) m)) [1..rank] eMoves
     ls <- get
@@ -95,8 +95,8 @@ initDefaultMoves spec rank s Nothing = do
             let someUnMove  = map (\v -> Assignment Pos v) (ucont spec)
             return $ foldl (\m r -> Map.insert r someUnMove m) Map.empty [1..rank]
 
-    liftIO $ mapM (putStrLn . (printMove spec) . Just) defaultUn
-    liftIO $ mapM (putStrLn . (printMove spec) . Just) defaultEx
+---    liftIO $ mapM (putStrLn . (printMove spec) . Just) defaultUn
+---    liftIO $ mapM (putStrLn . (printMove spec) . Just) defaultEx
 
     ls <- get
     put $ ls { defaultUnMoves   = defaultUn
