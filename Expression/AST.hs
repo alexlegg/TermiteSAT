@@ -3,10 +3,11 @@ module Expression.AST (
     , VarInfo(..)
     , Slice(..)
     , Section(..)
+    , Assignment(..)
     ) where
 
 import qualified Expression.HAST as HAST
-import Expression.Expression (Section(..))
+import Expression.Expression (Assignment(..), Section(..))
 
 data Void
 type AST = HAST.AST VarInfo Void Void VarInfo

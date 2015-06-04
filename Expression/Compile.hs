@@ -2,6 +2,7 @@
 module Expression.Compile (
         compile
       , compileVar
+      , compileInit
       , CompiledSpec(..)
     ) where
 
@@ -37,6 +38,14 @@ compileVar v = map (makeVar v) bits
         bits = case slice v of
                 Nothing     -> [0..((sz v)-1)]
                 Just (s, e) -> [s..e]
+
+compileInit :: [(VarInfo, Int)] -> [Assignment]
+compileInit ((v, val):vs) = zipWith Assignment signs (map (makeVar v) bits) ++ compileInit vs
+    where
+        bits = case slice v of
+                Nothing     -> [0..((sz v)-1)]
+                Just (s, e) -> [s..e]
+        signs = makeSignsFromValue val (length bits)
 
 compileHVar (HAST.FVar f) = do
     return $ map (makeVar f) [0..((sz f)-1)]

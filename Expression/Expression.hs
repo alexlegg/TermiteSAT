@@ -64,6 +64,7 @@ module Expression.Expression (
     , assignmentRank
     , assignmentCopy
     , getVars
+    , makeSignsFromValue
     ) where
 
 import Control.Monad.State

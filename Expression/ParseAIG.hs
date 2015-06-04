@@ -87,7 +87,7 @@ makeVar nm sect r = VarInfo {
     , enum      = Nothing
     }
 
-makeEqualsZero vars = HAST.Conj $ map (\v -> HAST.EqConst v 0) (map HAST.FVar vars)
+makeEqualsZero vars = map (\v -> (v, 0)) vars
 
 makeVarAST var = HAST.Var (HAST.FVar var)
 

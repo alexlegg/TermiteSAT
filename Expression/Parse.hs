@@ -27,7 +27,7 @@ import qualified Expression.HAST as HAST
 import Expression.AST
 
 data ParsedSpec = ParsedSpec {
-    init        :: AST, 
+    init        :: [(VarInfo, Int)], 
     goal        :: AST, 
     ucont       :: Maybe AST, 
     trans       :: [AST],
@@ -53,7 +53,7 @@ data Decls = Decls {
 }
 
 data Rels a = Rels {
-    initR        :: BinExpr a,
+    initR        :: [AssignmentExpr String],
     goalR        :: [BinExpr a],
     fair         :: Maybe [BinExpr a],
     transR       :: CtrlExpr String a
@@ -88,19 +88,21 @@ data BinExpr v where
     Pred   :: PredType -> ValExpr v -> ValExpr v  -> BinExpr v
     deriving (Show, Functor, Foldable, Traversable)
 
+data AssignmentExpr a = AssignmentExpr a Int
+
 parser fn f = do
     (Spec Decls{..} Rels{..}) <- fmapL show $ parse top fn f
     let theMap = case (doDecls stateDecls labelDecls outcomeDecls) of
                     Left s -> error s
                     Right m -> m
-    Rels{..} <- Rels <$> resolve theMap initR
-                     <*> mapM (resolve theMap) goalR
+    Rels{..} <- Rels     initR
+                     <$> mapM (resolve theMap) goalR
                      <*> case fair of
                             (Just f)    -> (liftM Just) $ mapM (resolve theMap) f
                             Nothing     -> return Nothing
                      <*> resolve theMap transR
 
-    Right ParsedSpec { init         = binExprToHAST initR
+    Right ParsedSpec { init         = map (assignmentToVarInfo theMap) initR
                      , goal         = head (map binExprToHAST goalR)
                      , ucont        = case fair of
                                         Just f  -> Just $ head (map binExprToHAST f)
@@ -164,6 +166,8 @@ decl      t@T.TokenParser{..} = Decl <$> (sepBy identifier comma <* colon) <*> t
 binExpr   t@T.TokenParser{..} =   buildExpressionParser (table t) (term t)
                               <?> "expression"
 
+assignExpr t@T.TokenParser{..} = AssignmentExpr <$> identifier <* reservedOp ":=" <*> (fromIntegral <$> integer)
+
 predicate t@T.TokenParser{..} =   try (Pred Eq  <$> valExpr t <* reservedOp "==" <*> valExpr t)
                               <|> try (Pred Neq <$> valExpr t <* reservedOp "!=" <*> valExpr t)
 
@@ -225,7 +229,7 @@ parseDecls = Decls
 
 parseRels = Rels
     <$  reserved "INIT"
-    <*> binExpr lexer
+    <*> sepEndBy (assignExpr lexer) semi
     <*  reserved "GOAL"
     <*> sepEndBy (binExpr lexer) semi
 
@@ -295,6 +299,21 @@ doTypeconsts (EnumType es) = zip es [0..]
 getBits :: Slice -> Int -> Int
 getBits Nothing x       = x
 getBits (Just (l, u)) x = (shift (-l) x) .&. (2 ^ (u - l + 1) - 1)
+
+assignmentToVarInfo :: SymTab -> AssignmentExpr String -> (VarInfo, Int)
+assignmentToVarInfo st (AssignmentExpr s val) = (v, val)
+    where
+        v = VarInfo {
+            name = s,
+            sz = sz,
+            section = sect,
+            slice = Nothing,
+            virank = 0,
+            enum = es }
+        (sect, sz, es) = case Map.lookup s st of
+            Nothing                     -> error "LHS of transition relation not in sym tab"
+            Just (Left (se, sz, es))    -> (se, sz, es)
+            Just (Right sz)             -> error ("LHS of transition relation right: " ++ show sz)
 
 predToHAST :: ValExpr (Either VarInfo Int) -> ValExpr (Either VarInfo Int) -> AST
 predToHAST (Lit (Right a)) (Lit (Right b))   = if (a == b) then HAST.T else HAST.F

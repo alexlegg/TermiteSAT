@@ -226,8 +226,8 @@ loadFmls k spec = do
 
     lift $ lift $ logSpec cspec
 
-    init <- compile init
-    init <- setRank k init
+    let initAssignments = compileInit init
+    let initAssignments' = map (\a -> setAssignmentRankCopy a k 0) initAssignments 
 
     initManager (map exprIndex (steps ++ cgs ++ ugs ++ us ++ vcs ++ vus))
     return (init, cspec)
