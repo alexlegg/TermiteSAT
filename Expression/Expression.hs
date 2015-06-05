@@ -795,6 +795,7 @@ makeAssignmentValue vs val = zipWith Assignment signs vs
 
 -- |Constructs an expression from assignments
 assignmentToExpression :: MonadIO m => Int -> [Assignment] -> ExpressionT m Expression
+assignmentToExpression _ [] = trueExpr
 assignmentToExpression c as = do
     vs <- mapM (assignmentToVar c) as
     addExpression c (EConjunct vs)

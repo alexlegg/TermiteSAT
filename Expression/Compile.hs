@@ -40,7 +40,8 @@ compileVar v = map (makeVar v) bits
                 Just (s, e) -> [s..e]
 
 compileInit :: [(VarInfo, Int)] -> [Assignment]
-compileInit ((v, val):vs) = zipWith Assignment signs (map (makeVar v) bits) ++ compileInit vs
+compileInit []              = []
+compileInit ((v, val):vs)   = zipWith Assignment signs (map (makeVar v) bits) ++ compileInit vs
     where
         bits = case slice v of
                 Nothing     -> [0..((sz v)-1)]

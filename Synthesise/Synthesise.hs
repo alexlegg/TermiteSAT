@@ -52,7 +52,7 @@ unbounded spec def = do
             return $ Just (uAss, eAss)
     evalStateT (unboundedLoop init cspec defMoves 1) (emptyLearnedStates UnboundedLearning)
 
-unboundedLoop :: Expression -> CompiledSpec -> Maybe ([[Assignment]], [[Assignment]]) -> Int -> SolverT (Maybe Int)
+unboundedLoop :: [Assignment] -> CompiledSpec -> Maybe ([[Assignment]], [[Assignment]]) -> Int -> SolverT (Maybe Int)
 unboundedLoop init spec def k = do
     liftIO $ putStrLn "-----"
     liftIO $ putStrLn $ "Unbounded Loop " ++ show k
@@ -92,7 +92,7 @@ unboundedLoop init spec def k = do
             then finishedLoop spec (Just k) --Counterexample exists for Universal player
             else do
                 spec' <- liftE $ unrollSpec spec
-                init' <- liftE $ setRank (k+1) init
+                let init' = map (\a -> setAssignmentRankCopy a (k+1) 0) init
                 unboundedLoop init' spec' def (k+1)
 
 finishedLoop :: CompiledSpec -> Maybe Int -> SolverT (Maybe Int)
@@ -226,11 +226,10 @@ loadFmls k spec = do
 
     lift $ lift $ logSpec cspec
 
-    let initAssignments = compileInit init
-    let initAssignments' = map (\a -> setAssignmentRankCopy a k 0) initAssignments 
+    let initAssignments = map (\a -> setAssignmentRankCopy a k 0) (compileInit init)
 
     initManager (map exprIndex (steps ++ cgs ++ ugs ++ us ++ vcs ++ vus))
-    return (init, cspec)
+    return (initAssignments, cspec)
 
 unrollSpec spec = do
     

@@ -34,7 +34,7 @@ import SatSolver.Interpolator
 import Utils.Logger
 import Utils.Utils
 
-checkRank :: CompiledSpec -> Int -> Expression -> Maybe ([[Assignment]], [[Assignment]]) -> SolverT Bool
+checkRank :: CompiledSpec -> Int -> [Assignment] -> Maybe ([[Assignment]], [[Assignment]]) -> SolverT Bool
 checkRank spec rnk s def = do
     initDefaultMoves spec rnk s def
     r <- solveAbstract Universal spec s (gtNew Existential rnk)
@@ -52,7 +52,7 @@ checkRank spec rnk s def = do
 
     return (isNothing r)
 
-initDefaultMoves :: CompiledSpec -> Int -> Expression -> Maybe ([[Assignment]], [[Assignment]]) -> SolverT ()
+initDefaultMoves :: CompiledSpec -> Int -> [Assignment] -> Maybe ([[Assignment]], [[Assignment]]) -> SolverT ()
 initDefaultMoves spec rank s (Just (uMoves, eMoves)) = do
 ---    liftIO $ mapM (putStrLn . (printMove spec) . Just) (take rank uMoves)
 ---    liftIO $ mapM (putStrLn . (printMove spec) . Just) (take rank eMoves)
@@ -102,7 +102,7 @@ initDefaultMoves spec rank s Nothing = do
     put $ ls { defaultUnMoves   = defaultUn
              , defaultExMoves   = defaultEx }
 
-checkInit :: Int -> Expression -> [[Assignment]] -> Expression -> SolverT Bool
+checkInit :: Int -> [Assignment] -> [[Assignment]] -> Expression -> SolverT Bool
 checkInit k init must goal = do
     fml     <- makeInitCheckFml k init must goal
     r       <- satSolve 0 Nothing fml
@@ -124,7 +124,7 @@ checkUniversalWin spec k = do
 
     return $ any (not . satisfiable) rs
 
-checkStrategy :: CompiledSpec -> Int -> Expression -> String -> Tree [[Assignment]] -> SolverT Bool
+checkStrategy :: CompiledSpec -> Int -> [Assignment] -> String -> Tree [[Assignment]] -> SolverT Bool
 checkStrategy spec rnk s player strat = do
     let p       = if player == "universal" then Universal else Existential
     let gt      = buildStratGameTree p (gtNew Existential rnk) strat
@@ -138,7 +138,7 @@ buildStratGameTree player gt strat = gtParent $ gtParent $ foldl (buildStratGame
         append  = if player == Existential then gtAppendMove else gtAppendMoveU
         gt'     = append gt (Just (concat (rootLabel strat)))
 
-solveAbstract :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Maybe GameTree)
+solveAbstract :: Player -> CompiledSpec -> [Assignment] -> GameTree -> SolverT (Maybe GameTree)
 solveAbstract player spec s gt = do
 ---    liftIO $ putStrLn ("Solve abstract for " ++ show player)
 ---    pLearn <- printLearnedStates spec player
@@ -153,7 +153,7 @@ solveAbstract player spec s gt = do
 
     return res
 
-refinementLoop :: Player -> CompiledSpec -> Expression -> Maybe GameTree -> GameTree -> GameTree -> SolverT (Maybe GameTree)
+refinementLoop :: Player -> CompiledSpec -> [Assignment] -> Maybe GameTree -> GameTree -> GameTree -> SolverT (Maybe GameTree)
 refinementLoop player spec s Nothing origGT absGt = do
 ---    liftIO $ putStrLn ("Could not find a candidate for " ++ show player)
     return Nothing
@@ -171,7 +171,7 @@ refinementLoop player spec s (Just cand) origGT absGT = do
             return (Just cand)
     
 
-findCandidate :: Player -> CompiledSpec -> Expression -> GameTree -> SolverT (Maybe GameTree)
+findCandidate :: Player -> CompiledSpec -> [Assignment] -> GameTree -> SolverT (Maybe GameTree)
 findCandidate player spec s gt = do
     (es, f, gt')    <- makeFml spec player s gt True
     res             <- satSolve (gtMaxCopy gt') Nothing f
@@ -202,8 +202,7 @@ learnStates spec player ogt = do
     let rank        = gtBaseRank gt'
     let s           = map (\x -> setAssignmentRankCopy x rank 0) as
 
-    fakes           <- liftE $ trueExpr
-    (es, f, gt)     <- makeFml spec player fakes gt' True
+    (es, f, gt)     <- makeFml spec player [] gt' True
     cores           <- minimiseCore gt (Just s) f
 
     when (isJust cores) $ do
@@ -230,8 +229,7 @@ getLosingStates spec player ogt = do
     let rank        = gtBaseRank gt'
     let s           = map (\x -> setAssignmentRankCopy x rank 0) as
 
-    fakes           <- liftE $ trueExpr
-    (es, f, gt)     <- makeFml spec player fakes gt' True
+    (es, f, gt)     <- makeFml spec player [] gt' True
     cores           <- minimiseCore gt (Just s) f
 
 
@@ -243,10 +241,10 @@ getLosingStates spec player ogt = do
         return Nothing
 
 
-learnWinning :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT ()
+learnWinning :: CompiledSpec -> Player -> [Assignment] -> GameTree -> SolverT ()
 learnWinning spec player s gt@(gtUnsetNodes -> []) = do
     -- Learn from the root of the tree
-    found <- interpolateTree spec player s (gtExtend gt)
+    found <- interpolateTree spec player [s] (gtExtend gt)
 ---    when (player == Existential) $ liftIO $ putStrLn $ "interpolateTree " ++ show found
 ---    liftIO $ putStrLn ("interpolateTree" ++ show found)
     return ()
@@ -257,9 +255,9 @@ learnWinning spec player s (gtUnsetNodes -> gt:[]) = do
         (Just c) -> do
             if (not (null c))
                 then do
-                    coreExps    <- liftE $ mapM (assignmentToExpression 0) c
-                    allCores    <- liftE $ disjunct coreExps
-                    found <- interpolateTree spec player allCores (gtExtend (gtRebase 0 gt))
+---                    coreExps    <- liftE $ mapM (assignmentToExpression 0) c
+---                    allCores    <- liftE $ disjunct coreExps
+                    found <- interpolateTree spec player c (gtExtend (gtRebase 0 gt))
 ---            liftIO $ putStrLn ("interpolateTree" ++ show found)
                     return ()
                 else do
@@ -274,7 +272,7 @@ learnWinning spec player s gt = do
     liftIO $ putStrLn (printTree spec gt)
     throwError "Found more than one unset node in learnWinning"
 
-interpolateTree :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT Bool
+interpolateTree :: CompiledSpec -> Player -> [[Assignment]] -> GameTree -> SolverT Bool
 interpolateTree spec player s gt' = do
     let gt = normaliseCopies gt'
     fmls <- makeSplitFmls spec player s gt
@@ -352,7 +350,7 @@ printLearnedStates spec player = do
     else do
         return $ map (printMove spec . Just) (map Set.toList (Set.toList winningMust))
 
-verify :: Player -> CompiledSpec -> Expression -> GameTree -> GameTree -> SolverT (Maybe GameTree)
+verify :: Player -> CompiledSpec -> [Assignment] -> GameTree -> GameTree -> SolverT (Maybe GameTree)
 verify player spec s gt cand = do
     let og = projectMoves gt cand
     when (not (isJust og)) $ throwError $ "Error projecting, moves didn't match\n" ++ show player ++ printTree spec gt ++ printTree spec cand
@@ -362,7 +360,7 @@ verify player spec s gt cand = do
         else leaves
     mapMUntilJust (verifyLoop (opponent player) spec s) (zip [0..] leaves')
 
-verifyLoop :: Player -> CompiledSpec -> Expression -> (Int, GameTree) -> SolverT (Maybe GameTree)
+verifyLoop :: Player -> CompiledSpec -> [Assignment] -> (Int, GameTree) -> SolverT (Maybe GameTree)
 verifyLoop player spec s (i, gt) = do
     liftLog $ logVerify i
     solveAbstract player spec s gt

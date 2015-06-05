@@ -25,7 +25,7 @@ import Utils.Logger
 import Utils.Utils
 import qualified Data.Vector.Storable as SV
 
-makeFml :: CompiledSpec -> Player -> Expression -> GameTree -> Bool -> SolverT ([[Expression]], Expression, GameTree)
+makeFml :: CompiledSpec -> Player -> [Assignment] -> GameTree -> Bool -> SolverT ([[Expression]], Expression, GameTree)
 makeFml spec player s ogt useBlocking = do
     let gt      = normaliseCopies ogt
     let maxCopy = gtMaxCopy gt
@@ -55,7 +55,8 @@ makeFml spec player s ogt useBlocking = do
 
     -- Construct init expression
     initMove    <- liftE $ moveToExpression (gtMaxCopy gt) (gtMove root)
-    let s'      = s : catMaybes [initMove]
+    sExpr       <- liftE $ assignmentToExpression (gtMaxCopy gt) s
+    let s'      = sExpr : catMaybes [initMove]
     
     -- Join transitions into steps and finally fml
     (es, fml)   <- case gtStepChildren root of
@@ -88,7 +89,7 @@ makeFml spec player s ogt useBlocking = do
 isBlockingConstruct CBlocked{..}    = True
 isBlockingConstruct _               = False
 
-makeSplitFmls :: CompiledSpec -> Player -> Expression -> GameTree -> SolverT (Maybe (GameTree, GameTree, Expression, Expression))
+makeSplitFmls :: CompiledSpec -> Player -> [[Assignment]] -> GameTree -> SolverT (Maybe (GameTree, GameTree, Expression, Expression))
 makeSplitFmls _ _ _ (gtEmpty -> True)       = return Nothing
 makeSplitFmls _ _ _ (gtIsPrefix -> True)    = return Nothing
 makeSplitFmls spec player s gt = do
@@ -119,7 +120,8 @@ makeSplitFmls spec player s gt = do
     
     -- Construct init expression
     initMove    <- liftE $ moveToExpression maxCopy (gtMove root)
-    let s'      = s : catMaybes [initMove]
+    ss          <- liftE $ mapM (assignmentToExpression 0) s
+    let s'      = ss ++ catMaybes [initMove]
 
     -- Join transitions into steps and finally fml
     fmlA' <- case gtStepChildren (gtRoot t1) of
@@ -153,16 +155,18 @@ makeSplitFmls spec player s gt = do
 
     return (Just (t1, t2, fmlA, fmlB))
 
-makeInitCheckFml :: Int -> Expression -> [[Assignment]] -> Expression -> SolverT Expression
+makeInitCheckFml :: Int -> [Assignment] -> [[Assignment]] -> Expression -> SolverT Expression
 makeInitCheckFml rank init must goal = do
     liftE $ clearTempExpressions
     liftE $ initCopyMaps 0
 
     let must'   = map (map (\a -> setAssignmentRankCopy a rank 0)) must
+    let init'   = map (\a -> setAssignmentRankCopy a rank 0) init
     g'          <- liftE $ setRank rank goal
     ms          <- liftE $ mapM (assignmentToExpression 0) must'
     d           <- liftE $ disjunctC 0 (g' : ms)
-    liftE $ conjunctC 0 [d, init]
+    i           <- liftE $ assignmentToExpression 0 init'
+    liftE $ conjunctC 0 [d, i]
 
 makeUniversalWinCheckFml :: [[Assignment]] -> [[Assignment]] -> SolverT Expression
 makeUniversalWinCheckFml wm1 wm2 = do
