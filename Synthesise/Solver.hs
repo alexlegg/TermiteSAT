@@ -38,7 +38,7 @@ checkRank :: CompiledSpec -> Int -> [Assignment] -> Maybe ([[Assignment]], [[Ass
 checkRank spec rnk s def = do
     initDefaultMoves spec rnk s def
     r <- solveAbstract Universal spec s (gtNew Existential rnk)
-    
+
     satTime <- liftIO $ timeInSAT
     satCalls <- liftIO $ totalSATCalls
     (intTime, eA, eB) <- liftIO $ timeInInterpolate
@@ -50,7 +50,24 @@ checkRank spec rnk s def = do
 
     liftLog (logRank rnk)
 
+    when (isJust r && rnk <= 3) $ do
+        liftIO $ putStrLn (printTree spec (fromJust r))
+        let init = fromJust (gtMove (gtRoot (fromJust r)))
+        cube <- tryReducedInit spec rnk 0 [] init 
+        liftIO $ putStrLn (show cube)
+
     return (isNothing r)
+
+tryReducedInit _ _ _ cube []                = return cube
+tryReducedInit spec rnk a cube (cur:rem)    = do
+    liftIO $ putStrLn (show cube)
+    liftIO $ putStrLn (show cur)
+    r <- solveAbstract Existential spec (cube ++ rem) (appendChild (gtNew Existential rnk))
+    liftLog (logRankAux rnk a)
+    if isJust r
+        then tryReducedInit spec rnk (a+1) (cube ++ [cur]) rem
+        else tryReducedInit spec rnk (a+1) cube rem
+    
 
 initDefaultMoves :: CompiledSpec -> Int -> [Assignment] -> Maybe ([[Assignment]], [[Assignment]]) -> SolverT ()
 initDefaultMoves spec rank s (Just (uMoves, eMoves)) = do

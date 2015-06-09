@@ -1,0 +1,82 @@
+STATE
+reg_ready       : bool;
+reg_grant0      : bool;
+reg_grant1      : bool;
+fair_cnt        : uint<4>;
+sys_fair1_done  : bool;
+sys_fair2_done  : bool;
+o_err           : bool;
+
+LABEL
+i_req0  : bool;
+i_req1  : bool;
+ready   : bool;
+
+OUTCOME
+grant0  : bool;
+grant1  : bool;
+master  : uint<1>;
+
+INIT
+reg_ready       := 0;
+reg_grant0      := 0;
+reg_grant1      := 0;
+fair_cnt        := 0;
+sys_fair1_done  := 0;
+sys_fair2_done  := 0;
+o_err           := 0;
+
+GOAL
+o_err == 1
+
+TRANS
+{
+
+reg_ready := ready;
+
+reg_grant0 := grant0;
+reg_grant1 := grant1;
+
+fair_cnt := case {
+    sys_fair1_done == 1 && sys_fair2_done == 1      : 0;
+    ready == 1 && fair_cnt == 0                     : 1;
+    ready == 1 && fair_cnt == 1                     : 2;
+    ready == 1 && fair_cnt == 2                     : 3;
+    ready == 1 && fair_cnt == 3                     : 4;
+    ready == 1 && fair_cnt == 4                     : 5;
+    ready == 1 && fair_cnt == 5                     : 6;
+    ready == 1 && fair_cnt == 6                     : 7;
+    ready == 1 && fair_cnt == 7                     : 8;
+    ready == 1 && fair_cnt == 8                     : 9;
+    ready == 1 && fair_cnt == 9                     : 10;
+    ready == 1 && fair_cnt == 10                    : 11;
+    ready == 1 && fair_cnt == 11                    : 12;
+    ready == 1 && fair_cnt == 12                    : 13;
+    ready == 1 && fair_cnt == 13                    : 14;
+    ready == 1 && fair_cnt == 14                    : 15;
+    ready == 1 && fair_cnt == 15                    : 15;
+    true                                            : fair_cnt;
+};
+
+sys_fair1_done := case {
+    (sys_fair1_done == 1) && (sys_fair2_done == 1)              : 0;
+    (sys_fair1_done == 1) || (master == 0) || (i_req0 == 0)     : 1;
+    true                                                        : 0;
+};
+
+sys_fair2_done := case {
+    (sys_fair1_done == 1) && (sys_fair2_done == 1)              : 0;
+    (sys_fair2_done == 1) || (master == 1) || (i_req1 == 0)     : 1;
+    true                                                        : 0;
+};
+
+o_err := case {
+    !( (reg_ready == 0) || ((reg_grant0 == 1) <-> (master == 0)))   : 1;
+    !( (reg_ready == 0) || ((reg_grant1 == 1) <-> (master == 1)))   : 1;
+    fair_cnt == 8 || fair_cnt == 9 || fair_cnt == 10 
+        || fair_cnt == 11 || fair_cnt == 12 || fair_cnt == 13
+        || fair_cnt == 14 || fair_cnt == 15                         : 1;
+    true                                                            : o_err;
+};
+
+}

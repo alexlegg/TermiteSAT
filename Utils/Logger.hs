@@ -7,6 +7,7 @@ module Utils.Logger (
     , logVerify
     , logRefine
     , logRank
+    , logRankAux
     , logDumpLog
     , logLosingState
     , logCandidate
@@ -84,6 +85,14 @@ logRank :: Int -> LoggerT IO ()
 logRank k = do
     Log{..} <- get
     let dumpFn = "debug" ++ (show k) ++ ".html"
+    when (debugMode == LogEachRank && isJust trace && isJust spec) $ liftIO $ do
+        withFile dumpFn WriteMode $ \h -> do
+            renderHtmlToByteStringIO (BS.hPut h) (outputLog (fromJust spec) (fromJust trace))
+
+logRankAux :: Int -> Int -> LoggerT IO ()
+logRankAux k a = do
+    Log{..} <- get
+    let dumpFn = "debug_aux" ++ show k ++ "_" ++ show a ++ ".html"
     when (debugMode == LogEachRank && isJust trace && isJust spec) $ liftIO $ do
         withFile dumpFn WriteMode $ \h -> do
             renderHtmlToByteStringIO (BS.hPut h) (outputLog (fromJust spec) (fromJust trace))

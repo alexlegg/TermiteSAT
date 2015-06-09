@@ -125,10 +125,10 @@ minimiseCore gt a e = do
     assumptions <- liftE $ maybeM [] (mapM (assignmentToVar (gtMaxCopy gt))) a
     let as      = map (\a -> if sign a == Pos then var a else -(var a)) assumptions
 
-    forM_ clauses $ \cl -> do
-        forM_ (SV.toList cl) $ \l -> do
-            when ((abs (fromIntegral l)) > maxId) $ do
-                throwError "lit larger than maxid"
+---    forM_ clauses $ \cl -> do
+---        forM_ (SV.toList cl) $ \l -> do
+---            when ((abs (fromIntegral l)) > maxId) $ do
+---                throwError "lit larger than maxid"
 
     doMinimiseCore maxId as clauses
 

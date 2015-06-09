@@ -663,7 +663,7 @@ tab ind = concat (replicate ind "| ") ++ "|-"
 
 printMove :: CompiledSpec -> Move -> String
 printMove spec Nothing   = "Nothing"
-printMove spec (Just as) = interMap ", " (printVar spec) (map (\a -> [a]) as)
+printMove spec (Just as) = interMap ", " (printVar spec) vs
     where
         vs = groupBy f (sortBy g as)
         f (Assignment _ x) (Assignment _ y) = varname x == varname y
