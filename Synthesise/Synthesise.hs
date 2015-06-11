@@ -35,11 +35,11 @@ synthesise :: Int -> ParsedSpec -> Maybe FilePath -> EitherT String (LoggerT IO)
 synthesise k spec def = do
     evalStateT (synthesise' k spec def BoundedLearning) emptyManager
 
-unboundedSynthesis :: ParsedSpec -> Maybe FilePath -> EitherT String (LoggerT IO) (Maybe Int)
-unboundedSynthesis spec def = do
-    evalStateT (unbounded spec def) emptyManager
+unboundedSynthesis :: ParsedSpec -> Maybe FilePath -> Bool -> EitherT String (LoggerT IO) (Maybe Int)
+unboundedSynthesis spec def im = do
+    evalStateT (unbounded spec def im) emptyManager
 
-unbounded spec def = do
+unbounded spec def im = do
     (init, cspec) <- loadFmls 1 spec
     defMoves <- case def of
         Nothing -> return Nothing
@@ -50,10 +50,10 @@ unbounded spec def = do
             eVars <- mapM (mapM (mapFstM lookupVarName)) eMoves
             let eAss = map (concat . (map (\(var, val) -> makeAssignmentValue var val))) eVars
             return $ Just (uAss, eAss)
-    evalStateT (unboundedLoop init cspec defMoves 1) (emptyLearnedStates UnboundedLearning)
+    evalStateT (unboundedLoop init cspec defMoves im 1) (emptyLearnedStates UnboundedLearning)
 
-unboundedLoop :: [Assignment] -> CompiledSpec -> Maybe ([[Assignment]], [[Assignment]]) -> Int -> SolverT (Maybe Int)
-unboundedLoop init spec def k = do
+unboundedLoop :: [Assignment] -> CompiledSpec -> Maybe ([[Assignment]], [[Assignment]]) -> Bool -> Int -> SolverT (Maybe Int)
+unboundedLoop init spec def im k = do
     liftIO $ putStrLn "-----"
     liftIO $ putStrLn $ "Unbounded Loop " ++ show k
 
@@ -84,16 +84,17 @@ unboundedLoop init spec def k = do
         then finishedLoop spec Nothing
         else do
             t1  <- liftIO $ getCPUTime
-            r   <- checkRank spec k init def
+            r   <- checkRank spec k init def im
             t2  <- liftIO $ getCPUTime
             let t = fromIntegral (t2-t1) * 1e-12 :: Double
             liftIO $ printf "checkRank : %6.2fs\n" t
+
             if r
             then finishedLoop spec (Just k) --Counterexample exists for Universal player
             else do
                 spec' <- liftE $ unrollSpec spec
                 let init' = map (\a -> setAssignmentRankCopy a (k+1) 0) init
-                unboundedLoop init' spec' def (k+1)
+                unboundedLoop init' spec' def im (k+1)
 
 finishedLoop :: CompiledSpec -> Maybe Int -> SolverT (Maybe Int)
 finishedLoop spec r = do
@@ -126,7 +127,7 @@ synthesise' k spec def learning = do
             eVars <- mapM (mapM (mapFstM lookupVarName)) eMoves
             let eAss = map (concat . (map (\(var, val) -> makeAssignmentValue var val))) eVars
             return $ Just (uAss, eAss)
-    r <- evalStateT (checkRank cspec k init defMoves) (emptyLearnedStates learning)
+    r <- evalStateT (checkRank cspec k init defMoves False) (emptyLearnedStates learning)
     return $ if r then (Just k) else Nothing
 
 playStrategy :: Int -> ParsedSpec -> FilePath -> EitherT String (LoggerT IO) (Maybe Int)

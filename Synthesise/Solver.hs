@@ -34,8 +34,8 @@ import SatSolver.Interpolator
 import Utils.Logger
 import Utils.Utils
 
-checkRank :: CompiledSpec -> Int -> [Assignment] -> Maybe ([[Assignment]], [[Assignment]]) -> SolverT Bool
-checkRank spec rnk s def = do
+checkRank :: CompiledSpec -> Int -> [Assignment] -> Maybe ([[Assignment]], [[Assignment]]) -> Bool -> SolverT Bool
+checkRank spec rnk s def im = do
     initDefaultMoves spec rnk s def
     r <- solveAbstract Universal spec s (gtNew Existential rnk)
 
@@ -50,7 +50,7 @@ checkRank spec rnk s def = do
 
     liftLog (logRank rnk)
 
-    when (isJust r && rnk <= 3) $ do
+    when (im && isJust r && rnk <= 3) $ do
         liftIO $ putStrLn (printTree spec (fromJust r))
         let init = fromJust (gtMove (gtRoot (fromJust r)))
         cube <- tryReducedInit spec rnk 0 [] init 

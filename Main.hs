@@ -23,12 +23,14 @@ data Option = InputFile String
             | DebugMode (Maybe String)
             | Strategy FilePath
             | DefaultMoves FilePath
+            | InitMinimisation
 
 data Config = Config { tslFile      :: String
                      , bound        :: Maybe Int
                      , debugMode    :: Int
                      , strategyFile :: Maybe FilePath
                      , defaultMoves :: Maybe FilePath
+                     , initMin      :: Bool
                      } deriving (Show, Eq)
 
 defaultConfig = Config {
@@ -37,6 +39,7 @@ defaultConfig = Config {
     , debugMode     = 1
     , strategyFile  = Nothing
     , defaultMoves  = Nothing
+    , initMin       = False
     }
 
 options =
@@ -44,6 +47,7 @@ options =
     , Option ['d']  ["debug"]   (OptArg DebugMode "D")          "Debug mode. 0 = None, 1 = Output at end, 2 = Dump throughout, 3 = Dump after each loop"
     , Option ['s']  ["strat"]   (ReqArg Strategy "FILE")        "Strategy file"
     , Option ['m']  ["moves"]   (ReqArg DefaultMoves "FILE")    "Default moves files"
+    , Option ['i']  ["initmin"] (NoArg InitMinimisation)        "Minimise init cube"
     ]
 
 addOption (InputFile fn) c      = c {tslFile = fn}
@@ -51,6 +55,7 @@ addOption (Bound k) c           = c {bound = Just (read k)}
 addOption (DebugMode d) c       = maybe c (\x -> c {debugMode = read x}) d
 addOption (Strategy s) c        = c {strategyFile = Just s}
 addOption (DefaultMoves m) c    = c {defaultMoves = Just m}
+addOption (InitMinimisation) c  = c {initMin = True}
 
 main = do
     putStrLn "------------------------------------"
@@ -101,7 +106,7 @@ getConfig = do
 run config f = do
     spec <- hoistEither $ parse (tslFile config) f
     case (bound config) of
-        Nothing -> unboundedSynthesis spec (defaultMoves config)
+        Nothing -> unboundedSynthesis spec (defaultMoves config) (initMin config)
         Just k  -> do
             if isJust (strategyFile config)
             then do
