@@ -61,7 +61,7 @@ unboundedLoop init spec def im k = do
 
     ls <- get 
     
-    liftIO $ withFile ("winningMay" ++ show k) WriteMode $ \h -> do
+    liftIO $ withFile ("debug/winningMay" ++ show (k-1)) WriteMode $ \h -> do
         forM (Map.toList (winningMay ls)) $ \(r, wm) -> do
             hPutStrLn h (show r)
             forM (Set.toList wm) $ \s ->
@@ -69,7 +69,7 @@ unboundedLoop init spec def im k = do
             hPutStrLn h "--"
         return ()
 
-    liftIO $ withFile ("winningMust" ++ show k) WriteMode $ \h -> do
+    liftIO $ withFile ("debug/winningMust" ++ show (k-1)) WriteMode $ \h -> do
         forM (Set.toList (winningMust ls)) $ \s ->
             hPutStrLn h (printMove spec (Just (sort (Set.toList s))))
 

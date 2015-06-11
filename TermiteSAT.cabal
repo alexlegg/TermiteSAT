@@ -68,6 +68,7 @@ executable TermiteSAT
                         , array
                         , vector
                         , split
+                        , directory
 
   default-language:     Haskell2010
 
@@ -100,6 +101,7 @@ executable TermiteSAT-prof
                         , array
                         , vector
                         , split
+                        , directory
   else
     buildable:          False
 

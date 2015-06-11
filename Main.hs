@@ -60,6 +60,7 @@ addOption (InitMinimisation) c  = c {initMin = True}
 main = do
     putStrLn "------------------------------------"
     putStrLn "TermiteSAT  v0.1"
+    clearLogDir
     timeIt $ mainTimed
 
 mainTimed = do

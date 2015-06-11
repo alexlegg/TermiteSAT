@@ -50,18 +50,22 @@ checkRank spec rnk s def im = do
 
     liftLog (logRank rnk)
 
-    when (im && isJust r && rnk <= 3) $ do
-        liftIO $ putStrLn (printTree spec (fromJust r))
-        let init = fromJust (gtMove (gtRoot (fromJust r)))
-        cube <- tryReducedInit spec rnk 0 [] init 
-        liftIO $ putStrLn (show cube)
+    when (im && isJust r && rnk <= 7) $ do
+        let init    = fromJust (gtMove (gtRoot (fromJust r)))
+        cube        <- tryReducedInit spec rnk 0 [] init 
+        let cube'   = map (sort . map (\a -> setAssignmentRankCopy a 0 0)) [cube]
+
+        liftIO $ putStrLn (printMove spec (Just cube))
+
+        ls <- get
+        put $ ls {
+            winningMay = alterAll (insertIntoSet cube') [1..rnk] (winningMay ls)
+        }
 
     return (isNothing r)
 
 tryReducedInit _ _ _ cube []                = return cube
 tryReducedInit spec rnk a cube (cur:rem)    = do
-    liftIO $ putStrLn (show cube)
-    liftIO $ putStrLn (show cur)
     r <- solveAbstract Existential spec (cube ++ rem) (appendChild (gtNew Existential rnk))
     liftLog (logRankAux rnk a)
     if isJust r

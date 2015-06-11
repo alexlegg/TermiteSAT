@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings, RecordWildCards #-}
 module Utils.Logger (
       LoggerT(..)
+    , clearLogDir
     , printLog
     , logSolve
     , logSolveComplete
@@ -30,7 +31,8 @@ import Text.Blaze.Html5 as H
 import Text.Blaze.Html5.Attributes as A
 import Text.Blaze.Html.Renderer.Utf8
 import Utils.Utils
-import qualified Debug.Trace as D
+import Data.String.Utils
+import System.Directory
 
 data SynthTrace = SynthTrace {
       inputGT           :: GameTree
@@ -72,19 +74,25 @@ emptyLog dm = Log {
 
 type LoggerT m = StateT Log m
 
+clearLogDir :: IO ()
+clearLogDir = do
+    ls          <- getDirectoryContents "debug/"
+    let delete  = filter (not . (`elem` [".", "..", "debug.css", "debug.html"])) ls
+    mapM_ (removeFile . ("debug/" ++)) delete
+
 printLog :: Int -> LoggerT IO a -> IO (a)
 printLog dm logger = do
     (r, Log{..}) <- runStateT logger (emptyLog dm)
     when (debugMode /= NoDebug && isJust trace && isJust spec) $ do
         putStrLn "Printing final log to debug.html"
-        withFile "debug.html" WriteMode $ \h -> do
+        withFile "debug/debug.html" WriteMode $ \h -> do
             renderHtmlToByteStringIO (BS.hPut h) (outputLog (fromJust spec) (fromJust trace))
     return r
 
 logRank :: Int -> LoggerT IO ()
 logRank k = do
     Log{..} <- get
-    let dumpFn = "debug" ++ (show k) ++ ".html"
+    let dumpFn = "debug/debug" ++ (show k) ++ ".html"
     when (debugMode == LogEachRank && isJust trace && isJust spec) $ liftIO $ do
         withFile dumpFn WriteMode $ \h -> do
             renderHtmlToByteStringIO (BS.hPut h) (outputLog (fromJust spec) (fromJust trace))
@@ -92,7 +100,7 @@ logRank k = do
 logRankAux :: Int -> Int -> LoggerT IO ()
 logRankAux k a = do
     Log{..} <- get
-    let dumpFn = "debug_aux" ++ show k ++ "_" ++ show a ++ ".html"
+    let dumpFn = "debug/debug_aux" ++ show k ++ "_" ++ show a ++ ".html"
     when (debugMode == LogEachRank && isJust trace && isJust spec) $ liftIO $ do
         withFile dumpFn WriteMode $ \h -> do
             renderHtmlToByteStringIO (BS.hPut h) (outputLog (fromJust spec) (fromJust trace))
@@ -100,7 +108,7 @@ logRankAux k a = do
 logDumpLog :: LoggerT IO ()
 logDumpLog = do
     Log{..} <- get
-    let dumpFn = "debug.html"
+    let dumpFn = "debug/debug.html"
     when (debugMode == DumpLogs && isJust trace && isJust spec) $ liftIO $ do
         withFile dumpFn WriteMode $ \h -> do
             renderHtmlToByteStringIO (BS.hPut h) (outputLog (fromJust spec) (fromJust trace))
