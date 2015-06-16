@@ -25,8 +25,8 @@ import Utils.Logger
 import Utils.Utils
 import qualified Data.Vector.Storable as SV
 
-makeFml :: CompiledSpec -> Player -> [Assignment] -> GameTree -> Bool -> SolverT ([[Expression]], Expression, GameTree)
-makeFml spec player s ogt useBlocking = do
+makeFml :: CompiledSpec -> Player -> [Assignment] -> GameTree -> Bool -> Bool -> SolverT ([[Expression]], Expression, GameTree)
+makeFml spec player s ogt useBlocking unMustWin = do
     let gt      = normaliseCopies ogt
     let maxCopy = gtMaxCopy gt
     let root    = gtRoot gt
@@ -64,7 +64,7 @@ makeFml spec player s ogt useBlocking = do
             (es, step)  <- leafTo spec 0 maxCopy player rank 0
             return ([(Just (gtNodeId root), step) : es], step)
         scs -> do
-            steps       <- mapM (makeSteps maxCopy rank spec player Nothing root) scs
+            steps       <- mapM (makeSteps maxCopy rank spec player Nothing unMustWin root) scs
             step        <- liftE $ conjunctTemp maxCopy (map snd steps)
             return (map ((Just (gtNodeId root), step) :) (concatMap fst steps), step)
 
@@ -128,7 +128,7 @@ makeSplitFmls spec player s gt = do
         []  -> do
             liftE $ trueExpr
         scs -> do
-            steps <- mapM (makeSteps maxCopy (gtRank (gtRoot t1)) spec player (Just (nRank, pCopy)) (gtRoot t1)) scs
+            steps <- mapM (makeSteps maxCopy (gtRank (gtRoot t1)) spec player (Just (nRank, pCopy)) False (gtRoot t1)) scs
             liftE $ conjunctTemp maxCopy (map snd steps)
 
     fmlA        <- liftE $ conjunctTemp maxCopy (fmlA' : s' ++ exprsA)
@@ -340,8 +340,8 @@ makeTransition spec first CTransition{..} = do
     else do
         return Nothing
 
-makeSteps :: Int -> Int -> CompiledSpec -> Player -> Maybe (Int, Int) -> GameTree -> GameTree -> SolverT ([[(Maybe Int, Expression)]], Expression)
-makeSteps maxCopy rank spec player extend gt c = do
+makeSteps :: Int -> Int -> CompiledSpec -> Player -> Maybe (Int, Int) -> Bool -> GameTree -> GameTree -> SolverT ([[(Maybe Int, Expression)]], Expression)
+makeSteps maxCopy rank spec player extend unMustWin gt c = do
     let parentCopy          = gtCopyId gt 
     let copy1               = gtCopyId (gtParent c)
     let copy2               = gtCopyId c
@@ -354,11 +354,11 @@ makeSteps maxCopy rank spec player extend gt c = do
                 (es, step) <- leafTo spec copy2 maxCopy player (rank-1) 0
                 return ([(Just (gtNodeId c), step) : es], Just step)
         cs -> do
-            steps <- mapM (makeSteps maxCopy (rank-1) spec player extend c) cs
+            steps <- mapM (makeSteps maxCopy (rank-1) spec player extend unMustWin c) cs
             conj <- liftE $ conjunctTemp maxCopy (map snd steps)
             return (map ((Just (gtNodeId c), conj) :) (concatMap fst steps), Just conj)
 
-    s <- singleStep spec rank maxCopy player parentCopy copy1 copy2 next
+    s <- singleStep spec rank maxCopy player parentCopy copy1 copy2 next unMustWin
     return (es, s)
 
 makeMove :: CompiledSpec -> Player -> Construct -> SolverT (Maybe Expression)
@@ -397,7 +397,7 @@ makeHatMove c valid m = do
     imp         <- implicateC c valid_hat move
     conjunctC c [move_hat, imp]
 
-singleStep spec rank maxCopy player parentCopy copy1 copy2 next = do
+singleStep spec rank maxCopy player parentCopy copy1 copy2 next unMustWin = do
     let i                   = rank - 1
     let CompiledSpec{..}    = spec
 
@@ -408,14 +408,25 @@ singleStep spec rank maxCopy player parentCopy copy1 copy2 next = do
     cg          <- liftE $ getCached i copy2 copy2 copy2 (exprIndex goal)
     when (isNothing cg) $ throwError $ "Goal was not created in advance: " ++ show (i, copy2)
 
-    case next of
-        Nothing -> return $ fromJust step
-        Just n  -> do
-            goal <- if player == Existential
-                then liftE $ disjunctTemp maxCopy [n, fromJust cg]
-                else liftE $ conjunctTemp maxCopy [n, fromJust cg]
+    joinNext maxCopy player unMustWin (fromJust cg) (fromJust step) next
+---    case next of
+---        Nothing -> return $ fromJust step
+---        Just n  -> do
+---            goal <- if player == Existential
+---                then liftE $ disjunctTemp maxCopy [n, fromJust cg]
+---                else liftE $ conjunctTemp maxCopy [n, fromJust cg]
 
-            liftE $ conjunctTemp maxCopy [fromJust step, goal]
+---            liftE $ conjunctTemp maxCopy [fromJust step, goal]
+
+joinNext maxCopy player unMustWin goal step next
+    | isNothing next                        = return step
+    | player == Existential                 = do
+        g <- liftE $ disjunctTemp maxCopy [fromJust next, goal]
+        liftE $ conjunctTemp maxCopy [step, g]
+    | player == Universal && not unMustWin  = do
+        liftE $ conjunctTemp maxCopy [step, goal, fromJust next]
+    | player == Universal && unMustWin      = do
+        liftE $ conjunctTemp maxCopy [step, goal, fromJust next]
 
 moveToExpression mc Nothing    = return Nothing
 moveToExpression mc (Just a)   = do
@@ -439,7 +450,7 @@ leafTo spec copy maxCopy player rank rankTo = do
     else do
         (es, next) <- leafTo spec copy maxCopy player (rank - 1) rankTo
 
-        step <- singleStep spec rank maxCopy player copy copy copy (Just next)
+        step <- singleStep spec rank maxCopy player copy copy copy (Just next) False
         return ((Nothing, step) : es, step)
 
 playerToSection :: Player -> Section

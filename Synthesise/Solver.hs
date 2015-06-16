@@ -50,7 +50,7 @@ checkRank spec rnk s def im = do
 
     liftLog (logRank rnk)
 
-    when (im && isJust r && rnk <= 7) $ do
+    when (im && isJust r && rnk <= 20) $ do
         let init    = fromJust (gtMove (gtRoot (fromJust r)))
         cube        <- tryReducedInit spec rnk 0 [] init 
         let cube'   = map (sort . map (\a -> setAssignmentRankCopy a 0 0)) [cube]
@@ -92,7 +92,7 @@ initDefaultMoves spec rank s Nothing = do
     put $ ls { defaultUnMoves   = Map.empty 
              , defaultExMoves   = Map.empty }
 
-    (_, fE, _)  <- makeFml spec Existential s gt True
+    (_, fE, _)  <- makeFml spec Existential s gt True False
     rE          <- satSolve (gtMaxCopy gt) Nothing fE
 
     defaultEx <- if satisfiable rE
@@ -104,7 +104,7 @@ initDefaultMoves spec rank s Nothing = do
             let someExMove = map (\v -> Assignment Pos v) (cont spec)
             return $ foldl (\m r -> Map.insert r someExMove m) Map.empty [1..rank]
 
-    (_, fU, _)  <- makeFml spec Universal s gt True
+    (_, fU, _)  <- makeFml spec Universal s gt True False
     rU          <- satSolve (gtMaxCopy gt) Nothing fU
 
     defaultUn <- if satisfiable rU
@@ -194,12 +194,12 @@ refinementLoop player spec s (Just cand) origGT absGT = do
 
 findCandidate :: Player -> CompiledSpec -> [Assignment] -> GameTree -> SolverT (Maybe GameTree)
 findCandidate player spec s gt = do
-    (es, f, gt')    <- makeFml spec player s gt True
+    (es, f, gt')    <- makeFml spec player s gt True False
     res             <- satSolve (gtMaxCopy gt') Nothing f
 
     if satisfiable res
     then do
-        (Just m)    <- shortenStrategy player gt' f (model res) es
+        (Just m)    <- shortenStrategy player spec s gt' f (model res) es
 ---        let Just m  = model res
         gt'         <- setMoves player spec m (gtRoot gt')
         outGt'      <- setMoves player spec m (gtRoot (gtExtend gt'))
@@ -223,7 +223,7 @@ learnStates spec player ogt = do
     let rank        = gtBaseRank gt'
     let s           = map (\x -> setAssignmentRankCopy x rank 0) as
 
-    (es, f, gt)     <- makeFml spec player [] gt' True
+    (es, f, gt)     <- makeFml spec player [] gt' True False
     cores           <- minimiseCore gt (Just s) f
 
     when (isJust cores) $ do
@@ -250,7 +250,7 @@ getLosingStates spec player ogt = do
     let rank        = gtBaseRank gt'
     let s           = map (\x -> setAssignmentRankCopy x rank 0) as
 
-    (es, f, gt)     <- makeFml spec player [] gt' True
+    (es, f, gt)     <- makeFml spec player [] gt' True False
     cores           <- minimiseCore gt (Just s) f
 
 
@@ -451,12 +451,17 @@ getConflicts vars conflicts cpy rnk = do
     let as  = map ((uncurry liftMFst) . mapFst (\i -> lookup i cs)) vd
     return  $ map makeAssignment (catMaybes as)
 
-shortenStrategy :: Player -> GameTree -> Expression -> Maybe [Int] -> [[Expression]] -> SolverT (Maybe [Int])
-shortenStrategy Existential gt fml model es = do
+shortenStrategy :: Player -> CompiledSpec -> [Assignment] -> GameTree -> Expression -> Maybe [Int] -> [[Expression]] -> SolverT (Maybe [Int])
+shortenStrategy Existential spec s gt fml model es = do
     let reversedEs  = map reverse es
     (_, m')         <- foldlM (shortenLeaf gt) (fml, model) reversedEs
     return m'
-shortenStrategy _ _ _ m _ = return m
+shortenStrategy Universal spec s gt _ model _ = do
+    (es, f, gt')    <- makeFml spec Universal s gt True True
+    liftIO $ putStrLn "shorten UniversalFalseFalse  "
+    ls <- get
+    liftIO $ putStrLn (show (map (map exprIndex) es))
+    return model
 
 shortenLeaf gt (fml, m) (e:es) = do
     let maxCopy = gtMaxCopy gt
