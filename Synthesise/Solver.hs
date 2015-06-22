@@ -457,11 +457,12 @@ shortenStrategy Existential spec s gt fml model es = do
     (_, m')         <- foldlM (shortenLeaf gt) (fml, model) reversedEs
     return m'
 shortenStrategy Universal spec s gt _ model _ = do
+    liftIO $ putStrLn "one"
     (es, f, gt')    <- makeFml spec Universal s gt True True
-    liftIO $ putStrLn "shorten UniversalFalseFalse  "
-    ls <- get
-    liftIO $ putStrLn (show (map (map exprIndex) es))
-    return model
+    let reversedEs  = map reverse es
+    (_, m')         <- foldlM (shortenLeaf gt') (f, model) reversedEs
+    liftIO $ putStrLn "two"
+    return m'
 
 shortenLeaf gt (fml, m) (e:es) = do
     let maxCopy = gtMaxCopy gt
