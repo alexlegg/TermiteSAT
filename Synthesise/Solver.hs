@@ -34,10 +34,10 @@ import SatSolver.Interpolator
 import Utils.Logger
 import Utils.Utils
 
-checkRank :: CompiledSpec -> Int -> [Assignment] -> Maybe ([[Assignment]], [[Assignment]]) -> Bool -> SolverT Bool
-checkRank spec rnk s def im = do
+checkRank :: CompiledSpec -> Int -> [Assignment] -> Maybe ([[Assignment]], [[Assignment]]) -> Bool -> Shortening -> SolverT Bool
+checkRank spec rnk s def im short = do
     initDefaultMoves spec rnk s def
-    r <- solveAbstract Universal spec s (gtNew Existential rnk)
+    r <- solveAbstract Universal spec s (gtNew Existential rnk) short
 
     satTime <- liftIO $ timeInSAT
     satCalls <- liftIO $ totalSATCalls
@@ -66,7 +66,7 @@ checkRank spec rnk s def im = do
 
 tryReducedInit _ _ _ cube []                = return cube
 tryReducedInit spec rnk a cube (cur:rem)    = do
-    r <- solveAbstract Existential spec (cube ++ rem) (appendChild (gtNew Existential rnk))
+    r <- solveAbstract Existential spec (cube ++ rem) (appendChild (gtNew Existential rnk)) ShortenNone
     liftLog (logRankAux rnk a)
     if isJust r
         then tryReducedInit spec rnk (a+1) (cube ++ [cur]) rem
@@ -149,7 +149,7 @@ checkStrategy :: CompiledSpec -> Int -> [Assignment] -> String -> Tree [[Assignm
 checkStrategy spec rnk s player strat = do
     let p       = if player == "universal" then Universal else Existential
     let gt      = buildStratGameTree p (gtNew Existential rnk) strat
-    r           <- solveAbstract Universal spec s gt
+    r           <- solveAbstract Universal spec s gt ShortenNone
     liftIO $ putStrLn "Playing Strategy from file:"
     liftIO $ putStrLn (printTree spec gt)
     return (isNothing r)
@@ -159,47 +159,47 @@ buildStratGameTree player gt strat = gtParent $ gtParent $ foldl (buildStratGame
         append  = if player == Existential then gtAppendMove else gtAppendMoveU
         gt'     = append gt (Just (concat (rootLabel strat)))
 
-solveAbstract :: Player -> CompiledSpec -> [Assignment] -> GameTree -> SolverT (Maybe GameTree)
-solveAbstract player spec s gt = do
+solveAbstract :: Player -> CompiledSpec -> [Assignment] -> GameTree -> Shortening -> SolverT (Maybe GameTree)
+solveAbstract player spec s gt short = do
 ---    liftIO $ putStrLn ("Solve abstract for " ++ show player)
 ---    pLearn <- printLearnedStates spec player
     liftLog $ logSolve gt player []
 
-    cand <- findCandidate player spec s gt
+    cand <- findCandidate player spec s short gt
 
-    res <- refinementLoop player spec s cand gt gt
+    res <- refinementLoop player spec s short cand gt gt
 
     liftLog $ logSolveComplete res
     liftLog $ logDumpLog
 
     return res
 
-refinementLoop :: Player -> CompiledSpec -> [Assignment] -> Maybe GameTree -> GameTree -> GameTree -> SolverT (Maybe GameTree)
-refinementLoop player spec s Nothing origGT absGt = do
+refinementLoop :: Player -> CompiledSpec -> [Assignment] -> Shortening -> Maybe GameTree -> GameTree -> GameTree -> SolverT (Maybe GameTree)
+refinementLoop player spec s short Nothing origGT absGt = do
 ---    liftIO $ putStrLn ("Could not find a candidate for " ++ show player)
     return Nothing
-refinementLoop player spec s (Just cand) origGT absGT = do
-    v <- verify player spec s origGT cand
+refinementLoop player spec s short (Just cand) origGT absGT = do
+    v <- verify player spec s short origGT cand
     case v of
         (Just cex) -> do
 ---            liftIO $ putStrLn ("Counterexample found against " ++ show player)
             absGT' <- refine absGT cex
             liftLog $ logRefine
-            cand' <- solveAbstract player spec s absGT'
-            refinementLoop player spec s cand' origGT absGT'
+            cand' <- solveAbstract player spec s absGT' short
+            refinementLoop player spec s short cand' origGT absGT'
         Nothing -> do
 ---            liftIO $ putStrLn ("Verified candidate for " ++ show player)
             return (Just cand)
     
 
-findCandidate :: Player -> CompiledSpec -> [Assignment] -> GameTree -> SolverT (Maybe GameTree)
-findCandidate player spec s gt = do
+findCandidate :: Player -> CompiledSpec -> [Assignment] -> Shortening -> GameTree -> SolverT (Maybe GameTree)
+findCandidate player spec s short gt = do
     (es, f, gt')    <- makeFml spec player s gt True False
     res             <- satSolve (gtMaxCopy gt') Nothing f
 
     if satisfiable res
     then do
-        (Just m)    <- shortenStrategy player spec s gt' f (model res) es
+        (Just m)    <- shortenStrategy short player spec s gt' f (model res) es
 ---        let Just m  = model res
         gt'         <- setMoves player spec m (gtRoot gt')
         outGt'      <- setMoves player spec m (gtRoot (gtExtend gt'))
@@ -371,20 +371,20 @@ printLearnedStates spec player = do
     else do
         return $ map (printMove spec . Just) (map Set.toList (Set.toList winningMust))
 
-verify :: Player -> CompiledSpec -> [Assignment] -> GameTree -> GameTree -> SolverT (Maybe GameTree)
-verify player spec s gt cand = do
+verify :: Player -> CompiledSpec -> [Assignment] -> Shortening -> GameTree -> GameTree -> SolverT (Maybe GameTree)
+verify player spec s short gt cand = do
     let og = projectMoves gt cand
     when (not (isJust og)) $ throwError $ "Error projecting, moves didn't match\n" ++ show player ++ printTree spec gt ++ printTree spec cand
     let leaves = map appendChild $ filter (not . gtAtBottom) (map makePathTree (gtLeaves (fromJust og)))
     let leaves' = if opponent player == Universal
         then filter (not . gtLostInPrefix . gtRoot) leaves
         else leaves
-    mapMUntilJust (verifyLoop (opponent player) spec s) (zip [0..] leaves')
+    mapMUntilJust (verifyLoop (opponent player) spec s short) (zip [0..] leaves')
 
-verifyLoop :: Player -> CompiledSpec -> [Assignment] -> (Int, GameTree) -> SolverT (Maybe GameTree)
-verifyLoop player spec s (i, gt) = do
+verifyLoop :: Player -> CompiledSpec -> [Assignment] -> Shortening -> (Int, GameTree) -> SolverT (Maybe GameTree)
+verifyLoop player spec s short (i, gt) = do
     liftLog $ logVerify i
-    solveAbstract player spec s gt
+    solveAbstract player spec s gt short
 
 refine gt cex = return $ appendNextMove gt cex
 
@@ -451,17 +451,25 @@ getConflicts vars conflicts cpy rnk = do
     let as  = map ((uncurry liftMFst) . mapFst (\i -> lookup i cs)) vd
     return  $ map makeAssignment (catMaybes as)
 
-shortenStrategy :: Player -> CompiledSpec -> [Assignment] -> GameTree -> Expression -> Maybe [Int] -> [[Expression]] -> SolverT (Maybe [Int])
-shortenStrategy Existential spec s gt fml model es = do
+shortEx ShortenExistential  = True
+shortEx ShortenBoth         = True
+shortEx _                   = False
+
+shortUn ShortenUniversal    = True
+shortUn ShortenBoth         = True
+shortUn _                   = False
+
+shortenStrategy :: Shortening -> Player -> CompiledSpec -> [Assignment] -> GameTree -> Expression -> Maybe [Int] -> [[Expression]] -> SolverT (Maybe [Int])
+shortenStrategy (shortEx -> True) Existential spec s gt fml model es = do
     let reversedEs  = map reverse es
     (_, m')         <- foldlM (shortenLeaf gt) (fml, model) reversedEs
     return m'
-shortenStrategy Universal spec s gt _ model _ = do
+shortenStrategy (shortUn -> True) Universal spec s gt _ model _ = do
     (es, f, gt')    <- makeFml spec Universal s gt True True
     let reversedEs  = map reverse es
     (_, m')         <- foldlM (shortenLeaf gt') (f, model) reversedEs
-    liftIO $ putStrLn (show (model == m'))
     return m'
+shortenStrategy _ _ _ _ _ _ model _ = return model
 
 shortenLeaf gt (fml, m) (e:es) = do
     let maxCopy = gtMaxCopy gt

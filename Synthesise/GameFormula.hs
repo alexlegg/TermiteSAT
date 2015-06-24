@@ -440,9 +440,10 @@ singleStep spec rank maxCopy player parentCopy copy1 copy2 next unMustWin = do
             ws'         <- liftE $ mapM (\as -> getCachedMove copy2 (UnWinState, as)) as
             when (any isNothing ws') $ throwError "Universal winning state not created in advance"
             d           <- liftE $ disjunctTemp maxCopy (catMaybes ws')
-            dp <- liftE $ printExpression d
-            throwError dp
-            return (Just d)
+---            dp <- liftE $ printExpression d
+---            when (not (null ws)) $ throwError dp
+            f           <- liftE $ falseExpr
+            if (null ws) then return (Just f) else return (Just d)
         else return Nothing
 
     let g = if unMustWin then unWins else cg

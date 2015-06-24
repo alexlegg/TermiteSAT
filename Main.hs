@@ -17,6 +17,7 @@ import qualified Expression.ParseAIG as AIG
 import Synthesise.Synthesise
 
 import SatSolver.Interpolator
+import Synthesise.SolverT
 
 data Option = InputFile String
             | Bound String
@@ -24,6 +25,7 @@ data Option = InputFile String
             | Strategy FilePath
             | DefaultMoves FilePath
             | InitMinimisation
+            | StratShortening (Maybe String)
 
 data Config = Config { tslFile      :: String
                      , bound        :: Maybe Int
@@ -31,6 +33,7 @@ data Config = Config { tslFile      :: String
                      , strategyFile :: Maybe FilePath
                      , defaultMoves :: Maybe FilePath
                      , initMin      :: Bool
+                     , shortening   :: Shortening
                      } deriving (Show, Eq)
 
 defaultConfig = Config {
@@ -40,6 +43,7 @@ defaultConfig = Config {
     , strategyFile  = Nothing
     , defaultMoves  = Nothing
     , initMin       = False
+    , shortening    = ShortenExistential
     }
 
 options =
@@ -48,6 +52,7 @@ options =
     , Option ['s']  ["strat"]   (ReqArg Strategy "FILE")        "Strategy file"
     , Option ['m']  ["moves"]   (ReqArg DefaultMoves "FILE")    "Default moves files"
     , Option ['i']  ["initmin"] (NoArg InitMinimisation)        "Minimise init cube"
+    , Option ['h']  ["shorten"] (OptArg StratShortening "S")    "Strategy Shortening. 0 = None, 1 = Existential, 2 = Universal, 3 = Both"
     ]
 
 addOption (InputFile fn) c      = c {tslFile = fn}
@@ -56,6 +61,7 @@ addOption (DebugMode d) c       = maybe c (\x -> c {debugMode = read x}) d
 addOption (Strategy s) c        = c {strategyFile = Just s}
 addOption (DefaultMoves m) c    = c {defaultMoves = Just m}
 addOption (InitMinimisation) c  = c {initMin = True}
+addOption (StratShortening s) c = maybe c (\x -> c {shortening = toEnum (read x)}) s
 
 main = do
     putStrLn "------------------------------------"
@@ -76,6 +82,7 @@ mainTimed = do
                 1 -> "Print log"
                 2 -> "Continuous log dumping"
                 3 -> "Log each rank (unbounded)"
+            putStrLn $ "Shortening  " ++ show (shortening config)
 
             when (isJust (strategyFile config)) $ 
                 putStrLn ("Strategy    " ++ fromJust (strategyFile config))
@@ -107,7 +114,7 @@ getConfig = do
 run config f = do
     spec <- hoistEither $ parse (tslFile config) f
     case (bound config) of
-        Nothing -> unboundedSynthesis spec (defaultMoves config) (initMin config)
+        Nothing -> unboundedSynthesis spec (defaultMoves config) (initMin config) (shortening config)
         Just k  -> do
             if isJust (strategyFile config)
             then do
