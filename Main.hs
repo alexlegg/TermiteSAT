@@ -24,7 +24,7 @@ data Option = InputFile String
             | DebugMode (Maybe String)
             | Strategy FilePath
             | DefaultMoves FilePath
-            | InitMinimisation
+            | InitMinimisation String
             | StratShortening (Maybe String)
 
 data Config = Config { tslFile      :: String
@@ -32,7 +32,7 @@ data Config = Config { tslFile      :: String
                      , debugMode    :: Int
                      , strategyFile :: Maybe FilePath
                      , defaultMoves :: Maybe FilePath
-                     , initMin      :: Bool
+                     , initMin      :: Maybe Int
                      , shortening   :: Shortening
                      } deriving (Show, Eq)
 
@@ -42,7 +42,7 @@ defaultConfig = Config {
     , debugMode     = 1
     , strategyFile  = Nothing
     , defaultMoves  = Nothing
-    , initMin       = False
+    , initMin       = Nothing
     , shortening    = ShortenExistential
     }
 
@@ -51,17 +51,17 @@ options =
     , Option ['d']  ["debug"]   (OptArg DebugMode "D")          "Debug mode. 0 = None, 1 = Output at end, 2 = Dump throughout, 3 = Dump after each loop"
     , Option ['s']  ["strat"]   (ReqArg Strategy "FILE")        "Strategy file"
     , Option ['m']  ["moves"]   (ReqArg DefaultMoves "FILE")    "Default moves files"
-    , Option ['i']  ["initmin"] (NoArg InitMinimisation)        "Minimise init cube"
+    , Option ['i']  ["initmin"] (ReqArg InitMinimisation "I")   "Minimise init cube"
     , Option ['h']  ["shorten"] (OptArg StratShortening "S")    "Strategy Shortening. 0 = None, 1 = Existential, 2 = Universal, 3 = Both"
     ]
 
-addOption (InputFile fn) c      = c {tslFile = fn}
-addOption (Bound k) c           = c {bound = Just (read k)}
-addOption (DebugMode d) c       = maybe c (\x -> c {debugMode = read x}) d
-addOption (Strategy s) c        = c {strategyFile = Just s}
-addOption (DefaultMoves m) c    = c {defaultMoves = Just m}
-addOption (InitMinimisation) c  = c {initMin = True}
-addOption (StratShortening s) c = maybe c (\x -> c {shortening = toEnum (read x)}) s
+addOption (InputFile fn) c          = c {tslFile = fn}
+addOption (Bound k) c               = c {bound = Just (read k)}
+addOption (DebugMode d) c           = maybe c (\x -> c {debugMode = read x}) d
+addOption (Strategy s) c            = c {strategyFile = Just s}
+addOption (DefaultMoves m) c        = c {defaultMoves = Just m}
+addOption (InitMinimisation i)  c   = c {initMin = Just (read i)}
+addOption (StratShortening s) c     = maybe c (\x -> c {shortening = toEnum (read x)}) s
 
 main = do
     putStrLn "------------------------------------"

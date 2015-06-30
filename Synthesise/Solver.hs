@@ -34,7 +34,7 @@ import SatSolver.Interpolator
 import Utils.Logger
 import Utils.Utils
 
-checkRank :: CompiledSpec -> Int -> [Assignment] -> Maybe ([[Assignment]], [[Assignment]]) -> Bool -> Shortening -> SolverT Bool
+checkRank :: CompiledSpec -> Int -> [Assignment] -> Maybe ([[Assignment]], [[Assignment]]) -> Maybe Int -> Shortening -> SolverT (Int, Bool)
 checkRank spec rnk s def im short = do
     initDefaultMoves spec rnk s def
     r <- solveAbstract Universal spec s (gtNew Existential rnk) short
@@ -50,7 +50,7 @@ checkRank spec rnk s def im short = do
 
     liftLog (logRank rnk)
 
-    when (im && isJust r && rnk <= 20) $ do
+    when (isJust im && isJust r && rnk <= fromJust im) $ do
         let init    = fromJust (gtMove (gtRoot (fromJust r)))
         cube        <- tryReducedInit spec rnk 0 [] init 
         let cube'   = map (sort . map (\a -> setAssignmentRankCopy a 0 0)) [cube]
@@ -62,7 +62,7 @@ checkRank spec rnk s def im short = do
             winningMay = alterAll (insertIntoSet cube') [1..rnk] (winningMay ls)
         }
 
-    return (isNothing r)
+    return (satCalls, isNothing r)
 
 tryReducedInit _ _ _ cube []                = return cube
 tryReducedInit spec rnk a cube (cur:rem)    = do
@@ -116,8 +116,8 @@ initDefaultMoves spec rank s Nothing = do
             let someUnMove  = map (\v -> Assignment Pos v) (ucont spec)
             return $ foldl (\m r -> Map.insert r someUnMove m) Map.empty [1..rank]
 
----    liftIO $ mapM (putStrLn . (printMove spec) . Just) defaultUn
----    liftIO $ mapM (putStrLn . (printMove spec) . Just) defaultEx
+    liftIO $ mapM (putStrLn . (printMove spec) . Just) defaultUn
+    liftIO $ mapM (putStrLn . (printMove spec) . Just) defaultEx
 
     ls <- get
     put $ ls { defaultUnMoves   = defaultUn
