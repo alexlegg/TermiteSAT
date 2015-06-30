@@ -40,6 +40,7 @@ module Synthesise.GameTree (
     , gtCopiesAndRanks
     , gtPlayer
     , gtLostInPrefix
+    , gtStateMovePairs
 
     -- Modifiers
     , gtNew
@@ -744,3 +745,11 @@ gtLostInPrefix gt
     | isNothing (gtMove gt)         = False
     | gtExWins gt == Just True      = True
     | otherwise                     = any gtLostInPrefix (gtChildren gt)
+
+gtStateMovePairs :: Player -> GameTree -> [(Move, Move)]
+gtStateMovePairs p gt = concatMap (gtStateMovePairs' p) (gtChildren (gtRoot gt))
+
+gtStateMovePairs' p gt = if (gtPlayer gt == p)
+    then let s = if p == Universal then gtState (gtParent (gtParent gt)) else gtState (gtParent gt) in
+        (s, gtMove gt) : (concatMap (gtStateMovePairs' p) (gtChildren gt))
+    else (concatMap (gtStateMovePairs' p) (gtChildren gt)) 

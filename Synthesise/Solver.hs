@@ -51,7 +51,7 @@ checkRank spec rnk s def im short = do
     liftLog (logRank rnk)
 
     when (isJust im && isJust r && rnk <= fromJust im) $ do
-        let init    = fromJust (gtMove (gtRoot (fromJust r)))
+        let init    = fromJust (gtMove (gtRoot (snd (fromJust r))))
         cube        <- tryReducedInit spec rnk 0 [] init 
         let cube'   = map (sort . map (\a -> setAssignmentRankCopy a 0 0)) [cube]
 
@@ -159,7 +159,7 @@ buildStratGameTree player gt strat = gtParent $ gtParent $ foldl (buildStratGame
         append  = if player == Existential then gtAppendMove else gtAppendMoveU
         gt'     = append gt (Just (concat (rootLabel strat)))
 
-solveAbstract :: Player -> CompiledSpec -> [Assignment] -> GameTree -> Shortening -> SolverT (Maybe GameTree)
+solveAbstract :: Player -> CompiledSpec -> [Assignment] -> GameTree -> Shortening -> SolverT (Maybe (GameTree, GameTree))
 solveAbstract player spec s gt short = do
 ---    liftIO $ putStrLn ("Solve abstract for " ++ show player)
 ---    pLearn <- printLearnedStates spec player
@@ -169,16 +169,16 @@ solveAbstract player spec s gt short = do
 
     res <- refinementLoop player spec s short cand gt gt
 
-    liftLog $ logSolveComplete res
+    liftLog $ logSolveComplete (fmap snd res)
     liftLog $ logDumpLog
 
     return res
 
-refinementLoop :: Player -> CompiledSpec -> [Assignment] -> Shortening -> Maybe GameTree -> GameTree -> GameTree -> SolverT (Maybe GameTree)
+refinementLoop :: Player -> CompiledSpec -> [Assignment] -> Shortening -> Maybe (GameTree, GameTree) -> GameTree -> GameTree -> SolverT (Maybe (GameTree, GameTree))
 refinementLoop player spec s short Nothing origGT absGt = do
 ---    liftIO $ putStrLn ("Could not find a candidate for " ++ show player)
     return Nothing
-refinementLoop player spec s short (Just cand) origGT absGT = do
+refinementLoop player spec s short (Just (wholeGt, cand)) origGT absGT = do
     v <- verify player spec s short origGT cand
     case v of
         (Just cex) -> do
@@ -188,11 +188,15 @@ refinementLoop player spec s short (Just cand) origGT absGT = do
             cand' <- solveAbstract player spec s absGT' short
             refinementLoop player spec s short cand' origGT absGT'
         Nothing -> do
----            liftIO $ putStrLn ("Verified candidate for " ++ show player)
-            return (Just cand)
+            liftIO $ putStrLn ("Verified candidate for " ++ show player)
+            let blah = gtStateMovePairs (opponent player) wholeGt
+            liftIO $ mapM (putStrLn . (\(x, y) -> (printMove spec x) ++ ": " ++ (printMove spec y))) blah
+            liftIO $ putStrLn (printTree spec (gtExtend cand))
+
+            return (Just (wholeGt, cand))
     
 
-findCandidate :: Player -> CompiledSpec -> [Assignment] -> Shortening -> GameTree -> SolverT (Maybe GameTree)
+findCandidate :: Player -> CompiledSpec -> [Assignment] -> Shortening -> GameTree -> SolverT (Maybe (GameTree, GameTree))
 findCandidate player spec s short gt = do
     (es, f, gt')    <- makeFml spec player s gt True False
     res             <- satSolve (gtMaxCopy gt') Nothing f
@@ -203,8 +207,9 @@ findCandidate player spec s short gt = do
 ---        let Just m  = model res
         gt'         <- setMoves player spec m (gtRoot gt')
         outGt'      <- setMoves player spec m (gtRoot (gtExtend gt'))
-        liftLog $ logCandidate (Just gt')
-        return (Just gt')
+        wholeGt     <- setMoves (opponent player) spec m outGt'
+        liftLog $ logCandidate (Just wholeGt)
+        return (Just (wholeGt, gt'))
     else do
 ---        liftIO $ putStrLn $ "losing candidate " ++ show player
 ---        when (player == Existential) $ liftIO $ putStrLn $ "Losing candidate"
@@ -384,7 +389,8 @@ verify player spec s short gt cand = do
 verifyLoop :: Player -> CompiledSpec -> [Assignment] -> Shortening -> (Int, GameTree) -> SolverT (Maybe GameTree)
 verifyLoop player spec s short (i, gt) = do
     liftLog $ logVerify i
-    solveAbstract player spec s gt short
+    r <- solveAbstract player spec s gt short
+    return (fmap snd r)
 
 refine gt cex = return $ appendNextMove gt cex
 
