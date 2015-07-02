@@ -41,6 +41,7 @@ module Synthesise.GameTree (
     , gtPlayer
     , gtLostInPrefix
     , gtStateMovePairs
+    , gtOpponentSelectedMoves
 
     -- Modifiers
     , gtNew
@@ -753,3 +754,14 @@ gtStateMovePairs' p gt = if (gtPlayer gt == p)
     then let s = if p == Universal then gtState (gtParent (gtParent gt)) else gtState (gtParent gt) in
         (s, gtMove gt) : (concatMap (gtStateMovePairs' p) (gtChildren gt))
     else (concatMap (gtStateMovePairs' p) (gtChildren gt)) 
+
+gtOpponentSelectedMoves :: Player -> GameTree -> GameTree -> [(Move, Move)]
+gtOpponentSelectedMoves p candGt wholeGt = gtOpponentSelectedMoves' p (gtRoot (gtExtend candGt)) (gtRoot wholeGt)
+
+gtOpponentSelectedMoves' p candGt wholeGt = node ++ concat (zipWith (gtOpponentSelectedMoves' p) (gtChildren candGt) (gtChildren wholeGt))
+    where
+        state   = if p == Universal then gtState (gtParent (gtParent wholeGt)) else gtState (gtParent wholeGt)
+        node    = if (gtPlayer wholeGt == p && isNothing (gtMove candGt))
+                      then [(state, gtMove wholeGt)]
+                      else []
+        

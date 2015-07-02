@@ -38,6 +38,9 @@ makeFml spec player s ogt useBlocking unMustWin = do
 
     filledTree <- (fmap gtRoot) $ fillTree player (head (gtChildren (gtRoot gtExt)))
 
+    ls <- get
+    let badMoves = if player == Universal then badMovesUn ls else badMovesEx ls
+
     -- Make a list of transitions, moves and blocking expressions to construct
     let cs      = gtSteps root
     let trans   = if null cs
@@ -46,6 +49,7 @@ makeFml spec player s ogt useBlocking unMustWin = do
     let goals   = getGoals rank maxCopy player
     let moves   = concatMap (getMoves rank player filledTree) (gtSteps filledTree)
     let cr      = gtCopiesAndRanks gt
+    let bMoves  = concatMap (getBlockedMove cr) (Set.toList badMoves)
     block       <- if useBlocking
                     then getBlockedStates player cr
                     else return []
@@ -54,7 +58,7 @@ makeFml spec player s ogt useBlocking unMustWin = do
                     else return []
 
     -- Construct everything in order
-    exprs       <- mapM (construct spec player (gtFirstPlayer gt)) (sortConstructibles (trans ++ moves ++ goals ++ block ++ unWinning))
+    exprs       <- mapM (construct spec player (gtFirstPlayer gt)) (sortConstructibles (trans ++ moves ++ goals ++ block ++ unWinning ++ bMoves))
 
     -- Construct init expression
     initMove    <- liftE $ moveToExpression (gtMaxCopy gt) (gtMove root)
@@ -216,6 +220,12 @@ data Construct where
         , cuCopy        :: Int
         , cuAssignment  :: [Assignment]
     } -> Construct
+    CBlockMove :: {
+          cbmRank       :: Int
+        , cbmCopy       :: Int
+        , cbmState      :: [Assignment]
+        , cbmMove       :: [Assignment]
+    } -> Construct
     deriving (Show)
 
 sortIndex :: Construct -> Int
@@ -224,6 +234,7 @@ sortIndex CMove{..}         = cmCopy
 sortIndex CBlocked{..}      = cbCopy
 sortIndex CGoal{..}         = cgCopy
 sortIndex CUnWinning{..}    = cuCopy
+sortIndex CBlockMove{..}    = cbmCopy
 
 construct :: CompiledSpec -> Player -> Player -> Construct -> SolverT (Maybe Expression)
 construct s p f t@CTransition{} = makeTransition s f t
@@ -231,6 +242,7 @@ construct s p f m@CMove{}       = makeMove s p m
 construct s p f b@CBlocked{}    = blockExpression b
 construct s p f g@CGoal{}       = makeGoal s p g
 construct s p f u@CUnWinning{}  = makeUnWinning u
+construct s p f bm@CBlockMove{} = makeBlockedMove bm
 
 sortConstructibles :: [Construct] -> [Construct]
 sortConstructibles = sortBy (\x y -> compare (sortIndex x) (sortIndex y))
@@ -317,6 +329,23 @@ getUnWinningStates copyRanks = do
     return $ concatMap (\(c, r) -> winAtRank winningMay r c) copyRanks
     where
         winAtRank block r c = map (CUnWinning r c) (map Set.toList (maybe [] Set.toList (Map.lookup r block)))
+
+getBlockedMove :: [(Int, Int)] -> (Move, Move) -> [Construct]
+getBlockedMove copyRanks (state, move) = map makeCBlockMove copyRanks
+    where
+        makeCBlockMove (c, r) = CBlockMove {   cbmRank     = r
+                                          , cbmCopy     = c
+                                          , cbmState    = fromJust state
+                                          , cbmMove     = fromJust move }
+
+makeBlockedMove CBlockMove{..} = do
+    let ss = map (\a -> setAssignmentRankCopy a cbmRank cbmCopy) cbmState
+    let ms = map (\a -> setAssignmentRankCopy a cbmRank cbmCopy) cbmMove
+    state   <- liftE $ assignmentToExpression cbmCopy ss
+    move    <- liftE $ assignmentToExpression cbmCopy ms
+    moven   <- liftE $ negationC cbmCopy move
+    e       <- liftE $ implicateC cbmCopy state moven
+    return (Just e)
 
 blockExpression CBlocked{..} = do
     let as = map (\a -> setAssignmentRankCopy a cbRank cbCopy) cbAssignment
@@ -440,8 +469,6 @@ singleStep spec rank maxCopy player parentCopy copy1 copy2 next unMustWin = do
             ws'         <- liftE $ mapM (\as -> getCachedMove copy2 (UnWinState, as)) as
             when (any isNothing ws') $ throwError "Universal winning state not created in advance"
             d           <- liftE $ disjunctTemp maxCopy (catMaybes ws')
----            dp <- liftE $ printExpression d
----            when (not (null ws)) $ throwError dp
             f           <- liftE $ falseExpr
             if (null ws) then return (Just f) else return (Just d)
         else return Nothing

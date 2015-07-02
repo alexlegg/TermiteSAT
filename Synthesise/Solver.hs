@@ -36,7 +36,7 @@ import Utils.Utils
 
 checkRank :: CompiledSpec -> Int -> [Assignment] -> Maybe ([[Assignment]], [[Assignment]]) -> Maybe Int -> Shortening -> SolverT (Int, Bool)
 checkRank spec rnk s def im short = do
-    initDefaultMoves spec rnk s def
+    --initDefaultMoves spec rnk s def
     r <- solveAbstract Universal spec s (gtNew Existential rnk) short
 
     satTime <- liftIO $ timeInSAT
@@ -55,7 +55,7 @@ checkRank spec rnk s def im short = do
         cube        <- tryReducedInit spec rnk 0 [] init 
         let cube'   = map (sort . map (\a -> setAssignmentRankCopy a 0 0)) [cube]
 
-        liftIO $ putStrLn (printMove spec (Just cube))
+---        liftIO $ putStrLn (printMove spec (Just cube))
 
         ls <- get
         put $ ls {
@@ -116,8 +116,8 @@ initDefaultMoves spec rank s Nothing = do
             let someUnMove  = map (\v -> Assignment Pos v) (ucont spec)
             return $ foldl (\m r -> Map.insert r someUnMove m) Map.empty [1..rank]
 
-    liftIO $ mapM (putStrLn . (printMove spec) . Just) defaultUn
-    liftIO $ mapM (putStrLn . (printMove spec) . Just) defaultEx
+---    liftIO $ mapM (putStrLn . (printMove spec) . Just) defaultUn
+---    liftIO $ mapM (putStrLn . (printMove spec) . Just) defaultEx
 
     ls <- get
     put $ ls { defaultUnMoves   = defaultUn
@@ -188,10 +188,13 @@ refinementLoop player spec s short (Just (wholeGt, cand)) origGT absGT = do
             cand' <- solveAbstract player spec s absGT' short
             refinementLoop player spec s short cand' origGT absGT'
         Nothing -> do
-            liftIO $ putStrLn ("Verified candidate for " ++ show player)
-            let blah = gtStateMovePairs (opponent player) wholeGt
-            liftIO $ mapM (putStrLn . (\(x, y) -> (printMove spec x) ++ ": " ++ (printMove spec y))) blah
-            liftIO $ putStrLn (printTree spec (gtExtend cand))
+---            liftIO $ putStrLn ("Verified candidate for " ++ show player)
+            let badMoves = gtOpponentSelectedMoves (opponent player) cand wholeGt
+
+            ls <- get
+            if player == Universal
+                then put $ ls { badMovesUn = Set.union (badMovesUn ls) (Set.fromList badMoves) }
+                else put $ ls { badMovesEx = Set.union (badMovesEx ls) (Set.fromList badMoves) }
 
             return (Just (wholeGt, cand))
     
@@ -204,11 +207,19 @@ findCandidate player spec s short gt = do
     if satisfiable res
     then do
         (Just m)    <- shortenStrategy short player spec s gt' f (model res) es
+---        let (Just oModel) = model res
 ---        let Just m  = model res
+---        unShortened <- setMoves player spec oModel (gtRoot gt')
         gt'         <- setMoves player spec m (gtRoot gt')
         outGt'      <- setMoves player spec m (gtRoot (gtExtend gt'))
         wholeGt     <- setMoves (opponent player) spec m outGt'
-        liftLog $ logCandidate (Just wholeGt)
+        
+---        when (player == Universal && oModel /= m) $ do
+---            origGt' <- setMoves player spec oModel (gtRoot (gtExtend gt'))
+---            liftIO $ putStrLn (printTree spec wholeGt)
+---            liftIO $ putStrLn (printTree spec origGt')
+
+        liftLog $ logCandidate (Just outGt')
         return (Just (wholeGt, gt'))
     else do
 ---        liftIO $ putStrLn $ "losing candidate " ++ show player
@@ -428,10 +439,11 @@ setMovesOpp player spec model gt = do
             let pCopy   = gtCopyId gt
             let goal    = goalFor Existential spec (gtRank gt - 1)
             cg          <- liftE $ getCached (gtRank gt - 1) pCopy pCopy pCopy (exprIndex goal)
-            when (isNothing cg) $ throwError "Could not find goal in setMoves"
-            let exWins  = (model !! ((exprIndex (fromJust cg)) - 1)) > 0
+            let exwinGt = if (isJust cg)
+                then gtSetExWins gt (Just ((model !! ((exprIndex (fromJust cg)) - 1)) > 0))
+                else gt
             state       <- getVarsAtRank StateVar model pCopy (gtRank gt - 1)
-            return $ gtSetState (gtSetExWins gt (Just exWins)) state
+            return $ gtSetState exwinGt state
         else return gt
     let vars    = if opponent player == Existential then ContVar else UContVar
     move        <- getVarsAtRank vars model (gtCopyId gt) (gtRank gt)
@@ -472,6 +484,7 @@ shortenStrategy (shortEx -> True) Existential spec s gt fml model es = do
     return m'
 shortenStrategy (shortUn -> True) Universal spec s gt _ model _ = do
     (es, f, gt')    <- makeFml spec Universal s gt True True
+    return model
     let reversedEs  = map reverse es
     (_, m')         <- foldlM (shortenLeaf gt') (f, model) reversedEs
     return m'

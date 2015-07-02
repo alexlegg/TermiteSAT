@@ -14,6 +14,7 @@ import Control.Monad.Trans.Either
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Expression.Expression
+import Synthesise.GameTree (Move)
 import Utils.Logger
 
 data Shortening = ShortenNone | ShortenExistential | ShortenUniversal | ShortenBoth
@@ -30,6 +31,8 @@ data LearnedStates = LearnedStates {
     , winningMay        :: Map.Map Int (Set.Set (Set.Set Assignment))
     , defaultUnMoves    :: Map.Map Int [Assignment]
     , defaultExMoves    :: Map.Map Int [Assignment]
+    , badMovesUn        :: Set.Set (Move, Move)
+    , badMovesEx        :: Set.Set (Move, Move)
 }
 
 emptyLearnedStates t = LearnedStates {
@@ -38,6 +41,8 @@ emptyLearnedStates t = LearnedStates {
     , winningMay        = Map.empty
     , defaultUnMoves    = Map.empty
     , defaultExMoves    = Map.empty
+    , badMovesUn        = Set.empty
+    , badMovesEx        = Set.empty
 }
 
 throwError :: String -> SolverT a
