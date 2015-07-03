@@ -39,7 +39,7 @@ makeFml spec player s ogt useBlocking unMustWin = do
     filledTree <- (fmap gtRoot) $ fillTree player (head (gtChildren (gtRoot gtExt)))
 
     ls <- get
-    let badMoves = if player == Universal then badMovesUn ls else badMovesEx ls
+    let badMoves = if player == Existential then badMovesUn ls else badMovesEx ls
 
     -- Make a list of transitions, moves and blocking expressions to construct
     let cs      = gtSteps root
