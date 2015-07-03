@@ -49,7 +49,11 @@ makeFml spec player s ogt useBlocking unMustWin = do
     let goals   = getGoals rank maxCopy player
     let moves   = concatMap (getMoves rank player filledTree) (gtSteps filledTree)
     let cr      = gtCopiesAndRanks gt
-    let bMoves  = concatMap (getBlockedMove cr) (Set.toList badMoves)
+    let crMoves = gtCRMoves (opponent player) filledTree
+    let bMoves  = [] --concatMap (getBlockedMove crMoves) (Set.toList badMoves)
+    liftIO $ putStrLn "---"
+    liftIO $ mapM (putStrLn . printMove spec . Just) (nub $ sort (map cbmMove bMoves))
+    liftIO $ putStrLn "---"
     block       <- if useBlocking
                     then getBlockedStates player cr
                     else return []
@@ -330,13 +334,14 @@ getUnWinningStates copyRanks = do
     where
         winAtRank block r c = map (CUnWinning r c) (map Set.toList (maybe [] Set.toList (Map.lookup r block)))
 
-getBlockedMove :: [(Int, Int)] -> (Move, Move) -> [Construct]
-getBlockedMove copyRanks (state, move) = map makeCBlockMove copyRanks
+getBlockedMove :: [(Int, Int, Move)] -> (Move, Move) -> [Construct]
+getBlockedMove copyRanks (state, move) = map makeCBlockMove crs
     where
-        makeCBlockMove (c, r) = CBlockMove {   cbmRank     = r
+        makeCBlockMove (c, r, _)    = CBlockMove {   cbmRank     = r
                                           , cbmCopy     = c
                                           , cbmState    = fromJust state
                                           , cbmMove     = fromJust move }
+        crs                         = filter (isNothing . thd3) copyRanks
 
 makeBlockedMove CBlockMove{..} = do
     let ss = map (\a -> setAssignmentRankCopy a cbmRank cbmCopy) cbmState
@@ -345,7 +350,7 @@ makeBlockedMove CBlockMove{..} = do
     move    <- liftE $ assignmentToExpression cbmCopy ms
     moven   <- liftE $ negationC cbmCopy move
     e       <- liftE $ implicateC cbmCopy state moven
-    return (Just e)
+    return (Just moven)
 
 blockExpression CBlocked{..} = do
     let as = map (\a -> setAssignmentRankCopy a cbRank cbCopy) cbAssignment

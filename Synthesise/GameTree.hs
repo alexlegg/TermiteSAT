@@ -38,6 +38,7 @@ module Synthesise.GameTree (
     , printTree
     , gtIsPrefix
     , gtCopiesAndRanks
+    , gtCRMoves
     , gtPlayer
     , gtLostInPrefix
     , gtStateMovePairs
@@ -325,6 +326,15 @@ gtCopiesAndRanks :: GameTree -> [(Int, Int)]
 gtCopiesAndRanks gt = nub $ concatMap (\(c, r) -> [(c, r') | r' <- [1..r]]) $ nub $ gtCopiesAndRanks' (gtRoot gt)
 
 gtCopiesAndRanks' gt = (gtCopyId gt, gtRank gt) : concatMap gtCopiesAndRanks' (gtChildren gt)
+
+gtCRMoves :: Player -> GameTree -> [(Int, Int, Move)]
+gtCRMoves p gt = gtCRMoves' p (gtRoot gt)
+
+gtCRMoves' p gt = n ++ concatMap (gtCRMoves' p) (gtChildren gt)
+    where
+        n = if (gtPlayer gt == p)
+                then [(gtCopyId gt, gtRank gt, gtMove gt)]
+                else []
 
 -- |Returns the first player of the tree (i.e. ETree or UTree)
 gtFirstPlayer :: GameTree -> Player
