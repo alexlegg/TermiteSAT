@@ -51,9 +51,9 @@ makeFml spec player s ogt useBlocking unMustWin = do
     let cr      = gtCopiesAndRanks gt
     let crMoves = gtCRMoves (opponent player) filledTree
     let bMoves  = [] --concatMap (getBlockedMove crMoves) (Set.toList badMoves)
-    liftIO $ putStrLn "---"
-    liftIO $ mapM (putStrLn . printMove spec . Just) (nub $ sort (map cbmMove bMoves))
-    liftIO $ putStrLn "---"
+---    liftIO $ putStrLn "---"
+---    liftIO $ mapM (putStrLn . printMove spec . Just) (nub $ sort (map cbmMove bMoves))
+---    liftIO $ putStrLn "---"
     block       <- if useBlocking
                     then getBlockedStates player cr
                     else return []

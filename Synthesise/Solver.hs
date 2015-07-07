@@ -51,6 +51,7 @@ checkRank spec rnk s def im short = do
     liftLog (logRank rnk)
 
     when (isJust im && isJust r && rnk <= fromJust im) $ do
+---        liftIO $ putStrLn "Expand Init"
         let init    = fromJust (gtMove (gtRoot (snd (fromJust r))))
         cube        <- tryReducedInit spec rnk 0 [] init 
         let cube'   = map (sort . map (\a -> setAssignmentRankCopy a 0 0)) [cube]
@@ -277,13 +278,33 @@ getLosingStates spec player ogt = do
     else 
         return Nothing
 
+dbgOutNoLearning :: CompiledSpec -> Player -> [Assignment] -> GameTree -> Bool -> SolverT ()
+dbgOutNoLearning spec player s gt found = do
+---    liftIO $ putStrLn ("interpolateTree" ++ show found)
+---    when (not found) $ do
+---        if (player == Existential)
+---            then do
+---                ls <- get
+---                forM (Map.toList (winningMay ls)) $ \(r, wm) -> do
+---                    liftIO $ putStrLn (show r)
+---                    forM (Set.toList wm) $ \s ->
+---                        liftIO $ putStrLn (printMove spec (Just (sort (Set.toList s))))
+---                    liftIO $ putStrLn "--"
+---                return ()
+---            else do
+---                return ()
+
+---        liftIO $ putStrLn (printMove spec (Just s))
+---        liftIO $ putStrLn (printTree spec gt)
+    return ()
+
 
 learnWinning :: CompiledSpec -> Player -> [Assignment] -> GameTree -> SolverT ()
 learnWinning spec player s gt@(gtUnsetNodes -> []) = do
     -- Learn from the root of the tree
     found <- interpolateTree spec player [s] (gtExtend gt)
 ---    when (player == Existential) $ liftIO $ putStrLn $ "interpolateTree " ++ show found
----    liftIO $ putStrLn ("interpolateTree" ++ show found)
+    dbgOutNoLearning spec player s gt found
     return ()
 learnWinning spec player s (gtUnsetNodes -> gt:[]) = do
     -- Learn from the highest node under the fixed prefix
@@ -295,13 +316,13 @@ learnWinning spec player s (gtUnsetNodes -> gt:[]) = do
 ---                    coreExps    <- liftE $ mapM (assignmentToExpression 0) c
 ---                    allCores    <- liftE $ disjunct coreExps
                     found <- interpolateTree spec player c (gtExtend (gtRebase 0 gt))
----            liftIO $ putStrLn ("interpolateTree" ++ show found)
+                    dbgOutNoLearning spec player s gt found
                     return ()
                 else do
                     liftIO $ putStrLn "empty core"
                     return ()
         Nothing -> do
----            liftIO $ putStrLn $ "lost in prefix"
+            liftIO $ putStrLn $ "lost in prefix"
             liftLog $ logLostInPrefix
             -- Can't find a core, so we must have lost in the prefix
             return ()
