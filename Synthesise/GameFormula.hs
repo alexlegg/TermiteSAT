@@ -5,6 +5,7 @@ module Synthesise.GameFormula (
     , makeInitCheckFml
     , makeUniversalWinCheckFml
     , goalFor
+    , checkMoveFml
     ) where
 
 import qualified Data.Map as Map
@@ -532,13 +533,12 @@ playerToSection Universal   = UContVar
 fillTree :: Player -> GameTree -> SolverT GameTree
 fillTree player gt = do
     ls <- get
-    if Map.null (defaultUnMoves ls) || Map.null (defaultExMoves ls)
+    let moveMap = if player == Existential
+        then defaultUnMoves ls
+        else defaultExMoves ls
+    if Map.null moveMap
     then return gt
     else do
-        let moveMap = if player == Existential
-            then defaultUnMoves ls
-            else defaultExMoves ls
-
         let gt' = if gtPlayer gt == opponent player && isNothing (gtMove gt)
             then gtSetMove gt (fromJust (Map.lookup (gtRank gt) moveMap))
             else gt
@@ -547,3 +547,33 @@ fillTree player gt = do
         cs' <- mapM (fillTree player) cs
 
         return $ gtSetChildren gt' cs'
+
+checkMoveFml :: CompiledSpec -> Player -> Move -> Move -> SolverT Expression
+checkMoveFml spec player move1 move2 = do
+    let m1      = map (\a -> setAssignmentRankCopy a 1 0) (fromJust move1)
+    let m2      = map (\a -> setAssignmentRankCopy a 1 0) (fromJust move2)
+    m1e         <- liftE $ assignmentToExpression 0 m1
+    m2e         <- liftE $ assignmentToExpression 0 m2
+
+    step        <- liftE $ getCached 1 0 0 0 (exprIndex (t spec !! 0))
+
+    if player == Universal
+    then do
+        ls          <- get
+        let lose    = map Set.toList (Set.toList (winningMust ls))
+
+        let lose1   = map (map (\a -> setAssignmentRankCopy a 1 0)) lose
+        let lose0   = map (map (\a -> setAssignmentRankCopy a 0 0)) lose
+
+        lose1e      <- liftE $ mapM (assignmentToExpression 0) lose1
+        lose0e      <- liftE $ mapM (assignmentToExpression 0) lose0
+
+        notLosing0  <- liftE $ negation =<< (conjunct lose0e)
+        notLosing1  <- liftE $ negation =<< (conjunct lose1e)
+
+        conj        <- liftE $ conjunct [fromJust step, m1e, m2e, notLosing0]
+
+        liftE $ implicate notLosing1 conj
+    else do
+        t <- liftE $ trueExpr
+        return t

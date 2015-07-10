@@ -43,6 +43,7 @@ module Synthesise.GameTree (
     , gtLostInPrefix
     , gtStateMovePairs
     , gtOpponentSelectedMoves
+    , gtAllMovePairs
 
     -- Modifiers
     , gtNew
@@ -775,3 +776,10 @@ gtOpponentSelectedMoves' p candGt wholeGt = node ++ concat (zipWith (gtOpponentS
                       then [(state, gtMove wholeGt)]
                       else []
         
+gtAllMovePairs :: GameTree -> [(Move, Move)]
+gtAllMovePairs gt = concatMap (gtAllMovePairs' . followGTCrumb) (gtChildren (gtRoot gt))
+
+gtAllMovePairs' :: SNode -> [(Move, Move)]
+gtAllMovePairs' n = case (children n) of
+    []  -> [(snodeMove n, Nothing)]
+    cs  -> concatMap (\c -> (snodeMove n, snodeMove c) : concatMap gtAllMovePairs' (children c)) cs

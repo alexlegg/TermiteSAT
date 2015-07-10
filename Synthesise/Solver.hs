@@ -36,24 +36,29 @@ import Utils.Utils
 
 checkRank :: CompiledSpec -> Int -> [Assignment] -> Maybe ([[Assignment]], [[Assignment]]) -> Maybe Int -> Shortening -> SolverT (Int, Bool)
 checkRank spec rnk s def im short = do
-    --initDefaultMoves spec rnk s def
+    initDefaultMoves spec rnk True s def 
+    initDefaultMoves spec rnk False s def
+    initDefaultMoves spec rnk False s def
+    initDefaultMoves spec rnk False s def
     r <- solveAbstract Universal spec s (gtNew Existential rnk) short
 
     satTime <- liftIO $ timeInSAT
     satCalls <- liftIO $ totalSATCalls
     (intTime, eA, eB) <- liftIO $ timeInInterpolate
+    liftIO $ putStrLn "----------------"
     liftIO $ putStrLn $ "timeInSAT = " ++ (show ((fromInteger $ round $ (satTime * 10)) / 10.0))
     liftIO $ putStrLn $ "SAT Calls = " ++ (show satCalls)
     liftIO $ putStrLn $ "timeInInterpolate = " ++ (show ((fromInteger $ round $ (intTime * 10)) / 10.0))
     liftIO $ putStrLn $ "timeInEnodeA = " ++ (show ((fromInteger $ round $ (eA * 10)) / 10.0))
     liftIO $ putStrLn $ "timeInEnodeB = " ++ (show ((fromInteger $ round $ (eB * 10)) / 10.0))
+    liftIO $ putStrLn "----------------"
 
     liftLog (logRank rnk)
 
-    when (isJust im && isJust r && rnk <= fromJust im) $ do
----        liftIO $ putStrLn "Expand Init"
+    extraSatCalls <- if (isJust im && isJust r && rnk <= fromJust im)
+    then do
         let init    = fromJust (gtMove (gtRoot (snd (fromJust r))))
-        cube        <- tryReducedInit spec rnk 0 [] init 
+        cube        <- tryReducedInit spec rnk 0 [] init short
         let cube'   = map (sort . map (\a -> setAssignmentRankCopy a 0 0)) [cube]
 
 ---        liftIO $ putStrLn (printMove spec (Just cube))
@@ -63,19 +68,39 @@ checkRank spec rnk s def im short = do
             winningMay = alterAll (insertIntoSet cube') [1..rnk] (winningMay ls)
         }
 
-    return (satCalls, isNothing r)
+        return 0 --satCalls
+    else return 0
 
-tryReducedInit _ _ _ cube []                = return cube
-tryReducedInit spec rnk a cube (cur:rem)    = do
-    r <- solveAbstract Existential spec (cube ++ rem) (appendChild (gtNew Existential rnk)) ShortenNone
+    liftIO $ putStrLn "==================================================="
+
+    return (satCalls + extraSatCalls, isNothing r)
+
+tryReducedInit _ _ _ cube [] _                  = return cube
+tryReducedInit spec rnk a cube (cur:rem) short  = do
+    let s = cube ++ rem
+---    initDefaultMoves spec rnk True s Nothing
+---    initDefaultMoves spec rnk False s Nothing
+    r <- solveAbstract Existential spec s (appendChild (gtNew Existential rnk)) short
+    satTime <- liftIO $ timeInSAT
+    satCalls <- liftIO $ totalSATCalls
+    (intTime, eA, eB) <- liftIO $ timeInInterpolate
+---    liftIO $ putStrLn "----------------"
+    liftIO $ putStrLn "Expand Init"
+    liftIO $ putStrLn (printMove spec (Just cube))
+    liftIO $ putStrLn $ "timeInSAT = " ++ (show ((fromInteger $ round $ (satTime * 10)) / 10.0))
+---    liftIO $ putStrLn $ "SAT Calls = " ++ (show satCalls)
+    liftIO $ putStrLn $ "timeInInterpolate = " ++ (show ((fromInteger $ round $ (intTime * 10)) / 10.0))
+---    liftIO $ putStrLn $ "timeInEnodeA = " ++ (show ((fromInteger $ round $ (eA * 10)) / 10.0))
+---    liftIO $ putStrLn $ "timeInEnodeB = " ++ (show ((fromInteger $ round $ (eB * 10)) / 10.0))
+---    liftIO $ putStrLn "----------------"
     liftLog (logRankAux rnk a)
     if isJust r
-        then tryReducedInit spec rnk (a+1) (cube ++ [cur]) rem
-        else tryReducedInit spec rnk (a+1) cube rem
+        then tryReducedInit spec rnk (a+1) (cube ++ [cur]) rem short
+        else tryReducedInit spec rnk (a+1) cube rem short
     
 
-initDefaultMoves :: CompiledSpec -> Int -> [Assignment] -> Maybe ([[Assignment]], [[Assignment]]) -> SolverT ()
-initDefaultMoves spec rank s (Just (uMoves, eMoves)) = do
+initDefaultMoves :: CompiledSpec -> Int -> Bool -> [Assignment] -> Maybe ([[Assignment]], [[Assignment]]) -> SolverT ()
+initDefaultMoves spec rank wipe s (Just (uMoves, eMoves)) = do
 ---    liftIO $ mapM (putStrLn . (printMove spec) . Just) (take rank uMoves)
 ---    liftIO $ mapM (putStrLn . (printMove spec) . Just) (take rank eMoves)
     let defaultUn = zipWith (\r m -> (r, map (\a -> setAssignmentRankCopy a r 0) m)) [1..rank] uMoves
@@ -85,25 +110,38 @@ initDefaultMoves spec rank s (Just (uMoves, eMoves)) = do
              , defaultExMoves   = Map.fromList defaultEx
              }
     return ()
-initDefaultMoves spec rank s Nothing = do
+initDefaultMoves spec rank wipe s Nothing = do
     let gt = gtExtend (gtNew Existential rank)
 
     --Wipe moves from last loop
-    ls <- get
-    put $ ls { defaultUnMoves   = Map.empty 
-             , defaultExMoves   = Map.empty }
+    when (wipe) $ do
+        ls <- get
+        put $ ls { defaultUnMoves   = Map.empty 
+                 , defaultExMoves   = Map.empty }
 
     (_, fE, _)  <- makeFml spec Existential s gt True False
     rE          <- satSolve (gtMaxCopy gt) Nothing fE
 
+    ls <- get
     defaultEx <- if satisfiable rE
         then do
             moves   <- mapM (getVarsAtRank ContVar (fromJust (model rE)) 0) [1..rank]
+            gtTest  <- setMoves Existential spec (fromJust (model rE)) (gtRoot gt)
+---            liftIO $ putStrLn "Existential"
+---            liftIO $ putStrLn (printTree spec gtTest)
             return $ Map.fromList (zip [1..rank] moves)
         else do
-            -- No way to win at this rank so set anything
-            let someExMove = map (\v -> Assignment Pos v) (cont spec)
-            return $ foldl (\m r -> Map.insert r someExMove m) Map.empty [1..rank]
+            -- No way to win at this rank against opp default moves
+---            liftIO $ putStrLn "Ex no way to win"
+            if Map.null (defaultExMoves ls)
+            then do
+                let someExMove = map (\v -> Assignment Pos v) (cont spec)
+                return $ foldl (\m r -> Map.insert r someExMove m) Map.empty [1..rank]
+            else do
+                return $ defaultExMoves ls
+
+    ls <- get
+    put $ ls { defaultExMoves   = defaultEx }
 
     (_, fU, _)  <- makeFml spec Universal s gt True False
     rU          <- satSolve (gtMaxCopy gt) Nothing fU
@@ -111,18 +149,25 @@ initDefaultMoves spec rank s Nothing = do
     defaultUn <- if satisfiable rU
         then do
             moves   <- mapM (getVarsAtRank UContVar (fromJust (model rU)) 0) [1..rank]
+            gtTest  <- setMoves Universal spec (fromJust (model rU)) (gtRoot gt)
+---            liftIO $ putStrLn "Universal"
+---            liftIO $ putStrLn (printTree spec gtTest)
             return $ Map.fromList (zip [1..rank] moves)
         else do
-            -- No way to win at this rank so set anything
-            let someUnMove  = map (\v -> Assignment Pos v) (ucont spec)
-            return $ foldl (\m r -> Map.insert r someUnMove m) Map.empty [1..rank]
+            -- No way to win at this rank against opp default moves
+---            liftIO $ putStrLn "Un no way to win"
+            if Map.null (defaultUnMoves ls)
+            then do
+                let someUnMove  = map (\v -> Assignment Pos v) (ucont spec)
+                return $ foldl (\m r -> Map.insert r someUnMove m) Map.empty [1..rank]
+            else do
+                return $ defaultUnMoves ls
 
----    liftIO $ mapM (putStrLn . (printMove spec) . Just) defaultUn
 ---    liftIO $ mapM (putStrLn . (printMove spec) . Just) defaultEx
+---    liftIO $ mapM (putStrLn . (printMove spec) . Just) defaultUn
 
     ls <- get
-    put $ ls { defaultUnMoves   = defaultUn
-             , defaultExMoves   = defaultEx }
+    put $ ls { defaultUnMoves   = defaultUn }
 
 checkInit :: Int -> [Assignment] -> [[Assignment]] -> Expression -> SolverT Bool
 checkInit k init must goal = do
@@ -191,6 +236,7 @@ refinementLoop player spec s short (Just (wholeGt, cand)) origGT absGT = do
         Nothing -> do
 ---            liftIO $ putStrLn ("Verified candidate for " ++ show player)
             let badMoves = gtOpponentSelectedMoves (opponent player) cand wholeGt
+---            liftIO $ putStrLn (show badMoves)
 
             ls <- get
             if player == Universal
@@ -270,7 +316,6 @@ getLosingStates spec player ogt = do
     (es, f, gt)     <- makeFml spec player [] gt' True False
     cores           <- minimiseCore gt (Just s) f
 
-
     if (isJust cores)
     then do
         cs <- mapM (\core -> getConflicts (svars spec) core 0 rank) (fromJust cores)
@@ -303,10 +348,15 @@ learnWinning :: CompiledSpec -> Player -> [Assignment] -> GameTree -> SolverT ()
 learnWinning spec player s gt@(gtUnsetNodes -> []) = do
     -- Learn from the root of the tree
     found <- interpolateTree spec player [s] (gtExtend gt)
----    when (player == Existential) $ liftIO $ putStrLn $ "interpolateTree " ++ show found
     dbgOutNoLearning spec player s gt found
     return ()
 learnWinning spec player s (gtUnsetNodes -> gt:[]) = do
+---    let mps = filter (\(x, y) -> isJust x && isJust y) $ gtAllMovePairs gt
+---    fmls    <- mapM (\(x, y) -> checkMoveFml spec player x y) mps
+---    solved  <- mapM (satSolve 0 Nothing) fmls
+
+---    liftIO $ putStrLn (show (null (filter satisfiable solved)))
+
     -- Learn from the highest node under the fixed prefix
     core <- getLosingStates spec player gt
     case core of
@@ -372,7 +422,8 @@ interpolateTree spec player s gt' = do
 
                 when (any (\cs -> not $ all (\a -> assignmentCopy a == assignmentCopy (head cs)) cs) cube') $ do
                     throwError "Not all cubes of the same copy"
-
+                
+                liftIO $ putStrLn "learnt a cube"
                 ls <- get
                 if player == Existential
                 then put $ ls {
