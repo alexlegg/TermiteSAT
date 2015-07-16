@@ -31,8 +31,9 @@ data LearnedStates = LearnedStates {
     , winningMay        :: Map.Map Int (Set.Set (Set.Set Assignment))
     , defaultUnMoves    :: Map.Map Int [Assignment]
     , defaultExMoves    :: Map.Map Int [Assignment]
-    , badMovesUn        :: Set.Set (Move, Move)
-    , badMovesEx        :: Set.Set (Move, Move)
+    , badMovesUn        :: Set.Set [Assignment]
+    , badMovesEx        :: Set.Set Move
+    , checkedMoves      :: Set.Set ([Assignment], [Assignment])
 }
 
 emptyLearnedStates t = LearnedStates {
@@ -43,6 +44,7 @@ emptyLearnedStates t = LearnedStates {
     , defaultExMoves    = Map.empty
     , badMovesUn        = Set.empty
     , badMovesEx        = Set.empty
+    , checkedMoves      = Set.empty
 }
 
 throwError :: String -> SolverT a

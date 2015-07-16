@@ -14,6 +14,7 @@ module Utils.Logger (
     , logCandidate
     , logLostInPrefix
     , logSpec
+    , putStrLnDbg
     ) where
 
 import Synthesise.GameTree
@@ -52,7 +53,7 @@ instance Show SynthTrace where
 data TraceCrumb = VerifyCrumb Int Int | RefineCrumb Int
     deriving (Show, Eq)
 
-data DebugMode = NoDebug | FinalLogOnly | LogEachRank | DumpLogs deriving (Show, Eq)
+data DebugMode = NoDebug | FinalLogOnly | LogEachRank | DumpLogs deriving (Show, Eq, Enum)
 
 data Log = Log {
       trace     :: Maybe SynthTrace
@@ -311,3 +312,8 @@ logSpec cspec = do
     log@Log{..} <- get
     when (debugMode /= NoDebug) $ do
         put $ log { spec = Just cspec }
+
+putStrLnDbg :: MonadIO m  => Int -> String -> LoggerT m ()
+putStrLnDbg d s = do
+    Log{..} <- get
+    when (fromEnum debugMode >= d) $ liftIO $ putStrLn s

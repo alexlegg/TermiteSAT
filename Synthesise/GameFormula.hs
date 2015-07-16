@@ -9,6 +9,7 @@ module Synthesise.GameFormula (
     ) where
 
 import qualified Data.Map as Map
+import Data.Map ((!))
 import qualified Data.Set as Set
 import Data.Maybe
 import Data.List
@@ -40,7 +41,7 @@ makeFml spec player s ogt useBlocking unMustWin = do
     filledTree <- (fmap gtRoot) $ fillTree player (head (gtChildren (gtRoot gtExt)))
 
     ls <- get
-    let badMoves = if player == Existential then badMovesUn ls else badMovesEx ls
+    let badMoves = if player == Existential then badMovesUn ls else Set.empty
 
     -- Make a list of transitions, moves and blocking expressions to construct
     let cs      = gtSteps root
@@ -51,10 +52,7 @@ makeFml spec player s ogt useBlocking unMustWin = do
     let moves   = concatMap (getMoves rank player filledTree) (gtSteps filledTree)
     let cr      = gtCopiesAndRanks gt
     let crMoves = gtCRMoves (opponent player) filledTree
-    let bMoves  = [] --concatMap (getBlockedMove crMoves) (Set.toList badMoves)
----    liftIO $ putStrLn "---"
----    liftIO $ mapM (putStrLn . printMove spec . Just) (nub $ sort (map cbmMove bMoves))
----    liftIO $ putStrLn "---"
+    let bMoves  = concatMap (getBlockedMove crMoves) (Set.toList badMoves)
     block       <- if useBlocking
                     then getBlockedStates player cr
                     else return []
@@ -228,7 +226,6 @@ data Construct where
     CBlockMove :: {
           cbmRank       :: Int
         , cbmCopy       :: Int
-        , cbmState      :: [Assignment]
         , cbmMove       :: [Assignment]
     } -> Construct
     deriving (Show)
@@ -335,22 +332,18 @@ getUnWinningStates copyRanks = do
     where
         winAtRank block r c = map (CUnWinning r c) (map Set.toList (maybe [] Set.toList (Map.lookup r block)))
 
-getBlockedMove :: [(Int, Int, Move)] -> (Move, Move) -> [Construct]
-getBlockedMove copyRanks (state, move) = map makeCBlockMove crs
+getBlockedMove :: [(Int, Int, Move)] -> [Assignment] -> [Construct]
+getBlockedMove copyRanks move       = map makeCBlockMove crs
     where
         makeCBlockMove (c, r, _)    = CBlockMove {   cbmRank     = r
                                           , cbmCopy     = c
-                                          , cbmState    = fromJust state
-                                          , cbmMove     = fromJust move }
+                                          , cbmMove     = move }
         crs                         = filter (isNothing . thd3) copyRanks
 
 makeBlockedMove CBlockMove{..} = do
-    let ss = map (\a -> setAssignmentRankCopy a cbmRank cbmCopy) cbmState
     let ms = map (\a -> setAssignmentRankCopy a cbmRank cbmCopy) cbmMove
-    state   <- liftE $ assignmentToExpression cbmCopy ss
     move    <- liftE $ assignmentToExpression cbmCopy ms
     moven   <- liftE $ negationC cbmCopy move
-    e       <- liftE $ implicateC cbmCopy state moven
     return (Just moven)
 
 blockExpression CBlocked{..} = do
@@ -548,32 +541,39 @@ fillTree player gt = do
 
         return $ gtSetChildren gt' cs'
 
-checkMoveFml :: CompiledSpec -> Player -> Move -> Move -> SolverT Expression
-checkMoveFml spec player move1 move2 = do
-    let m1      = map (\a -> setAssignmentRankCopy a 1 0) (fromJust move1)
-    let m2      = map (\a -> setAssignmentRankCopy a 1 0) (fromJust move2)
+checkMoveFml :: CompiledSpec -> Player -> Int -> [Assignment] -> [Assignment] -> SolverT (Maybe Expression)
+checkMoveFml spec player rank move1 move2 = do
+    let m1      = map (\a -> setAssignmentRankCopy a 1 0) move1
+    let m2      = map (\a -> setAssignmentRankCopy a 1 0) move2
     m1e         <- liftE $ assignmentToExpression 0 m1
     m2e         <- liftE $ assignmentToExpression 0 m2
 
     step        <- liftE $ getCached 1 0 0 0 (exprIndex (t spec !! 0))
 
-    if player == Universal
-    then do
-        ls          <- get
-        let lose    = map Set.toList (Set.toList (winningMust ls))
+    losingStates <- if player == Universal
+        then do
+            ls          <- get
+            let lose    = map Set.toList (Set.toList (winningMust ls))
+            return (Just lose, Just lose)
+        else do
+            ls          <- get
+            let lose1   = fmap (map Set.toList . Set.toList) (Map.lookup rank (winningMay ls))
+            let lose0   = fmap (map Set.toList . Set.toList) (Map.lookup (rank-1) (winningMay ls))
+            return (lose1, lose0)
 
-        let lose1   = map (map (\a -> setAssignmentRankCopy a 1 0)) lose
-        let lose0   = map (map (\a -> setAssignmentRankCopy a 0 0)) lose
+    case losingStates of
+        (Just lose1', Just lose0')  -> do
+            let lose1   = map (map (\a -> setAssignmentRankCopy a 1 0)) lose1'
+            let lose0   = map (map (\a -> setAssignmentRankCopy a 0 0)) lose0'
 
-        lose1e      <- liftE $ mapM (assignmentToExpression 0) lose1
-        lose0e      <- liftE $ mapM (assignmentToExpression 0) lose0
+            lose1e      <- liftE $ mapM (assignmentToExpression 0) lose1
+            lose0e      <- liftE $ mapM (assignmentToExpression 0) lose0
 
-        notLosing0  <- liftE $ negation =<< (conjunct lose0e)
-        notLosing1  <- liftE $ negation =<< (conjunct lose1e)
+            notLosing1  <- liftE $ negation =<< (disjunct lose1e)
+            notLosing0  <- liftE $ negation =<< (disjunct lose0e)
 
-        conj        <- liftE $ conjunct [fromJust step, m1e, m2e, notLosing0]
+            e <- liftE $ conjunct [fromJust step, m1e, m2e, notLosing0, notLosing1]
 
-        liftE $ implicate notLosing1 conj
-    else do
-        t <- liftE $ trueExpr
-        return t
+            return $ Just e
+
+        _ -> return Nothing

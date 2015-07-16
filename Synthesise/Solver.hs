@@ -36,29 +36,30 @@ import Utils.Utils
 
 checkRank :: CompiledSpec -> Int -> [Assignment] -> Maybe ([[Assignment]], [[Assignment]]) -> Maybe Int -> Shortening -> SolverT (Int, Bool)
 checkRank spec rnk s def im short = do
-    initDefaultMoves spec rnk True s def 
-    initDefaultMoves spec rnk False s def
-    initDefaultMoves spec rnk False s def
-    initDefaultMoves spec rnk False s def
+---    initDefaultMoves spec rnk True s def 
+---    initDefaultMoves spec rnk False s def
+---    initDefaultMoves spec rnk False s def
+---    initDefaultMoves spec rnk False s def
     r <- solveAbstract Universal spec s (gtNew Existential rnk) short
 
-    satTime <- liftIO $ timeInSAT
-    satCalls <- liftIO $ totalSATCalls
-    (intTime, eA, eB) <- liftIO $ timeInInterpolate
-    liftIO $ putStrLn "----------------"
-    liftIO $ putStrLn $ "timeInSAT = " ++ (show ((fromInteger $ round $ (satTime * 10)) / 10.0))
-    liftIO $ putStrLn $ "SAT Calls = " ++ (show satCalls)
-    liftIO $ putStrLn $ "timeInInterpolate = " ++ (show ((fromInteger $ round $ (intTime * 10)) / 10.0))
-    liftIO $ putStrLn $ "timeInEnodeA = " ++ (show ((fromInteger $ round $ (eA * 10)) / 10.0))
-    liftIO $ putStrLn $ "timeInEnodeB = " ++ (show ((fromInteger $ round $ (eB * 10)) / 10.0))
-    liftIO $ putStrLn "----------------"
+    satTime             <- liftIO $ timeInSAT
+    satCalls            <- liftIO $ totalSATCalls
+    (intTime, eA, eB)   <- liftIO $ timeInInterpolate
+
+    liftLog $ putStrLnDbg 1 "----------------"
+    liftLog $ putStrLnDbg 1 $ "timeInSAT = " ++ (show ((fromInteger $ round $ (satTime * 10)) / 10.0))
+    liftLog $ putStrLnDbg 1 $ "SAT Calls = " ++ (show satCalls)
+    liftLog $ putStrLnDbg 1 $ "timeInInterpolate = " ++ (show ((fromInteger $ round $ (intTime * 10)) / 10.0))
+    liftLog $ putStrLnDbg 1 $ "timeInEnodeA = " ++ (show ((fromInteger $ round $ (eA * 10)) / 10.0))
+    liftLog $ putStrLnDbg 1 $ "timeInEnodeB = " ++ (show ((fromInteger $ round $ (eB * 10)) / 10.0))
+    liftLog $ putStrLnDbg 1 "----------------"
 
     liftLog (logRank rnk)
 
     extraSatCalls <- if (isJust im && isJust r && rnk <= fromJust im)
     then do
         let init    = fromJust (gtMove (gtRoot (snd (fromJust r))))
-        cube        <- tryReducedInit spec rnk 0 [] init short
+        (cube, sc)  <- tryReducedInit spec rnk 0 [] init short 0
         let cube'   = map (sort . map (\a -> setAssignmentRankCopy a 0 0)) [cube]
 
 ---        liftIO $ putStrLn (printMove spec (Just cube))
@@ -68,35 +69,38 @@ checkRank spec rnk s def im short = do
             winningMay = alterAll (insertIntoSet cube') [1..rnk] (winningMay ls)
         }
 
-        return 0 --satCalls
+        return sc
     else return 0
 
     liftIO $ putStrLn "==================================================="
 
     return (satCalls + extraSatCalls, isNothing r)
 
-tryReducedInit _ _ _ cube [] _                  = return cube
-tryReducedInit spec rnk a cube (cur:rem) short  = do
+tryReducedInit _ _ _ cube [] _ sc                   = return (cube, sc)
+tryReducedInit spec rnk a cube (cur:rem) short sc   = do
     let s = cube ++ rem
 ---    initDefaultMoves spec rnk True s Nothing
 ---    initDefaultMoves spec rnk False s Nothing
     r <- solveAbstract Existential spec s (appendChild (gtNew Existential rnk)) short
-    satTime <- liftIO $ timeInSAT
-    satCalls <- liftIO $ totalSATCalls
-    (intTime, eA, eB) <- liftIO $ timeInInterpolate
----    liftIO $ putStrLn "----------------"
-    liftIO $ putStrLn "Expand Init"
-    liftIO $ putStrLn (printMove spec (Just cube))
-    liftIO $ putStrLn $ "timeInSAT = " ++ (show ((fromInteger $ round $ (satTime * 10)) / 10.0))
----    liftIO $ putStrLn $ "SAT Calls = " ++ (show satCalls)
-    liftIO $ putStrLn $ "timeInInterpolate = " ++ (show ((fromInteger $ round $ (intTime * 10)) / 10.0))
----    liftIO $ putStrLn $ "timeInEnodeA = " ++ (show ((fromInteger $ round $ (eA * 10)) / 10.0))
----    liftIO $ putStrLn $ "timeInEnodeB = " ++ (show ((fromInteger $ round $ (eB * 10)) / 10.0))
----    liftIO $ putStrLn "----------------"
+
+    satTime             <- liftIO $ timeInSAT
+    satCalls            <- liftIO $ totalSATCalls
+    (intTime, eA, eB)   <- liftIO $ timeInInterpolate
+
+    liftLog $ putStrLnDbg 2 "----------------"
+    liftLog $ putStrLnDbg 2 "Expand Init"
+    liftLog $ putStrLnDbg 2 (printMove spec (Just cube))
+    liftLog $ putStrLnDbg 2 $ "timeInSAT = " ++ (show ((fromInteger $ round $ (satTime * 10)) / 10.0))
+    liftLog $ putStrLnDbg 2 $ "SAT Calls = " ++ (show satCalls)
+    liftLog $ putStrLnDbg 2 $ "timeInInterpolate = " ++ (show ((fromInteger $ round $ (intTime * 10)) / 10.0))
+    liftLog $ putStrLnDbg 2 $ "timeInEnodeA = " ++ (show ((fromInteger $ round $ (eA * 10)) / 10.0))
+    liftLog $ putStrLnDbg 2 $ "timeInEnodeB = " ++ (show ((fromInteger $ round $ (eB * 10)) / 10.0))
+    liftLog $ putStrLnDbg 2 "----------------"
     liftLog (logRankAux rnk a)
+
     if isJust r
-        then tryReducedInit spec rnk (a+1) (cube ++ [cur]) rem short
-        else tryReducedInit spec rnk (a+1) cube rem short
+        then tryReducedInit spec rnk (a+1) (cube ++ [cur]) rem short (sc + satCalls)
+        else tryReducedInit spec rnk (a+1) cube rem short (sc + satCalls)
     
 
 initDefaultMoves :: CompiledSpec -> Int -> Bool -> [Assignment] -> Maybe ([[Assignment]], [[Assignment]]) -> SolverT ()
@@ -235,13 +239,9 @@ refinementLoop player spec s short (Just (wholeGt, cand)) origGT absGT = do
             refinementLoop player spec s short cand' origGT absGT'
         Nothing -> do
 ---            liftIO $ putStrLn ("Verified candidate for " ++ show player)
-            let badMoves = gtOpponentSelectedMoves (opponent player) cand wholeGt
----            liftIO $ putStrLn (show badMoves)
 
-            ls <- get
-            if player == Universal
-                then put $ ls { badMovesUn = Set.union (badMovesUn ls) (Set.fromList badMoves) }
-                else put $ ls { badMovesEx = Set.union (badMovesEx ls) (Set.fromList badMoves) }
+            -- Try to learn bad moves from the bad candidate
+            learnBadMoves spec player wholeGt
 
             return (Just (wholeGt, cand))
     
@@ -351,11 +351,8 @@ learnWinning spec player s gt@(gtUnsetNodes -> []) = do
     dbgOutNoLearning spec player s gt found
     return ()
 learnWinning spec player s (gtUnsetNodes -> gt:[]) = do
----    let mps = filter (\(x, y) -> isJust x && isJust y) $ gtAllMovePairs gt
----    fmls    <- mapM (\(x, y) -> checkMoveFml spec player x y) mps
----    solved  <- mapM (satSolve 0 Nothing) fmls
-
----    liftIO $ putStrLn (show (null (filter satisfiable solved)))
+    -- Try to learn bad moves from the suffix
+    learnBadMoves spec player gt
 
     -- Learn from the highest node under the fixed prefix
     core <- getLosingStates spec player gt
@@ -372,7 +369,7 @@ learnWinning spec player s (gtUnsetNodes -> gt:[]) = do
                     liftIO $ putStrLn "empty core"
                     return ()
         Nothing -> do
-            liftIO $ putStrLn $ "lost in prefix"
+---            liftIO $ putStrLn $ "lost in prefix"
             liftLog $ logLostInPrefix
             -- Can't find a core, so we must have lost in the prefix
             return ()
@@ -423,7 +420,6 @@ interpolateTree spec player s gt' = do
                 when (any (\cs -> not $ all (\a -> assignmentCopy a == assignmentCopy (head cs)) cs) cube') $ do
                     throwError "Not all cubes of the same copy"
                 
-                liftIO $ putStrLn "learnt a cube"
                 ls <- get
                 if player == Existential
                 then put $ ls {
@@ -573,3 +569,30 @@ shortenLeaf gt (fml, m) (e:es) = do
     else do
         return (fml, m)
 shortenLeaf _ (fml, m) [] = return (fml, m)
+
+learnBadMoves :: CompiledSpec -> Player -> GameTree -> SolverT ()
+learnBadMoves spec player gt = do
+    ls              <- get
+    let allMoves    = filter (\(x, y) -> isJust x && isJust y) $ gtAllMovePairs gt
+    let setTo0      = map (\a -> setAssignmentRankCopy a 1 0) . fromJust
+    let allMoves'   = map (\(x, y) -> (setTo0 x, setTo0 y)) allMoves
+    let unchecked   = Set.difference (Set.fromList allMoves') (checkedMoves ls)
+    let playerMove  = if player == Existential then fst else snd
+    let mps         = filter (\m -> not (Set.member (playerMove m) (badMovesUn ls))) $ Set.toList unchecked
+    fmls            <- mapM (uncurry (checkMoveFml spec player 1)) mps
+    solved          <- mapM (mapSndM (satSolve 0 Nothing . fromJust)) $ filter (isJust . snd) (zip mps fmls)
+
+    let badMoves    = map (playerMove . fst) $ filter (not . satisfiable . snd) solved
+
+    if player == Existential
+    then do
+        when (not (null badMoves)) $ do
+            liftIO $ putStrLn "Bad moves for Existential:"
+            liftIO $ mapM (putStrLn . (printMove spec) . Just) badMoves
+            return ()
+
+        put $ ls { badMovesUn   = Set.union (badMovesUn ls) (Set.fromList badMoves)
+                 , checkedMoves = Set.union (checkedMoves ls) unchecked }
+    else do
+        put $ ls { badMovesUn   = Set.union (badMovesUn ls) (Set.fromList badMoves)
+                 , checkedMoves = Set.union (checkedMoves ls) unchecked }

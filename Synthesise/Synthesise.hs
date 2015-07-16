@@ -56,7 +56,6 @@ unboundedLoop :: [Assignment] -> CompiledSpec -> Maybe ([[Assignment]], [[Assign
 unboundedLoop init spec def im satcalls short k = do
     liftIO $ putStrLn "-----"
     liftIO $ putStrLn $ "Unbounded Loop " ++ show k
-
     liftIO $ hPutStrLn stderr $ "Unbounded Loop " ++ show k
 
     ls <- get 
