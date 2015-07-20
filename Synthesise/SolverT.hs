@@ -32,8 +32,8 @@ data LearnedStates = LearnedStates {
     , defaultUnMoves    :: Map.Map Int [Assignment]
     , defaultExMoves    :: Map.Map Int [Assignment]
     , badMovesUn        :: Set.Set [Assignment]
-    , badMovesEx        :: Set.Set Move
-    , checkedMoves      :: Set.Set ([Assignment], [Assignment])
+    , badMovesEx        :: Set.Set (Int, [Assignment])
+    , checkedMoves      :: Set.Set (Int, [Assignment], [Assignment])
 }
 
 emptyLearnedStates t = LearnedStates {

@@ -40,8 +40,6 @@ makeFml spec player s ogt useBlocking unMustWin = do
 
     filledTree <- (fmap gtRoot) $ fillTree player (head (gtChildren (gtRoot gtExt)))
 
-    ls <- get
-    let badMoves = if player == Existential then badMovesUn ls else Set.empty
 
     -- Make a list of transitions, moves and blocking expressions to construct
     let cs      = gtSteps root
@@ -52,7 +50,12 @@ makeFml spec player s ogt useBlocking unMustWin = do
     let moves   = concatMap (getMoves rank player filledTree) (gtSteps filledTree)
     let cr      = gtCopiesAndRanks gt
     let crMoves = gtCRMoves (opponent player) filledTree
-    let bMoves  = concatMap (getBlockedMove crMoves) (Set.toList badMoves)
+
+    ls <- get
+    let bMoves = if player == Existential
+        then concatMap (getBlockedUnMove crMoves) (Set.toList (badMovesUn ls))
+        else concatMap (getBlockedExMove crMoves) (Set.toList (badMovesEx ls))
+
     block       <- if useBlocking
                     then getBlockedStates player cr
                     else return []
@@ -332,13 +335,21 @@ getUnWinningStates copyRanks = do
     where
         winAtRank block r c = map (CUnWinning r c) (map Set.toList (maybe [] Set.toList (Map.lookup r block)))
 
-getBlockedMove :: [(Int, Int, Move)] -> [Assignment] -> [Construct]
-getBlockedMove copyRanks move       = map makeCBlockMove crs
+getBlockedUnMove :: [(Int, Int, Move)] -> [Assignment] -> [Construct]
+getBlockedUnMove copyRanks move       = map makeCBlockMove crs
     where
-        makeCBlockMove (c, r, _)    = CBlockMove {   cbmRank     = r
-                                          , cbmCopy     = c
-                                          , cbmMove     = move }
+        makeCBlockMove (c, r, _)    = CBlockMove { cbmRank     = r
+                                                 , cbmCopy     = c
+                                                 , cbmMove     = move }
         crs                         = filter (isNothing . thd3) copyRanks
+
+getBlockedExMove :: [(Int, Int, Move)] -> (Int, [Assignment]) -> [Construct]
+getBlockedExMove copyRanks (rank, move) = map makeCBlockMove crs
+    where
+        makeCBlockMove (c, r, _)        = CBlockMove { cbmRank     = r
+                                                     , cbmCopy     = c
+                                                     , cbmMove     = move }
+        crs                             = filter ((==) rank . snd3) $ filter (isNothing . thd3) copyRanks
 
 makeBlockedMove CBlockMove{..} = do
     let ms = map (\a -> setAssignmentRankCopy a cbmRank cbmCopy) cbmMove
@@ -352,7 +363,6 @@ blockExpression CBlocked{..} = do
     case cached of
         (Just b)    -> return (Just b)
         Nothing     -> do
----            liftIO $ putStrLn "make Blocking expression"
             b <- liftE $ blockAssignment cbCopy as
             liftE $ cacheMove cbCopy (BlockedState, as) b
             return (Just b)
@@ -375,8 +385,6 @@ makeTransition spec first CTransition{..} = do
         step <- liftE $ getCached ctRank ctParentCopy ctCopy1 ctCopy2 (exprIndex (t !! i))
 
         when (not (isJust step)) $ do
----            liftIO $ putStrLn "make new step"
----            liftIO $ putStrLn (show (ctRank, ctParentCopy, ctCopy1, ctCopy2))
             step <- if ctCopy1 == 0 && ctCopy2 == 0 && ctParentCopy == 0
                 then return (t !! i)
                 else do
@@ -426,7 +434,6 @@ makeMove spec player CMove{..} = do
     case cached of
         (Just m)    -> return (Just m)
         Nothing     -> do
----            liftIO $ putStrLn "makeMove"
             move <- if isHatMove
                 then liftE $ makeHatMove cmCopy (vh !! i) cmAssignment
                 else liftE $ assignmentToExpression cmCopy cmAssignment

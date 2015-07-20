@@ -776,10 +776,10 @@ gtOpponentSelectedMoves' p candGt wholeGt = node ++ concat (zipWith (gtOpponentS
                       then [(state, gtMove wholeGt)]
                       else []
         
-gtAllMovePairs :: GameTree -> [(Move, Move)]
-gtAllMovePairs gt = concatMap (gtAllMovePairs' . followGTCrumb) (gtChildren (gtRoot gt))
+gtAllMovePairs :: GameTree -> [(Int, Move, Move)]
+gtAllMovePairs gt = concatMap (gtAllMovePairs' (gtBaseRank gt) . followGTCrumb) (gtChildren (gtRoot gt))
 
-gtAllMovePairs' :: SNode -> [(Move, Move)]
-gtAllMovePairs' n = case (children n) of
-    []  -> [(snodeMove n, Nothing)]
-    cs  -> concatMap (\c -> (snodeMove n, snodeMove c) : concatMap gtAllMovePairs' (children c)) cs
+gtAllMovePairs' :: Int -> SNode -> [(Int, Move, Move)]
+gtAllMovePairs' r n = case (children n) of
+    []  -> [(r, snodeMove n, Nothing)]
+    cs  -> concatMap (\c -> (r, snodeMove n, snodeMove c) : concatMap (gtAllMovePairs' (r-1)) (children c)) cs

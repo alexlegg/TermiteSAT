@@ -24,6 +24,7 @@ module Utils.Utils (
     , paddedZip
     , fst3 , snd3 , thd3
     , fst4 , snd4 , thd4, fth4
+    , uncurry3
     , unzipM
     , maybeM
     , zipWith3M
@@ -158,6 +159,9 @@ thd4 (a, b, c, d) = c
 
 fth4 :: (a, b, c, d) -> d
 fth4 (a, b, c, d) = d
+
+uncurry3 :: (a -> b -> c -> d) -> (a, b, c) -> d
+uncurry3 f (a, b, c) = f a b c
 
 unzipM :: Monad m => m [(a, b)] -> m ([a], [b])
 unzipM = liftM unzip
