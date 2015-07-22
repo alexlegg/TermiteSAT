@@ -355,6 +355,7 @@ makeBlockedMove CBlockMove{..} = do
     let ms = map (\a -> setAssignmentRankCopy a cbmRank cbmCopy) cbmMove
     move    <- liftE $ assignmentToExpression cbmCopy ms
     moven   <- liftE $ negationC cbmCopy move
+    movenp  <- liftE $ printExpression moven
     return (Just moven)
 
 blockExpression CBlocked{..} = do

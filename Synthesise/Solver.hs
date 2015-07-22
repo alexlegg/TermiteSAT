@@ -350,7 +350,7 @@ learnWinning spec player s gt@(gtUnsetNodes -> []) = do
     found <- interpolateTree spec player [s] (gtExtend gt)
     dbgOutNoLearning spec player s gt found
     return ()
-learnWinning spec player s (gtUnsetNodes -> gt:[]) = do
+learnWinning spec player s ogt@(gtUnsetNodes -> gt:[]) = do
     -- Try to learn bad moves from the suffix
     learnBadMoves spec player gt
 
@@ -367,6 +367,12 @@ learnWinning spec player s (gtUnsetNodes -> gt:[]) = do
                     return ()
                 else do
                     liftIO $ putStrLn "empty core"
+                    liftIO $ putStrLn (show player)
+                    liftIO $ putStrLn (printTree spec gt)
+                    liftIO $ putStrLn (printTree spec ogt)
+                    ls <- get
+                    liftIO $ mapM (putStrLn . show . mapSnd (printMove spec . Just)) (Set.toList (badMovesEx ls))
+
                     return ()
         Nothing -> do
 ---            liftIO $ putStrLn $ "lost in prefix"

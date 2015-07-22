@@ -329,7 +329,7 @@ gtCopiesAndRanks gt = nub $ concatMap (\(c, r) -> [(c, r') | r' <- [1..r]]) $ nu
 gtCopiesAndRanks' gt = (gtCopyId gt, gtRank gt) : concatMap gtCopiesAndRanks' (gtChildren gt)
 
 gtCRMoves :: Player -> GameTree -> [(Int, Int, Move)]
-gtCRMoves p gt = gtCRMoves' p (gtRoot gt)
+gtCRMoves p gt = concatMap (gtCRMoves' p) (gtChildren (gtRoot gt))
 
 gtCRMoves' p gt = n ++ concatMap (gtCRMoves' p) (gtChildren gt)
     where
@@ -683,7 +683,7 @@ printMove spec (Just as) = interMap ", " (printVar spec) vs
         g (Assignment _ x) (Assignment _ y) = compare (varname x) (varname y)
 
 printVar :: CompiledSpec -> [Assignment] -> String
-printVar spec as = vname ++ {- show vrank ++ -} {- "_" ++ show vcopy ++ -} " = " ++ valsToEnums vi vals
+printVar spec as = vname ++ show vrank ++ {- "_" ++ show vcopy ++ -} " = " ++ valsToEnums vi vals
     where
         vname       = let (Assignment _ v) = (head as) in varname v
         vrank       = let (Assignment _ v) = (head as) in rank v
