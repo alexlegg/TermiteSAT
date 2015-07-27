@@ -79,6 +79,7 @@ executable TermiteSAT
                         , stdc++
                         , gmpxx
                         , gmp
+  ld-options:           -static -pthread
 
 executable TermiteSAT-prof
   if flag(profiling)

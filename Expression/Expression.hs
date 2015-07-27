@@ -20,6 +20,7 @@ module Expression.Expression (
     , getCachedMove
     , exprIndex
     , exprType
+    , exprChildren
     , flipSign
     , emptyManager
     , lookupVar
@@ -647,7 +648,6 @@ liftConjuncts Expression { expr = ENot (Var Neg i) }    = [Var Pos i]
 liftConjuncts Expression { eindex = i }                 = [Var Pos i]
 
 conjunct' c f []                = f c EFalse
-conjunct' c f ((Var Pos 2):_)   = throwError "blah"
 conjunct' c f ((Var Pos i):[])  = (fmap fromJust) $ lookupExpression c i
 conjunct' c f ((Var Neg i):[])  = do
     e <- (fmap fromJust) $ lookupExpression c i

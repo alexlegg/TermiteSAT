@@ -49,13 +49,8 @@ makeFml spec player s ogt useBlocking unMustWin = do
     let goals   = getGoals rank maxCopy player
     let moves   = concatMap (getMoves rank player filledTree) (gtSteps filledTree)
     let cr      = gtCopiesAndRanks gt
-    let crMoves = gtCRMoves (opponent player) filledTree
 
-    ls <- get
-    let bMoves = if player == Existential
-        then concatMap (getBlockedUnMove crMoves) (Set.toList (badMovesUn ls))
-        else concatMap (getBlockedExMove crMoves) (Set.toList (badMovesEx ls))
-
+    bMoves      <- getBlockedMoves player filledTree
     block       <- if useBlocking
                     then getBlockedStates player cr
                     else return []
@@ -334,6 +329,21 @@ getUnWinningStates copyRanks = do
     return $ concatMap (\(c, r) -> winAtRank winningMay r c) copyRanks
     where
         winAtRank block r c = map (CUnWinning r c) (map Set.toList (maybe [] Set.toList (Map.lookup r block)))
+
+getBlockedMoves :: Player -> GameTree -> SolverT [Construct]
+getBlockedMoves player gt = do
+    ls <- get
+    let moveMap = if player == Existential
+        then defaultUnMoves ls
+        else defaultExMoves ls
+
+    if Map.null moveMap
+        then return []
+        else do
+            let crMoves = gtCRMoves (opponent player) gt
+            if player == Existential
+                then return $ concatMap (getBlockedUnMove crMoves) (Set.toList (badMovesUn ls))
+                else return $ concatMap (getBlockedExMove crMoves) (Set.toList (badMovesEx ls))
 
 getBlockedUnMove :: [(Int, Int, Move)] -> [Assignment] -> [Construct]
 getBlockedUnMove copyRanks move       = map makeCBlockMove crs

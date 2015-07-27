@@ -47,13 +47,14 @@ parser fn f = do
 
     let sVars           = lVars ++ oVars
     let (cVars, uVars)  = partition ((==) ContVar . section) iVars
-
+    
     let varIds  =   map inputId inputs
                 ++  map latchId latches
                 ++  map outputId outputs
 
     let vMap    = zip varIds (map makeVarAST (iVars ++ lVars))
-    let gates'  = makeGates vMap gates
+    let gates'' = preprocess gates
+    let gates'  = makeGates vMap gates''
     let ts      = map (makeLatch gates') latches
     let o       = makeOutput gates' (head outputs)
 
@@ -177,3 +178,13 @@ isSpace ' '     = True
 isSpace '\t'    = True
 isSpace _       = False
 
+preprocess gates = map replaceAll gates
+    where
+        rMap                    = catMaybes (map findSingleGates gates)
+        gateInd (Gate i _ _)    = i
+        replaceAll (Gate i x y) = Gate i (replace x) (replace y)
+        replace x               = case (lookup x rMap) of
+                                    Just x' -> x'
+                                    Nothing -> x
+
+findSingleGates (Gate i x y) = if x == y then Just (i, x) else Nothing

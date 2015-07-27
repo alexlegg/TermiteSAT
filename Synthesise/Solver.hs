@@ -578,22 +578,23 @@ shortenLeaf _ (fml, m) [] = return (fml, m)
 
 learnBadMoves :: CompiledSpec -> Player -> GameTree -> SolverT ()
 learnBadMoves spec player gt = do
-    ls              <- get
-    let allMoves    = filter (\(r, x, y) -> isJust x && isJust y) $ gtAllMovePairs gt
-    let setTo0      = map (\a -> setAssignmentRankCopy a 1 0) . fromJust
-    let allMoves'   = map (\(r, x, y) -> (r, setTo0 x, setTo0 y)) allMoves
-    let unchecked   = Set.difference (Set.fromList allMoves') (checkedMoves ls)
-    let playerMove  = if player == Existential then snd3 else thd3
-    let mps         = filter (\m -> not (Set.member (playerMove m) (badMovesUn ls))) $ Set.toList unchecked
-    fmls            <- mapM (uncurry3 (checkMoveFml spec player)) mps
-    solved          <- mapM (mapSndM (satSolve 0 Nothing . fromJust)) $ filter (isJust . snd) (zip mps fmls)
+    return ()
+---    ls              <- get
+---    let allMoves    = filter (\(r, x, y) -> isJust x && isJust y) $ gtAllMovePairs gt
+---    let setTo0      = map (\a -> setAssignmentRankCopy a 1 0) . fromJust
+---    let allMoves'   = map (\(r, x, y) -> (r, setTo0 x, setTo0 y)) allMoves
+---    let unchecked   = Set.difference (Set.fromList allMoves') (checkedMoves ls)
+---    let playerMove  = if player == Existential then snd3 else thd3
+---    let mps         = filter (\m -> not (Set.member (playerMove m) (badMovesUn ls))) $ Set.toList unchecked
+---    fmls            <- mapM (uncurry3 (checkMoveFml spec player)) mps
+---    solved          <- mapM (mapSndM (satSolve 0 Nothing . fromJust)) $ filter (isJust . snd) (zip mps fmls)
 
-    let badMoves    = map ((\x -> (fst3 x, playerMove x)) . fst) $ filter (not . satisfiable . snd) solved
+---    let badMoves    = map ((\x -> (fst3 x, playerMove x)) . fst) $ filter (not . satisfiable . snd) solved
 
-    if player == Existential
-    then do
-        put $ ls { badMovesEx   = Set.union (badMovesEx ls) (Set.fromList badMoves)
-                 , checkedMoves = Set.union (checkedMoves ls) unchecked }
-    else do
-        put $ ls { badMovesUn   = Set.union (badMovesUn ls) (Set.fromList (map snd badMoves))
-                 , checkedMoves = Set.union (checkedMoves ls) unchecked }
+---    if player == Existential
+---    then do
+---        put $ ls { badMovesEx   = Set.union (badMovesEx ls) (Set.fromList badMoves)
+---                 , checkedMoves = Set.union (checkedMoves ls) unchecked }
+---    else do
+---        put $ ls { badMovesUn   = Set.union (badMovesUn ls) (Set.fromList (map snd badMoves))
+---                 , checkedMoves = Set.union (checkedMoves ls) unchecked }

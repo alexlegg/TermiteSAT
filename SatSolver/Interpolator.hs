@@ -9,7 +9,7 @@ import Foreign
 import Foreign.C.Types
 import Control.Monad.State
 import qualified Data.Vector.Storable as SV
-import Expression.Expression
+import Expression.Expression hiding (exprChildren)
 import SatSolver.Enode
 import Synthesise.SolverT
 import System.TimeIt
