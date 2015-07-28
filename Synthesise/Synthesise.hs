@@ -168,15 +168,13 @@ enumValidity vi@(VarInfo {enum = Just es}) = do
 loadFmls k spec = do
     let ParsedSpec{..} = spec
 
-    t' <- mapM compile trans
----    tp <- mapM printExpression t'
----    liftIO $ mapM putStrLn tp
----    lift $ left $ "stop"
-    t <- conjunct t'
-    g' <- compile goal
-    cg <- setRank 0 g'
-    ug <- negation cg
-    u <- mapM compile ucont
+    when (null trans) $ lift $ left "Empty transition relation"
+    t'  <- mapM compile trans
+    t   <- conjunct t'
+    g'  <- compile goal
+    cg  <- setRank 0 g'
+    ug  <- negation cg
+    u   <- mapM compile ucont
 
     let svars = concatMap compileVar stateVars
     let uvars = concatMap compileVar ucontVars

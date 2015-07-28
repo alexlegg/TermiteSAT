@@ -163,35 +163,3 @@ exprToEnode ctx i (EDisjunct _) cs  = do
     SV.unsafeWith (SV.fromList lits) (c_mkDisjunct ctx (fromIntegral (length lits)))
 exprToEnode ctx i (ETrue) _         = c_mkTrue ctx
 exprToEnode ctx i (EFalse) _        = c_mkFalse ctx
-
-
-exprToEnodeExpr :: Int -> Expr -> [(Sign, EnodeExpr)] -> IO EnodeExpr
-exprToEnodeExpr i (ELit _) []       = return $ EnodeExpr EnodeVar (Just i) []
-exprToEnodeExpr i (ENot _) cs       = return $ EnodeExpr EnodeNot Nothing (expandNots cs)
-exprToEnodeExpr i (EConjunct _) cs  = return $ EnodeExpr EnodeAnd Nothing (expandNots cs)
-exprToEnodeExpr i (EDisjunct _) cs  = return $ EnodeExpr EnodeOr Nothing (expandNots cs)
-exprToEnodeExpr i (ETrue) _         = return $ EnodeExpr EnodeTrue Nothing []
-exprToEnodeExpr i (EFalse) _        = return $ EnodeExpr EnodeFalse Nothing []
-
-expandNots []               = []
-expandNots ((Pos, x):xs)    = x : expandNots xs
-expandNots ((Neg, x):xs)    = EnodeExpr EnodeNot Nothing [x] : expandNots xs
-    
-enodeExprToExpr :: MonadIO m => Int -> EnodeExpr -> ExpressionT m Expression
-enodeExprToExpr mc e = do
-    case (exprEType e) of
-        EnodeInvalid    -> error "Invalid enode"
-        EnodeVar        -> do
-            let (Just i) = exprVarId e
-            Just e <- lookupExpression mc i
-            return e
-        EnodeAnd        -> do
-            cs <- mapM (enodeExprToExpr mc) (exprChildren e)
-            conjunctC mc cs
-        EnodeOr         -> do
-            cs <- mapM (enodeExprToExpr mc) (exprChildren e)
-            disjunctC mc cs
-        EnodeNot        -> do
-            c <- enodeExprToExpr mc (head (exprChildren e))
-            negationC mc c
-    

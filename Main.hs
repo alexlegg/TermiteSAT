@@ -113,7 +113,6 @@ getConfig = do
 
 run config f = do
     spec <- hoistEither $ parse (tslFile config) f
-    liftIO $ putStrLn (show (length (trans spec)))
     case (bound config) of
         Nothing -> unboundedSynthesis spec (defaultMoves config) (initMin config) (shortening config)
         Just k  -> do
