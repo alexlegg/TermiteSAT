@@ -15,6 +15,7 @@ import Expression.AST
 import qualified Expression.HAST as HAST
 import Text.Parsec hiding (space, spaces)
 import Utils.Utils
+import Debug.Trace
 
 data AIG = AIG [Input] [Latch] [Output] [Gate]
     deriving (Show, Eq)
@@ -54,8 +55,8 @@ parser fn f = do
 
     let vMap    = zip varIds (map makeVarAST (iVars ++ lVars))
     let gates'' = preprocess gates
-    let gates'  = makeGates vMap gates''
-    let ts      = map (makeLatch gates') latches
+    let gates'  = (trace (concatMap (\g -> show g ++ "\n") gates)) $ makeGates vMap gates''
+    let ts      = (trace (concatMap (\g -> show g ++ "\n") gates'')) $ map (makeLatch gates') latches
     let o       = makeOutput gates' (head outputs)
 
     let spec = ParsedSpec {
@@ -178,13 +179,17 @@ isSpace ' '     = True
 isSpace '\t'    = True
 isSpace _       = False
 
-preprocess gates = map replaceAll gates
+preprocess gates = trace (show rMap) $ map replaceAll gates
     where
         rMap                    = catMaybes (map findSingleGates gates)
         gateInd (Gate i _ _)    = i
         replaceAll (Gate i x y) = Gate i (replace x) (replace y)
-        replace x               = case (lookup x rMap) of
-                                    Just x' -> x'
+        fixSign x x'            
+            | odd x && odd x'   = x' - 1
+            | odd x && even x'  = x' + 1
+            | even x            = x'
+        replace x               = case (lookup (varId x) rMap) of
+                                    Just x' -> fixSign x x'
                                     Nothing -> x
 
 findSingleGates (Gate i x y) = if x == y then Just (i, x) else Nothing
