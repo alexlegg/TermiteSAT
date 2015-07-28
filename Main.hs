@@ -66,7 +66,6 @@ addOption (StratShortening s) c     = maybe c (\x -> c {shortening = toEnum (rea
 main = do
     putStrLn "------------------------------------"
     putStrLn "TermiteSAT  v0.1"
-    clearLogDir
     timeIt $ mainTimed
 
 mainTimed = do
@@ -87,6 +86,7 @@ mainTimed = do
             when (isJust (strategyFile config)) $ 
                 putStrLn ("Strategy    " ++ fromJust (strategyFile config))
 
+            clearLogDir (debugMode config)
             f <- readFile (tslFile config)
             let log = runEitherT (run config f)
             printLog (debugMode config) log

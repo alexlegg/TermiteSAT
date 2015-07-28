@@ -36,7 +36,7 @@ import Utils.Utils
 
 checkRank :: CompiledSpec -> Int -> [Assignment] -> Maybe ([[Assignment]], [[Assignment]]) -> Maybe Int -> Shortening -> SolverT (Int, Bool)
 checkRank spec rnk s def im short = do
----    initDefaultMoves spec rnk True s def 
+    initDefaultMoves spec rnk True s def 
 ---    initDefaultMoves spec rnk False s def
 ---    initDefaultMoves spec rnk False s def
 ---    initDefaultMoves spec rnk False s def

@@ -53,7 +53,7 @@ instance Show SynthTrace where
 data TraceCrumb = VerifyCrumb Int Int | RefineCrumb Int
     deriving (Show, Eq)
 
-data DebugMode = NoDebug | FinalLogOnly | LogEachRank | DumpLogs deriving (Show, Eq, Enum)
+data DebugMode = NoDebug | FinalLogOnly | DumpLogs | LogEachRank deriving (Show, Eq, Enum)
 
 data Log = Log {
       trace     :: Maybe SynthTrace
@@ -75,11 +75,12 @@ emptyLog dm = Log {
 
 type LoggerT m = StateT Log m
 
-clearLogDir :: IO ()
-clearLogDir = do
-    ls          <- getDirectoryContents "debug/"
-    let delete  = filter (not . (`elem` [".", "..", "debug.css", "debug.html"])) ls
-    mapM_ (removeFile . ("debug/" ++)) delete
+clearLogDir :: Int -> IO ()
+clearLogDir dm = do
+    when ((toEnum dm) /= NoDebug) $ do
+        ls          <- getDirectoryContents "debug/"
+        let delete  = filter (not . (`elem` [".", "..", "debug.css", "debug.html", "debug.js"])) ls
+        mapM_ (removeFile . ("debug/" ++)) delete
 
 printLog :: Int -> LoggerT IO a -> IO (a)
 printLog dm logger = do
