@@ -15,6 +15,7 @@ import Expression.AST
 import qualified Expression.HAST as HAST
 import Text.Parsec hiding (space, spaces)
 import Utils.Utils
+import Debug.Trace
 
 data AIG = AIG [Input] [Latch] [Output] [Gate]
     deriving (Show, Eq)
@@ -53,7 +54,7 @@ parser fn f = do
                 ++  map outputId outputs
 
     let vMap    = zip varIds (map makeVarAST (iVars ++ lVars))
-    let gates'' = preprocess gates
+    let gates'' = gates -- preprocess gates
     let gates'  = makeGates vMap gates''
     let ts      = map (makeLatch gates') latches
     let o       = makeOutput gates' (head outputs)
@@ -75,9 +76,11 @@ inputVarType (Just nm)
     | startswith "controllable_" nm = UContVar
     | otherwise                     = ContVar
 
-makeInputVar (Input i n)    = makeVar (fromMaybe ("i" ++ show i) n) (inputVarType n) 1
-makeLatchVar (Latch i _ n)  = makeVar (fromMaybe ("l" ++ show i) n) StateVar 1
-makeOutputVar (Output i n)  = makeVar (fromMaybe ("o" ++ show i) n) StateVar 1
+makeInputVar (Input i n)    = makeVar (varName "_i" i n) (inputVarType n) 1
+makeLatchVar (Latch i _ n)  = makeVar (varName "_l" i n) StateVar 1
+makeOutputVar (Output i n)  = makeVar (varName "_o" i n) StateVar 1
+
+varName pre i nm = fromMaybe "" nm ++ pre ++ show i
 
 makeVar nm sect r = VarInfo {
       name      = fromMaybe nm (stripPrefix "controllable_" nm)
@@ -119,12 +122,12 @@ lookupDone done i = lookup (varId i) done
 
 makeLatch done (Latch i x nm) = HAST.XNor var (setSign x x')
     where
-        var     = makeVarAST $ makeVar (fromMaybe ("l" ++ show i) nm) StateVar 0
+        var     = makeVarAST $ makeVar (varName "_l" i nm) StateVar 0
         Just x' = lookupDone done x
 
 makeOutput done (Output i nm) = HAST.XNor var (setSign i x')
     where
-        var     = makeVarAST $ makeVar (fromMaybe ("o" ++ show i) nm) StateVar 0
+        var     = makeVarAST $ makeVar (varName "_o" i nm) StateVar 0
         Just x' = lookupDone done i
 
 -- AIG Parsing
@@ -195,4 +198,7 @@ findSingleGates (Gate i x y) = if x == y then Just (i, x) else Nothing
 
 printHAST HAST.T = "T"
 printHAST HAST.F = "F"
-printHAST (HAST.And a b) = "(" ++ printHAST a ++ " && " ++ printHAST b ++ ")"
+printHAST (HAST.And a b)    = "(" ++ printHAST a ++ " && " ++ printHAST b ++ ")"
+printHAST (HAST.Not x)      = "not(" ++ printHAST x ++ ")"
+printHAST (HAST.XNor a b)   = printHAST a ++ " := " ++ printHAST b
+printHAST (HAST.Var (HAST.FVar x))  = (name x)
