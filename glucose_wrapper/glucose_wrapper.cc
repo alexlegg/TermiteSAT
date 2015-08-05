@@ -116,20 +116,20 @@ extern "C" {
         cubes.push_back(reduce(s, &(s->assumps)));
 
 
-        for (int i = 0; i != cubes[0].size(); ++i)
-        {
-            vec<Lit> attempt;
-            for (int j = 0; j != s->assumps.size(); ++j)
-            {
-                if (cubes[0][i] == s->assumps[j]) continue;
-                attempt.push(s->assumps[j]);
-            }
+///        for (int i = 0; i != cubes[0].size(); ++i)
+///        {
+///            vec<Lit> attempt;
+///            for (int j = 0; j != s->assumps.size(); ++j)
+///            {
+///                if (cubes[0][i] == s->assumps[j]) continue;
+///                attempt.push(s->assumps[j]);
+///            }
 
-            if (!s->solve(attempt))
-            {
-                cubes.push_back(reduce(s, &attempt));
-            }
-        }
+///            if (!s->solve(attempt))
+///            {
+///                cubes.push_back(reduce(s, &attempt));
+///            }
+///        }
 
         int **cubes_arr = (int **)malloc(sizeof(int*) * (1 + cubes.size()));
         for (int i = 0; i != cubes.size(); ++i)

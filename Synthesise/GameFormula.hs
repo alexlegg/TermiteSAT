@@ -27,8 +27,8 @@ import Utils.Logger
 import Utils.Utils
 import qualified Data.Vector.Storable as SV
 
-makeFml :: CompiledSpec -> Player -> [Assignment] -> GameTree -> Bool -> Bool -> SolverT ([[Expression]], Expression, GameTree)
-makeFml spec player s ogt useBlocking unMustWin = do
+makeFml :: CompiledSpec -> Player -> [Assignment] -> GameTree -> Bool -> SolverT ([[Expression]], Expression, GameTree)
+makeFml spec player s ogt unMustWin = do
     let gt      = normaliseCopies ogt
     let maxCopy = gtMaxCopy gt
     let root    = gtRoot gt
@@ -51,9 +51,7 @@ makeFml spec player s ogt useBlocking unMustWin = do
     let cr      = gtCopiesAndRanks gt
 
     bMoves      <- getBlockedMoves player filledTree
-    block       <- if useBlocking
-                    then getBlockedStates player cr
-                    else return []
+    block       <- getBlockedStates player cr
     unWinning   <- if unMustWin
                     then getUnWinningStates cr
                     else return []
@@ -125,7 +123,7 @@ makeSplitFmls spec player s gt = do
     exprs       <- mapM (mapSndM (construct spec player (gtFirstPlayer gt))) sorted
     let exprsA  = catMaybes $ map snd (filter fst exprs)
     let exprsB  = catMaybes $ map snd (filter (not . fst) exprs)
-    
+
     -- Construct init expression
     initMove    <- liftE $ moveToExpression maxCopy (gtMove root)
     ss          <- liftE $ mapM (assignmentToExpression 0) s
@@ -146,6 +144,8 @@ makeSplitFmls spec player s gt = do
     let goalB'  = goalFor player spec (nRank - 1)
     cg          <- liftE $ getCached nRank pCopy pCopy pCopy (exprIndex goalB)
     cg'         <- liftE $ getCached (nRank - 1) copy2 copy2 copy2 (exprIndex goalB')
+    bCons       <- getBlockedStates player [(pCopy, nRank), (copy2, nRank-1)]
+    block       <- mapM blockExpression bCons
 
     when (isNothing stepB) $ throwError $ "Transition was not created in advance for fmlB"
     when (isNothing cg) $ throwError $ "Goal was not created in advance: " ++ show (nRank, nCopy)
@@ -155,8 +155,8 @@ makeSplitFmls spec player s gt = do
     -- Otherwise the only requirement is that there exists a valid
     -- transition that keeps us inside winningMay
     fmlB'       <- case nRank of
-                    1   -> liftE $ conjunctTemp maxCopy (fromJust stepB : fromJust cg' : exprsB)
-                    _   -> liftE $ conjunctTemp maxCopy (fromJust stepB : exprsB)
+                    1   -> liftE $ conjunctTemp maxCopy (fromJust stepB : fromJust cg' : exprsB ++ block)
+                    _   -> liftE $ conjunctTemp maxCopy (fromJust stepB : exprsB ++ block)
     fmlB        <- case player of
                     Existential -> liftE $ disjunctTemp maxCopy [fromJust cg, fmlB']
                     Universal   -> liftE $ conjunctTemp maxCopy [fromJust cg, fmlB']
@@ -239,7 +239,7 @@ sortIndex CBlockMove{..}    = cbmCopy
 construct :: CompiledSpec -> Player -> Player -> Construct -> SolverT (Maybe Expression)
 construct s p f t@CTransition{} = makeTransition s f t
 construct s p f m@CMove{}       = makeMove s p m
-construct s p f b@CBlocked{}    = blockExpression b
+construct s p f b@CBlocked{}    = makeBlockExpression b
 construct s p f g@CGoal{}       = makeGoal s p g
 construct s p f u@CUnWinning{}  = makeUnWinning u
 construct s p f bm@CBlockMove{} = makeBlockedMove bm
@@ -308,7 +308,6 @@ makeGoal spec player CGoal{..} = do
     let g   = goalFor player spec cgRank
     cached  <- liftE $ getCached cgRank cgCopy cgCopy cgCopy (exprIndex g)
     when (isNothing cached) $ do
----        liftIO $ putStrLn "make goal"
         cg      <- liftE $ setCopy (Map.singleton (StateVar, cgRank) cgCopy) g
         liftE $ cacheStep cgRank cgCopy cgCopy cgCopy (exprIndex g) cg
     return Nothing
@@ -368,15 +367,21 @@ makeBlockedMove CBlockMove{..} = do
     movenp  <- liftE $ printExpression moven
     return (Just moven)
 
-blockExpression CBlocked{..} = do
+makeBlockExpression CBlocked{..} = do
     let as = map (\a -> setAssignmentRankCopy a cbRank cbCopy) cbAssignment
     cached <- liftE $ getCachedMove cbCopy (BlockedState, as)
     case cached of
-        (Just b)    -> return (Just b)
+        (Just b)    -> return Nothing
         Nothing     -> do
             b <- liftE $ blockAssignment cbCopy as
             liftE $ cacheMove cbCopy (BlockedState, as) b
-            return (Just b)
+            return Nothing
+
+blockExpression CBlocked{..} = do
+    let as = map (\a -> setAssignmentRankCopy a cbRank cbCopy) cbAssignment
+    cached <- liftE $ getCachedMove cbCopy (BlockedState, as)
+    when (isNothing cached) $ throwError $ "Blocked expression not cached " ++ (show (cbCopy, cbRank))
+    return $ fromJust cached
 
 makeUnWinning CUnWinning{..} = do
     let as = map (\a -> setAssignmentRankCopy a cuRank cuCopy) cuAssignment
@@ -479,6 +484,10 @@ singleStep spec rank maxCopy player parentCopy copy1 copy2 next unMustWin = do
     cg          <- liftE $ getCached i copy2 copy2 copy2 (exprIndex goal)
     when (isNothing cg) $ throwError $ "Goal was not created in advance: " ++ show (i, copy2)
 
+    let bCRs    = (copy2, rank) : if (isNothing next && i /= 0) then [(copy2, rank-1)] else []
+    bCons       <- getBlockedStates player bCRs
+    block       <- mapM blockExpression bCons
+
     unWins <- if unMustWin 
         then do
             ws          <- getUnWinningStates [(copy2, rank)]
@@ -491,26 +500,19 @@ singleStep spec rank maxCopy player parentCopy copy1 copy2 next unMustWin = do
         else return Nothing
 
     let g = if unMustWin then unWins else cg
-    joinNext maxCopy player unMustWin (fromJust g) (fromJust step) next
----    case next of
----        Nothing -> return $ fromJust step
----        Just n  -> do
----            goal <- if player == Existential
----                then liftE $ disjunctTemp maxCopy [n, fromJust cg]
----                else liftE $ conjunctTemp maxCopy [n, fromJust cg]
+    joinNext maxCopy player unMustWin (fromJust g) (fromJust step) next block
 
----            liftE $ conjunctTemp maxCopy [fromJust step, goal]
-
-joinNext maxCopy player unMustWin goal step next
-    | isNothing next                        = return step
+joinNext maxCopy player unMustWin goal step next block
+    | isNothing next                        = do
+        liftE $ conjunctTemp maxCopy (step : block)
     | player == Existential                 = do
         g <- liftE $ disjunctTemp maxCopy [fromJust next, goal]
-        liftE $ conjunctTemp maxCopy [step, g]
+        liftE $ conjunctTemp maxCopy ([step, g] ++ block)
     | player == Universal && not unMustWin  = do
-        liftE $ conjunctTemp maxCopy [step, goal, fromJust next]
+        liftE $ conjunctTemp maxCopy ([step, goal, fromJust next] ++ block)
     | player == Universal && unMustWin      = do
         g <- liftE $ disjunctTemp maxCopy [fromJust next, goal]
-        liftE $ conjunctTemp maxCopy [step, g]
+        liftE $ conjunctTemp maxCopy ([step, g] ++ block)
 
 moveToExpression mc Nothing    = return Nothing
 moveToExpression mc (Just a)   = do
