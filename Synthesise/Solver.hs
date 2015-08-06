@@ -29,18 +29,16 @@ import Synthesise.SolverT
 import Synthesise.GameTree
 import Synthesise.Strategy
 import Synthesise.GameFormula
+import Synthesise.Config
 import SatSolver.SatSolver
 import SatSolver.Interpolator
 import Utils.Logger
 import Utils.Utils
 
-checkRank :: CompiledSpec -> Int -> [Assignment] -> Maybe ([[Assignment]], [[Assignment]]) -> Maybe Int -> Shortening -> SolverT (Int, Bool)
-checkRank spec rnk s def im short = do
-    initDefaultMoves spec rnk True s def 
----    initDefaultMoves spec rnk False s def
----    initDefaultMoves spec rnk False s def
----    initDefaultMoves spec rnk False s def
-    r <- solveAbstract Universal spec s (gtNew Existential rnk) short
+checkRank :: CompiledSpec -> Int -> [Assignment] -> Maybe ([[Assignment]], [[Assignment]]) -> Config -> SolverT (Int, Bool)
+checkRank spec rnk s def config = do
+    initDefaultMoves spec config rnk s def
+    r <- solveAbstract Universal spec config s (gtNew Existential rnk) (shortening config)
 
     satTime             <- liftIO $ timeInSAT
     satCalls            <- liftIO $ totalSATCalls
@@ -56,10 +54,10 @@ checkRank spec rnk s def im short = do
 
     liftLog (logRank rnk)
 
-    extraSatCalls <- if (isJust im && isJust r && rnk <= fromJust im)
+    extraSatCalls <- if (isJust (initMin config) && isJust r && rnk <= fromJust (initMin config))
     then do
         let init    = fromJust (gtMove (gtRoot (snd (fromJust r))))
-        (cube, sc)  <- tryReducedInit spec rnk 0 [] init short 0
+        (cube, sc)  <- tryReducedInit spec rnk 0 [] init config 0
         let cube'   = map (sort . map (\a -> setAssignmentRankCopy a 0 0)) [cube]
 
 ---        liftIO $ putStrLn (printMove spec (Just cube))
@@ -77,11 +75,10 @@ checkRank spec rnk s def im short = do
     return (satCalls + extraSatCalls, isNothing r)
 
 tryReducedInit _ _ _ cube [] _ sc                   = return (cube, sc)
-tryReducedInit spec rnk a cube (cur:rem) short sc   = do
+tryReducedInit spec rnk a cube (cur:rem) config sc   = do
     let s = cube ++ rem
-    initDefaultMoves spec rnk True s Nothing
----    initDefaultMoves spec rnk False s Nothing
-    r <- solveAbstract Existential spec s (appendChild (gtNew Existential rnk)) short
+---    initDefaultMoves spec config rnk s Nothing
+    r <- solveAbstract Existential spec config s (appendChild (gtNew Existential rnk)) (shortening config)
 
     satTime             <- liftIO $ timeInSAT
     satCalls            <- liftIO $ totalSATCalls
@@ -99,14 +96,11 @@ tryReducedInit spec rnk a cube (cur:rem) short sc   = do
     liftLog (logRankAux rnk a)
 
     if isJust r
-        then tryReducedInit spec rnk (a+1) (cube ++ [cur]) rem short (sc + satCalls)
-        else tryReducedInit spec rnk (a+1) cube rem short (sc + satCalls)
+        then tryReducedInit spec rnk (a+1) (cube ++ [cur]) rem config (sc + satCalls)
+        else tryReducedInit spec rnk (a+1) cube rem config (sc + satCalls)
     
-
-initDefaultMoves :: CompiledSpec -> Int -> Bool -> [Assignment] -> Maybe ([[Assignment]], [[Assignment]]) -> SolverT ()
-initDefaultMoves spec rank wipe s (Just (uMoves, eMoves)) = do
----    liftIO $ mapM (putStrLn . (printMove spec) . Just) (take rank uMoves)
----    liftIO $ mapM (putStrLn . (printMove spec) . Just) (take rank eMoves)
+initDefaultMoves :: CompiledSpec -> Config -> Int -> [Assignment] -> Maybe ([[Assignment]], [[Assignment]]) -> SolverT ()
+initDefaultMoves spec config rank s (Just (uMoves, eMoves)) = do
     let defaultUn = zipWith (\r m -> (r, map (\a -> setAssignmentRankCopy a r 0) m)) [1..rank] uMoves
     let defaultEx = zipWith (\r m -> (r, map (\a -> setAssignmentRankCopy a r 0) m)) [1..rank] eMoves
     ls <- get
@@ -114,7 +108,14 @@ initDefaultMoves spec rank wipe s (Just (uMoves, eMoves)) = do
              , defaultExMoves   = Map.fromList defaultEx
              }
     return ()
-initDefaultMoves spec rank wipe s Nothing = do
+initDefaultMoves spec config rank s Nothing = do
+    case (moveLearning config) of
+        MLDefaultMoves n -> do
+            initDefaultMoves' spec rank True s 
+            replicateM_ (n-1) (initDefaultMoves' spec rank False s)
+        _ -> return ()
+
+initDefaultMoves' spec rank wipe s = do
     let gt = gtExtend (gtNew Existential rank)
 
     --Wipe moves from last loop
@@ -131,12 +132,9 @@ initDefaultMoves spec rank wipe s Nothing = do
         then do
             moves   <- mapM (getVarsAtRank ContVar (fromJust (model rE)) 0) [1..rank]
             gtTest  <- setMoves Existential spec (fromJust (model rE)) (gtRoot gt)
----            liftIO $ putStrLn "Existential"
----            liftIO $ putStrLn (printTree spec gtTest)
             return $ Map.fromList (zip [1..rank] moves)
         else do
             -- No way to win at this rank against opp default moves
----            liftIO $ putStrLn "Ex no way to win"
             if Map.null (defaultExMoves ls)
             then do
                 let someExMove = map (\v -> Assignment Pos v) (cont spec)
@@ -154,21 +152,15 @@ initDefaultMoves spec rank wipe s Nothing = do
         then do
             moves   <- mapM (getVarsAtRank UContVar (fromJust (model rU)) 0) [1..rank]
             gtTest  <- setMoves Universal spec (fromJust (model rU)) (gtRoot gt)
----            liftIO $ putStrLn "Universal"
----            liftIO $ putStrLn (printTree spec gtTest)
             return $ Map.fromList (zip [1..rank] moves)
         else do
             -- No way to win at this rank against opp default moves
----            liftIO $ putStrLn "Un no way to win"
             if Map.null (defaultUnMoves ls)
             then do
                 let someUnMove  = map (\v -> Assignment Pos v) (ucont spec)
                 return $ foldl (\m r -> Map.insert r someUnMove m) Map.empty [1..rank]
             else do
                 return $ defaultUnMoves ls
-
----    liftIO $ mapM (putStrLn . (printMove spec) . Just) defaultEx
----    liftIO $ mapM (putStrLn . (printMove spec) . Just) defaultUn
 
     ls <- get
     put $ ls { defaultUnMoves   = defaultUn }
@@ -195,11 +187,11 @@ checkUniversalWin spec k = do
 
     return $ any (not . satisfiable) rs
 
-checkStrategy :: CompiledSpec -> Int -> [Assignment] -> String -> Tree [[Assignment]] -> SolverT Bool
-checkStrategy spec rnk s player strat = do
+checkStrategy :: CompiledSpec -> Config -> Int -> [Assignment] -> String -> Tree [[Assignment]] -> SolverT Bool
+checkStrategy spec config rnk s player strat = do
     let p       = if player == "universal" then Universal else Existential
     let gt      = buildStratGameTree p (gtNew Existential rnk) strat
-    r           <- solveAbstract Universal spec s gt ShortenNone
+    r           <- solveAbstract Universal spec config s gt ShortenNone
     liftIO $ putStrLn "Playing Strategy from file:"
     liftIO $ putStrLn (printTree spec gt)
     return (isNothing r)
@@ -209,45 +201,45 @@ buildStratGameTree player gt strat = gtParent $ gtParent $ foldl (buildStratGame
         append  = if player == Existential then gtAppendMove else gtAppendMoveU
         gt'     = append gt (Just (concat (rootLabel strat)))
 
-solveAbstract :: Player -> CompiledSpec -> [Assignment] -> GameTree -> Shortening -> SolverT (Maybe (GameTree, GameTree))
-solveAbstract player spec s gt short = do
+solveAbstract :: Player -> CompiledSpec -> Config -> [Assignment] -> GameTree -> Shortening -> SolverT (Maybe (GameTree, GameTree))
+solveAbstract player spec config s gt short = do
 ---    liftIO $ putStrLn ("Solve abstract for " ++ show player)
 ---    pLearn <- printLearnedStates spec player
     liftLog $ logSolve gt player []
 
-    cand <- findCandidate player spec s short gt
+    cand <- findCandidate player spec config s short gt
 
-    res <- refinementLoop player spec s short cand gt gt
+    res <- refinementLoop player spec config s short cand gt gt
 
     liftLog $ logSolveComplete (fmap snd res)
     liftLog $ logDumpLog
 
     return res
 
-refinementLoop :: Player -> CompiledSpec -> [Assignment] -> Shortening -> Maybe (GameTree, GameTree) -> GameTree -> GameTree -> SolverT (Maybe (GameTree, GameTree))
-refinementLoop player spec s short Nothing origGT absGt = do
+refinementLoop :: Player -> CompiledSpec -> Config -> [Assignment] -> Shortening -> Maybe (GameTree, GameTree) -> GameTree -> GameTree -> SolverT (Maybe (GameTree, GameTree))
+refinementLoop player spec config s short Nothing origGT absGt = do
 ---    liftIO $ putStrLn ("Could not find a candidate for " ++ show player)
     return Nothing
-refinementLoop player spec s short (Just (wholeGt, cand)) origGT absGT = do
-    v <- verify player spec s short origGT cand
+refinementLoop player spec config s short (Just (wholeGt, cand)) origGT absGT = do
+    v <- verify player spec config s short origGT cand
     case v of
         (Just cex) -> do
 ---            liftIO $ putStrLn ("Counterexample found against " ++ show player)
             absGT' <- refine absGT cex
             liftLog $ logRefine
-            cand' <- solveAbstract player spec s absGT' short
-            refinementLoop player spec s short cand' origGT absGT'
+            cand' <- solveAbstract player spec config s absGT' short
+            refinementLoop player spec config s short cand' origGT absGT'
         Nothing -> do
 ---            liftIO $ putStrLn ("Verified candidate for " ++ show player)
 
             -- Try to learn bad moves from the bad candidate
-            learnBadMoves spec player wholeGt
+            learnBadMoves spec config player wholeGt
 
             return (Just (wholeGt, cand))
     
 
-findCandidate :: Player -> CompiledSpec -> [Assignment] -> Shortening -> GameTree -> SolverT (Maybe (GameTree, GameTree))
-findCandidate player spec s short gt = do
+findCandidate :: Player -> CompiledSpec -> Config -> [Assignment] -> Shortening -> GameTree -> SolverT (Maybe (GameTree, GameTree))
+findCandidate player spec config s short gt = do
     (es, f, gt')    <- makeFml spec player s gt False
     res             <- satSolve (gtMaxCopy gt') Nothing f
 
@@ -274,7 +266,7 @@ findCandidate player spec s short gt = do
         ls <- get
         if (learningType ls == BoundedLearning)
             then mapM_ (learnStates spec player) (gtUnsetNodes gt)
-            else learnWinning spec player s gt
+            else learnWinning spec config player s gt
 
         liftLog $ logCandidate Nothing
         return Nothing
@@ -344,15 +336,15 @@ dbgOutNoLearning spec player s gt found = do
     return ()
 
 
-learnWinning :: CompiledSpec -> Player -> [Assignment] -> GameTree -> SolverT ()
-learnWinning spec player s gt@(gtUnsetNodes -> []) = do
+learnWinning :: CompiledSpec -> Config -> Player -> [Assignment] -> GameTree -> SolverT ()
+learnWinning spec config player s gt@(gtUnsetNodes -> []) = do
     -- Learn from the root of the tree
     found <- interpolateTree spec player [s] (gtExtend gt)
     dbgOutNoLearning spec player s gt found
     return ()
-learnWinning spec player s ogt@(gtUnsetNodes -> gt:[]) = do
+learnWinning spec config player s ogt@(gtUnsetNodes -> gt:[]) = do
     -- Try to learn bad moves from the suffix
-    learnBadMoves spec player gt
+    learnBadMoves spec config player gt
 
     -- Learn from the highest node under the fixed prefix
     core <- getLosingStates spec player gt
@@ -379,7 +371,7 @@ learnWinning spec player s ogt@(gtUnsetNodes -> gt:[]) = do
             liftLog $ logLostInPrefix
             -- Can't find a core, so we must have lost in the prefix
             return ()
-learnWinning spec player s gt = do
+learnWinning spec config player s gt = do
     liftIO $ putStrLn (printTree spec gt)
     throwError "Found more than one unset node in learnWinning"
 
@@ -464,20 +456,20 @@ printLearnedStates spec player = do
     else do
         return $ map (printMove spec . Just) (map Set.toList (Set.toList winningMust))
 
-verify :: Player -> CompiledSpec -> [Assignment] -> Shortening -> GameTree -> GameTree -> SolverT (Maybe GameTree)
-verify player spec s short gt cand = do
+verify :: Player -> CompiledSpec -> Config -> [Assignment] -> Shortening -> GameTree -> GameTree -> SolverT (Maybe GameTree)
+verify player spec config s short gt cand = do
     let og = projectMoves gt cand
     when (not (isJust og)) $ throwError $ "Error projecting, moves didn't match\n" ++ show player ++ printTree spec gt ++ printTree spec cand
     let leaves = map appendChild $ filter (not . gtAtBottom) (map makePathTree (gtLeaves (fromJust og)))
     let leaves' = if opponent player == Universal
         then filter (not . gtLostInPrefix . gtRoot) leaves
         else leaves
-    mapMUntilJust (verifyLoop (opponent player) spec s short) (zip [0..] leaves')
+    mapMUntilJust (verifyLoop (opponent player) spec config s short) (zip [0..] leaves')
 
-verifyLoop :: Player -> CompiledSpec -> [Assignment] -> Shortening -> (Int, GameTree) -> SolverT (Maybe GameTree)
-verifyLoop player spec s short (i, gt) = do
+verifyLoop :: Player -> CompiledSpec -> Config -> [Assignment] -> Shortening -> (Int, GameTree) -> SolverT (Maybe GameTree)
+verifyLoop player spec config s short (i, gt) = do
     liftLog $ logVerify i
-    r <- solveAbstract player spec s gt short
+    r <- solveAbstract player spec config s gt short
     return (fmap snd r)
 
 refine gt cex = return $ appendNextMove gt cex
@@ -579,25 +571,27 @@ shortenLeaf gt (fml, m) (e:es) = do
         return (fml, m)
 shortenLeaf _ (fml, m) [] = return (fml, m)
 
-learnBadMoves :: CompiledSpec -> Player -> GameTree -> SolverT ()
-learnBadMoves spec player gt = do
-    return ()
----    ls              <- get
----    let allMoves    = filter (\(r, x, y) -> isJust x && isJust y) $ gtAllMovePairs gt
----    let setTo0      = map (\a -> setAssignmentRankCopy a 1 0) . fromJust
----    let allMoves'   = map (\(r, x, y) -> (r, setTo0 x, setTo0 y)) allMoves
----    let unchecked   = Set.difference (Set.fromList allMoves') (checkedMoves ls)
----    let playerMove  = if player == Existential then snd3 else thd3
----    let mps         = filter (\m -> not (Set.member (playerMove m) (badMovesUn ls))) $ Set.toList unchecked
----    fmls            <- mapM (uncurry3 (checkMoveFml spec player)) mps
----    solved          <- mapM (mapSndM (satSolve 0 Nothing . fromJust)) $ filter (isJust . snd) (zip mps fmls)
+learnBadMoves :: CompiledSpec -> Config -> Player -> GameTree -> SolverT ()
+learnBadMoves spec config player gt = do
+    if (moveLearning config == MLBadMoves)
+    then do
+        ls              <- get
+        let allMoves    = filter (\(r, x, y) -> isJust x && isJust y) $ gtAllMovePairs gt
+        let setTo0      = map (\a -> setAssignmentRankCopy a 1 0) . fromJust
+        let allMoves'   = map (\(r, x, y) -> (r, setTo0 x, setTo0 y)) allMoves
+        let unchecked   = Set.difference (Set.fromList allMoves') (checkedMoves ls)
+        let playerMove  = if player == Existential then snd3 else thd3
+        let mps         = filter (\m -> not (Set.member (playerMove m) (badMovesUn ls))) $ Set.toList unchecked
+        fmls            <- mapM (uncurry3 (checkMoveFml spec player)) mps
+        solved          <- mapM (mapSndM (satSolve 0 Nothing . fromJust)) $ filter (isJust . snd) (zip mps fmls)
 
----    let badMoves    = map ((\x -> (fst3 x, playerMove x)) . fst) $ filter (not . satisfiable . snd) solved
+        let badMoves    = map ((\x -> (fst3 x, playerMove x)) . fst) $ filter (not . satisfiable . snd) solved
 
----    if player == Existential
----    then do
----        put $ ls { badMovesEx   = Set.union (badMovesEx ls) (Set.fromList badMoves)
----                 , checkedMoves = Set.union (checkedMoves ls) unchecked }
----    else do
----        put $ ls { badMovesUn   = Set.union (badMovesUn ls) (Set.fromList (map snd badMoves))
----                 , checkedMoves = Set.union (checkedMoves ls) unchecked }
+        if player == Existential
+        then do
+            put $ ls { badMovesEx   = Set.union (badMovesEx ls) (Set.fromList badMoves)
+                     , checkedMoves = Set.union (checkedMoves ls) unchecked }
+        else do
+            put $ ls { badMovesUn   = Set.union (badMovesUn ls) (Set.fromList (map snd badMoves))
+                     , checkedMoves = Set.union (checkedMoves ls) unchecked }
+    else return ()

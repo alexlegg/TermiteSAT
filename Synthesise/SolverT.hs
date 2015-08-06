@@ -2,7 +2,6 @@ module Synthesise.SolverT (
       SolverT(..)
     , LearnedStates(..)
     , LearningType(..)
-    , Shortening(..)
     , emptyLearnedStates
     , throwError
     , liftLog
@@ -16,9 +15,6 @@ import qualified Data.Set as Set
 import Expression.Expression
 import Synthesise.GameTree (Move)
 import Utils.Logger
-
-data Shortening = ShortenNone | ShortenExistential | ShortenUniversal | ShortenBoth
-    deriving (Show, Eq, Enum)
 
 type SolverST m = StateT LearnedStates m
 type SolverT = SolverST (ExpressionT (LoggerT IO))

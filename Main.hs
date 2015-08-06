@@ -18,30 +18,25 @@ import Synthesise.Synthesise
 
 import SatSolver.Interpolator
 import Synthesise.SolverT
+import Synthesise.Config
 
 data Option = InputFile String
             | Bound String
             | DebugMode (Maybe String)
             | Strategy FilePath
-            | DefaultMoves FilePath
+            | DefaultMoves String
+            | DefaultMovesIt String
+            | BadMoves
             | InitMinimisation String
             | StratShortening (Maybe String)
 
-data Config = Config { tslFile      :: String
-                     , bound        :: Maybe Int
-                     , debugMode    :: Int
-                     , strategyFile :: Maybe FilePath
-                     , defaultMoves :: Maybe FilePath
-                     , initMin      :: Maybe Int
-                     , shortening   :: Shortening
-                     } deriving (Show, Eq)
 
 defaultConfig = Config {
       tslFile       = ""
     , bound         = Nothing
     , debugMode     = 1
     , strategyFile  = Nothing
-    , defaultMoves  = Nothing
+    , moveLearning  = MLDefaultMoves 2
     , initMin       = Nothing
     , shortening    = ShortenExistential
     }
@@ -51,6 +46,8 @@ options =
     , Option ['d']  ["debug"]   (OptArg DebugMode "D")          "Debug mode. 0 = None, 1 = Output at end, 2 = Dump throughout, 3 = Dump after each loop"
     , Option ['s']  ["strat"]   (ReqArg Strategy "FILE")        "Strategy file"
     , Option ['m']  ["moves"]   (ReqArg DefaultMoves "FILE")    "Default moves files"
+    , Option ['e']  ["default"] (ReqArg DefaultMovesIt "E")     "Default moves iterations"
+    , Option ['b']  ["badmoves"] (NoArg BadMoves)               "Learn bad moves"
     , Option ['i']  ["initmin"] (ReqArg InitMinimisation "I")   "Minimise init cube"
     , Option ['h']  ["shorten"] (OptArg StratShortening "S")    "Strategy Shortening. 0 = None, 1 = Existential, 2 = Universal, 3 = Both"
     ]
@@ -59,7 +56,9 @@ addOption (InputFile fn) c          = c {tslFile = fn}
 addOption (Bound k) c               = c {bound = Just (read k)}
 addOption (DebugMode d) c           = maybe c (\x -> c {debugMode = read x}) d
 addOption (Strategy s) c            = c {strategyFile = Just s}
-addOption (DefaultMoves m) c        = c {defaultMoves = Just m}
+addOption (DefaultMoves m) c        = c {moveLearning = MLFixedMoves m}
+addOption (DefaultMovesIt i) c      = c {moveLearning = MLDefaultMoves (read i)}
+addOption (BadMoves) c              = c {moveLearning = MLBadMoves}
 addOption (InitMinimisation i)  c   = c {initMin = Just (read i)}
 addOption (StratShortening s) c     = maybe c (\x -> c {shortening = toEnum (read x)}) s
 
@@ -114,13 +113,13 @@ getConfig = do
 run config f = do
     spec <- hoistEither $ parse (tslFile config) f
     case (bound config) of
-        Nothing -> unboundedSynthesis spec (defaultMoves config) (initMin config) (shortening config)
+        Nothing -> unboundedSynthesis spec config
         Just k  -> do
             if isJust (strategyFile config)
             then do
-                playStrategy k spec (fromJust (strategyFile config))
+                playStrategy k spec config (fromJust (strategyFile config))
             else do
-                synthesise k spec (defaultMoves config)
+                synthesise k spec config
 
 parse fn | endswith ".tsl" fn     = parser fn
          | endswith ".aag" fn     = AIG.parser fn

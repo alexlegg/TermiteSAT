@@ -28,32 +28,33 @@ import Expression.Expression
 import Synthesise.Solver
 import Synthesise.SolverT
 import Synthesise.GameTree
+import Synthesise.Config
 import Expression.AST
 import SatSolver.Interpolator
 
-synthesise :: Int -> ParsedSpec -> Maybe FilePath -> EitherT String (LoggerT IO) (Maybe Int)
+synthesise :: Int -> ParsedSpec -> Config -> EitherT String (LoggerT IO) (Maybe Int)
 synthesise k spec def = do
     evalStateT (synthesise' k spec def BoundedLearning) emptyManager
 
-unboundedSynthesis :: ParsedSpec -> Maybe FilePath -> Maybe Int -> Shortening -> EitherT String (LoggerT IO) (Maybe Int)
-unboundedSynthesis spec def im short = do
-    evalStateT (unbounded spec def im short) emptyManager
+unboundedSynthesis :: ParsedSpec -> Config -> EitherT String (LoggerT IO) (Maybe Int)
+unboundedSynthesis spec config = do
+    evalStateT (unbounded spec config) emptyManager
 
-unbounded spec def im short = do
+unbounded spec config = do
     (init, cspec) <- loadFmls 1 spec
-    defMoves <- case def of
-        Nothing -> return Nothing
-        Just fn -> do
+    defMoves <- case (moveLearning config) of
+        MLFixedMoves fn -> do
             (uMoves, eMoves) <- readMovesFile fn
             uVars <- mapM (mapM (mapFstM lookupVarName)) uMoves
             let uAss = map (concat . (map (\(var, val) -> makeAssignmentValue var val))) uVars
             eVars <- mapM (mapM (mapFstM lookupVarName)) eMoves
             let eAss = map (concat . (map (\(var, val) -> makeAssignmentValue var val))) eVars
             return $ Just (uAss, eAss)
-    evalStateT (unboundedLoop init cspec defMoves im 0 short 1) (emptyLearnedStates UnboundedLearning)
+        _ -> return Nothing
+    evalStateT (unboundedLoop init cspec defMoves config 0 1) (emptyLearnedStates UnboundedLearning)
 
-unboundedLoop :: [Assignment] -> CompiledSpec -> Maybe ([[Assignment]], [[Assignment]]) -> Maybe Int -> Int -> Shortening -> Int -> SolverT (Maybe Int)
-unboundedLoop init spec def im satcalls short k = do
+unboundedLoop :: [Assignment] -> CompiledSpec -> Maybe ([[Assignment]], [[Assignment]]) -> Config -> Int -> Int -> SolverT (Maybe Int)
+unboundedLoop init spec def config satcalls k = do
     liftIO $ putStrLn "-----"
     liftIO $ putStrLn $ "Unbounded Loop " ++ show k
     liftIO $ hPutStrLn stderr $ "Unbounded Loop " ++ show k
@@ -83,7 +84,7 @@ unboundedLoop init spec def im satcalls short k = do
         then finishedLoop spec Nothing satcalls
         else do
             t1      <- liftIO $ getCPUTime
-            (sc, r) <- checkRank spec k init def im short
+            (sc, r) <- checkRank spec k init def config
             t2      <- liftIO $ getCPUTime
             let t   = fromIntegral (t2-t1) * 1e-12 :: Double
 
@@ -94,7 +95,7 @@ unboundedLoop init spec def im satcalls short k = do
             else do
                 spec' <- liftE $ unrollSpec spec
                 let init' = map (\a -> setAssignmentRankCopy a (k+1) 0) init
-                unboundedLoop init' spec' def im (satcalls + sc) short (k+1)
+                unboundedLoop init' spec' def config (satcalls + sc) (k+1)
 
 finishedLoop :: CompiledSpec -> Maybe Int -> Int -> SolverT (Maybe Int)
 finishedLoop spec r satcalls = do
@@ -117,31 +118,31 @@ finishedLoop spec r satcalls = do
 
     return r
 
-synthesise' k spec def learning = do
+synthesise' k spec config learning = do
     (init, cspec) <- loadFmls k spec
-    defMoves <- case def of
-        Nothing -> return Nothing
-        Just fn -> do
+    defMoves <- case (moveLearning config) of
+        MLFixedMoves fn -> do
             (uMoves, eMoves) <- readMovesFile fn
             uVars <- mapM (mapM (mapFstM lookupVarName)) uMoves
             let uAss = map (concat . (map (\(var, val) -> makeAssignmentValue var val))) uVars
             eVars <- mapM (mapM (mapFstM lookupVarName)) eMoves
             let eAss = map (concat . (map (\(var, val) -> makeAssignmentValue var val))) eVars
             return $ Just (uAss, eAss)
-    (sc, r) <- evalStateT (checkRank cspec k init defMoves Nothing ShortenNone) (emptyLearnedStates learning)
+        _ -> return Nothing
+    (sc, r) <- evalStateT (checkRank cspec k init defMoves config) (emptyLearnedStates learning)
     return $ if r then (Just k) else Nothing
 
-playStrategy :: Int -> ParsedSpec -> FilePath -> EitherT String (LoggerT IO) (Maybe Int)
-playStrategy k spec sFile = evalStateT (playStrategy' k spec sFile) emptyManager
+playStrategy :: Int -> ParsedSpec -> Config -> FilePath -> EitherT String (LoggerT IO) (Maybe Int)
+playStrategy k spec config sFile = evalStateT (playStrategy' k spec config sFile) emptyManager
 
-playStrategy' k spec sFile = do
+playStrategy' k spec config sFile = do
     (player, strat) <- readStrategyFile k sFile
     (init, cspec)   <- loadFmls k spec
     vars            <- mapM (mapFstM (mapM (mapFstM lookupVarName))) strat
     let varTree     = unfoldTree makeStrategy vars
     let assTree     = fmap (\(vs, r) -> map (\(var, val) -> makeAssignmentValue (map (setVarRank (r+1)) var) val) vs) varTree
 
-    r <- evalStateT (checkStrategy cspec k init player assTree) (emptyLearnedStates BoundedLearning)
+    r <- evalStateT (checkStrategy cspec config k init player assTree) (emptyLearnedStates BoundedLearning)
     return $ if r then (Just k) else Nothing
 
 makeStrategy :: [(a, Int)] -> ((a, Int), [[(a, Int)]])
