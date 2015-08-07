@@ -563,8 +563,12 @@ fillTree player gt = do
 
 checkMoveFml :: CompiledSpec -> Player -> Int -> [Assignment] -> [Assignment] -> SolverT (Maybe Expression)
 checkMoveFml spec player rank move1 move2 = do
+    liftE $ clearTempExpressions
+    liftE $ initCopyMaps 0
+
     let m1      = map (\a -> setAssignmentRankCopy a 1 0) move1
     let m2      = map (\a -> setAssignmentRankCopy a 1 0) move2
+
     m1e         <- liftE $ assignmentToExpression 0 m1
     m2e         <- liftE $ assignmentToExpression 0 m2
 
@@ -581,18 +585,21 @@ checkMoveFml spec player rank move1 move2 = do
             let lose0   = fmap (map Set.toList . Set.toList) (Map.lookup (rank-1) (winningMay ls))
             return (lose1, lose0)
 
+
     case losingStates of
         (Just lose1', Just lose0')  -> do
             let lose1   = map (map (\a -> setAssignmentRankCopy a 1 0)) lose1'
             let lose0   = map (map (\a -> setAssignmentRankCopy a 0 0)) lose0'
 
             lose1e      <- liftE $ mapM (assignmentToExpression 0) lose1
+            lose1eD     <- liftE $ if (null lose1e) then falseExpr else disjunctTemp 0 lose1e
             lose0e      <- liftE $ mapM (assignmentToExpression 0) lose0
+            lose0eD     <- liftE $ if (null lose0e) then falseExpr else disjunctTemp 0 lose0e
 
-            notLosing1  <- liftE $ negation =<< (disjunct lose1e)
-            notLosing0  <- liftE $ negation =<< (disjunct lose0e)
+            notLosing1  <- liftE $ negationTemp 0 lose1eD
+            notLosing0  <- liftE $ negationTemp 0 lose0eD
 
-            e <- liftE $ conjunct [fromJust step, m1e, m2e, notLosing0, notLosing1]
+            e <- liftE $ conjunctTemp 0 [fromJust step, m1e, m2e, notLosing0, notLosing1]
 
             return $ Just e
 
