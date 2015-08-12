@@ -81,6 +81,7 @@ mainTimed = do
                 2 -> "Continuous log dumping"
                 3 -> "Log each rank (unbounded)"
             putStrLn $ "Shortening  " ++ show (shortening config)
+            putStrLn $ "Move Learning " ++ show (moveLearning config)
 
             when (isJust (strategyFile config)) $ 
                 putStrLn ("Strategy    " ++ fromJust (strategyFile config))

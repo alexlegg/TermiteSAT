@@ -132,7 +132,11 @@ makeSplitFmls spec player s gt = do
     -- Join transitions into steps and finally fml
     fmlA' <- case gtStepChildren (gtRoot t1) of
         []  -> do
-            liftE $ trueExpr
+            bCons   <- getBlockedStates player [(pCopy, nRank)]
+            block   <- mapM blockExpression bCons
+            if null block
+                then liftE trueExpr
+                else liftE $ conjunctTemp maxCopy block
         scs -> do
             steps <- mapM (makeSteps maxCopy (gtRank (gtRoot t1)) spec player (Just (nRank, pCopy)) False (gtRoot t1)) scs
             liftE $ conjunctTemp maxCopy (map snd steps)
@@ -144,7 +148,7 @@ makeSplitFmls spec player s gt = do
     let goalB'  = goalFor player spec (nRank - 1)
     cg          <- liftE $ getCached nRank pCopy pCopy pCopy (exprIndex goalB)
     cg'         <- liftE $ getCached (nRank - 1) copy2 copy2 copy2 (exprIndex goalB')
-    bCons       <- getBlockedStates player [(pCopy, nRank), (copy2, nRank-1)]
+    bCons       <- getBlockedStates player [(copy2, nRank-1)]
     block       <- mapM blockExpression bCons
 
     when (isNothing stepB) $ throwError $ "Transition was not created in advance for fmlB"
@@ -269,6 +273,7 @@ getConstructsFor spec maxCopy gt player stopAt = do
     let block   = case stopAt of
                 Just (stopRank, stopCopy)   -> filter (\b -> not (cbRank b <= stopRank && cbCopy b == stopCopy)) block'
                 Nothing                     -> block'
+
     return $ trans ++ goals ++ moves ++ block
 
 getMoves :: Int -> Player -> GameTree -> (Move, Move, Maybe GameTree) -> [Construct]
