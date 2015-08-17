@@ -87,7 +87,7 @@ import Foreign.C.Types
 type ExpressionT m = StateT ExprManager (EitherT String m)
 
 throwError :: MonadIO m => String -> ExpressionT m a
-throwError = lift . left
+throwError s = lift (left ("ERROR: " ++ s))
 
 type CopyId = Int
 type ExprId = Int

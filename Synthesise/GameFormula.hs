@@ -76,7 +76,7 @@ makeFml spec player s ogt unMustWin = do
 
     let goal    = goalFor player spec rank
     cg          <- liftE $ getCached rank 0 0 0 (exprIndex goal)
-    when (isNothing cg) $ throwError "Max rank goal not created in advance"
+    when (isNothing cg) $ throwError "makeFml: Max rank goal not created in advance"
 
     fml' <- if player == Existential
         then do
@@ -126,7 +126,7 @@ makeSplitFmls spec player s gt = do
 
     -- Construct init expression
     initMove    <- liftE $ moveToExpression maxCopy (gtMove root)
-    ss          <- liftE $ mapM (assignmentToExpression 0) s
+    ss          <- liftE $ mapM (assignmentToExpression maxCopy) s
     let s'      = ss ++ catMaybes [initMove]
 
     -- Join transitions into steps and finally fml
@@ -151,9 +151,9 @@ makeSplitFmls spec player s gt = do
     bCons       <- getBlockedStates player [(copy2, nRank-1)]
     block       <- mapM blockExpression bCons
 
-    when (isNothing stepB) $ throwError $ "Transition was not created in advance for fmlB"
-    when (isNothing cg) $ throwError $ "Goal was not created in advance: " ++ show (nRank, nCopy)
-    when (isNothing cg') $ throwError $ "Goal was not created in advance: " ++ show (nRank-1, nCopy)
+    when (isNothing stepB) $ throwError $ "makeSplitFmls: Transition was not created in advance for fmlB"
+    when (isNothing cg) $ throwError $ "makeSplitFmls: Goal was not created in advance: " ++ show (nRank, nCopy)
+    when (isNothing cg') $ throwError $ "makeSplitFmls: Goal was not created in advance: " ++ show (nRank-1, nCopy)
 
     -- If gtB is the final step then we must end up in the goal
     -- Otherwise the only requirement is that there exists a valid
@@ -385,7 +385,7 @@ makeBlockExpression CBlocked{..} = do
 blockExpression CBlocked{..} = do
     let as = map (\a -> setAssignmentRankCopy a cbRank cbCopy) cbAssignment
     cached <- liftE $ getCachedMove cbCopy (BlockedState, as)
-    when (isNothing cached) $ throwError $ "Blocked expression not cached " ++ (show (cbCopy, cbRank))
+    when (isNothing cached) $ throwError $ "blockExpression: Blocked expression not cached " ++ (show (cbCopy, cbRank))
     return $ fromJust cached
 
 makeUnWinning CUnWinning{..} = do
@@ -483,11 +483,11 @@ singleStep spec rank maxCopy player parentCopy copy1 copy2 next unMustWin = do
     let CompiledSpec{..}    = spec
 
     step <- liftE $ getCached rank parentCopy copy1 copy2 (exprIndex (t !! i))
-    when (isNothing step) $ throwError $ "Transition was not created in advance: " ++ show (rank, parentCopy, copy1, copy2)
+    when (isNothing step) $ throwError $ "singlestep: Transition was not created in advance: " ++ show (rank, parentCopy, copy1, copy2)
 
     let goal    = goalFor player spec i
     cg          <- liftE $ getCached i copy2 copy2 copy2 (exprIndex goal)
-    when (isNothing cg) $ throwError $ "Goal was not created in advance: " ++ show (i, copy2)
+    when (isNothing cg) $ throwError $ "singlestep: Goal was not created in advance: " ++ show (i, copy2)
 
     let bCRs    = (copy2, rank) : if (isNothing next && i /= 0) then [(copy2, rank-1)] else []
     bCons       <- getBlockedStates player bCRs
@@ -498,7 +498,7 @@ singleStep spec rank maxCopy player parentCopy copy1 copy2 next unMustWin = do
             ws          <- getUnWinningStates [(copy2, rank)]
             let as      = map (map (\a -> setAssignmentRankCopy a rank copy2) . cuAssignment) ws
             ws'         <- liftE $ mapM (\as -> getCachedMove copy2 (UnWinState, as)) as
-            when (any isNothing ws') $ throwError "Universal winning state not created in advance"
+            when (any isNothing ws') $ throwError "singlestep: Universal winning state not created in advance"
             d           <- liftE $ disjunctTemp maxCopy (catMaybes ws')
             f           <- liftE $ falseExpr
             if (null ws) then return (Just f) else return (Just d)
@@ -536,7 +536,7 @@ leafTo spec copy maxCopy player rank rankTo = do
     then do
         let g   = goalFor player spec rankTo
         cg      <- liftE $ getCached rank copy copy copy (exprIndex g)
-        when (isNothing cg) $ throwError $ "Goal was not created in advance: " ++ show (rank, copy)
+        when (isNothing cg) $ throwError $ "leafTo: Goal was not created in advance: " ++ show (rank, copy)
         return ([], fromJust cg)
     else do
         (es, next) <- leafTo spec copy maxCopy player (rank - 1) rankTo
