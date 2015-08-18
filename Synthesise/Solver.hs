@@ -403,7 +403,7 @@ interpolateTree spec player s gt' = do
                 liftIO $ putStrLn (printTree spec gtB)
                 throwError "Interpolation failed"
             else do
-                let cube'   = map (filter (((==) StateVar) . assignmentSection)) (fromJust (interpolant ir))
+                let cube'   = filter (any (((==) StateVar) . assignmentSection)) (fromJust (interpolant ir))
                 let cube''  = filter (all (\a -> assignmentRank a == gtRank gtB)) cube'
                 let cube    = map (sort . map (\a -> setAssignmentRankCopy a 0 0)) cube''
                 
