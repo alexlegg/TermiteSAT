@@ -60,12 +60,10 @@ checkRank spec rnk s def config = do
         (cube, sc)  <- tryReducedInit spec rnk 0 [] init config 0
         let cube'   = map (sort . map (\a -> setAssignmentRankCopy a 0 0)) [cube]
 
----        liftIO $ putStrLn (printMove spec (Just cube))
-
-        ls <- get
-        put $ ls {
-            winningMay = alterAll (insertIntoSet cube') [1..rnk] (winningMay ls)
-        }
+---        ls <- get
+---        put $ ls {
+---            winningMay = alterAll (insertIntoSet cube') [1..rnk] (winningMay ls)
+---        }
 
         return sc
     else return 0
@@ -408,7 +406,7 @@ interpolateTree spec player s gt' = do
                 let cube    = map (sort . map (\a -> setAssignmentRankCopy a 0 0)) cube''
                 
 ---                liftIO $ putStrLn $ "--Losing for " ++ show player ++ " " ++ (show (gtBaseRank gtB)) ++ "--"
----                liftIO $ mapM (putStrLn . printMove spec . Just) cube''
+---                liftIO $ mapM (putStrLn . printMove spec . Just) cube
 ---                liftIO $ putStrLn $ "--Losing for " ++ show player ++ "--"
 ---                liftIO $ putStrLn ""
 ---                liftIO $ mapM (\c -> putStrLn $ "learnWinning " ++ show c) cube
