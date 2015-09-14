@@ -6,6 +6,7 @@ module Synthesise.GameFormula (
     , makeUniversalWinCheckFml
     , goalFor
     , checkMoveFml
+    , fillTree
     ) where
 
 import qualified Data.Map as Map
@@ -95,10 +96,10 @@ makeFml spec player s ogt unMustWin = do
 isBlockingConstruct CBlocked{..}    = True
 isBlockingConstruct _               = False
 
-makeSplitFmls :: CompiledSpec -> Player -> [[Assignment]] -> GameTree -> SolverT (Maybe (GameTree, GameTree, Expression, Expression))
-makeSplitFmls _ _ _ (gtEmpty -> True)       = return Nothing
-makeSplitFmls _ _ _ (gtIsPrefix -> True)    = return Nothing
-makeSplitFmls spec player s gt = do
+makeSplitFmls :: CompiledSpec -> Player -> [[Assignment]] -> Bool -> GameTree -> SolverT (Maybe (GameTree, GameTree, Expression, Expression))
+makeSplitFmls _ _ _ _ (gtEmpty -> True)       = return Nothing
+makeSplitFmls _ _ _ _ (gtIsPrefix -> True)    = return Nothing
+makeSplitFmls spec player s useDefault gt = do
     --Assume GT already normalised
     let maxCopy     = gtMaxCopy gt
     let root        = gtRoot gt
@@ -115,8 +116,8 @@ makeSplitFmls spec player s gt = do
     liftE $ clearTempExpressions
     liftE $ initCopyMaps maxCopy
 
-    constA <- liftM (zip (repeat True)) $ getConstructsFor spec maxCopy t1 player (Just (nRank-1, copy2))
-    constB <- liftM (zip (repeat False)) $ getConstructsFor spec maxCopy t2 player Nothing
+    constA <- liftM (zip (repeat True)) $ getConstructsFor spec maxCopy t1 player useDefault (Just (nRank-1, copy2))
+    constB <- liftM (zip (repeat False)) $ getConstructsFor spec maxCopy t2 player useDefault Nothing
     let sorted = sortBy (\x y -> compare (sortIndex (snd x)) (sortIndex (snd y))) (constA ++ constB)
 
     -- Construct everything in order
@@ -251,8 +252,8 @@ construct s p f bm@CBlockMove{} = makeBlockedMove bm
 sortConstructibles :: [Construct] -> [Construct]
 sortConstructibles = sortBy (\x y -> compare (sortIndex x) (sortIndex y))
 
-getConstructsFor :: CompiledSpec -> Int -> GameTree -> Player -> Maybe (Int, Int) -> SolverT [Construct]
-getConstructsFor spec maxCopy gt player stopAt = do
+getConstructsFor :: CompiledSpec -> Int -> GameTree -> Player -> Bool -> Maybe (Int, Int) -> SolverT [Construct]
+getConstructsFor spec maxCopy gt player useDefault stopAt = do
     let root    = gtRoot gt
     let rank    = gtRank root
     let cs      = gtSteps root
@@ -264,7 +265,9 @@ getConstructsFor spec maxCopy gt player stopAt = do
     moves       <- if (gtEmpty root)
         then return []
         else do
-            filledTree <- (fmap gtRoot) $ fillTree player (head (gtChildren root))
+            filledTree <- if useDefault
+                              then (fmap gtRoot) $ fillTree player (head (gtChildren root))
+                              else return root
             return $ concatMap (getMoves rank player filledTree) (gtSteps filledTree)
     let cr      = case stopAt of
                 Just (stopRank, stopCopy)   -> filter (\(c, r) -> not (r <= stopRank && c == stopCopy)) (gtCopiesAndRanks gt)

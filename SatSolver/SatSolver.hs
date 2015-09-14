@@ -118,11 +118,11 @@ toDimacs mc e = do
     dimacs <- liftE $ getCachedStepDimacs mc e
     return (SV.singleton (fromIntegral (exprIndex e)) : dimacs)
 
-minimiseCore :: GameTree -> Maybe [Assignment] -> Expression -> SolverT (Maybe [[Int]])
-minimiseCore gt a e = do
-    maxId       <- liftE $ getMaxId (gtMaxCopy gt)
-    clauses     <- toDimacs (gtMaxCopy gt) e
-    assumptions <- liftE $ maybeM [] (mapM (assignmentToVar (gtMaxCopy gt))) a
+minimiseCore :: Int -> Maybe [Assignment] -> Expression -> SolverT (Maybe [[Int]])
+minimiseCore mc a e = do
+    maxId       <- liftE $ getMaxId mc 
+    clauses     <- toDimacs mc e
+    assumptions <- liftE $ maybeM [] (mapM (assignmentToVar mc)) a
     let as      = map (\a -> if sign a == Pos then var a else -(var a)) assumptions
 
 ---    forM_ clauses $ \cl -> do

@@ -60,10 +60,10 @@ checkRank spec rnk s def config = do
         (cube, sc)  <- tryReducedInit spec rnk 0 [] init config 0
         let cube'   = map (sort . map (\a -> setAssignmentRankCopy a 0 0)) [cube]
 
----        ls <- get
----        put $ ls {
----            winningMay = alterAll (insertIntoSet cube') [1..rnk] (winningMay ls)
----        }
+        ls <- get
+        put $ ls {
+            winningMay = alterAll (insertIntoSet cube') [1..rnk] (winningMay ls)
+        }
 
         return sc
     else return 0
@@ -91,7 +91,8 @@ tryReducedInit spec rnk a cube (cur:rem) config sc   = do
     liftLog $ putStrLnDbg 2 $ "timeInEnodeA = " ++ (show ((fromInteger $ round $ (eA * 10)) / 10.0))
     liftLog $ putStrLnDbg 2 $ "timeInEnodeB = " ++ (show ((fromInteger $ round $ (eB * 10)) / 10.0))
     liftLog $ putStrLnDbg 2 "----------------"
-    liftLog (logRankAux rnk a)
+
+    liftLog (logRankAux (printMove spec (Just s)) (printMove spec (Just [cur])) (isJust r) rnk a)
 
     if isJust r
         then tryReducedInit spec rnk (a+1) (cube ++ [cur]) rem config (sc + satCalls)
@@ -159,6 +160,9 @@ initDefaultMoves' spec rank wipe s = do
                 return $ foldl (\m r -> Map.insert r someUnMove m) Map.empty [1..rank]
             else do
                 return $ defaultUnMoves ls
+
+---    liftIO $ mapM (putStrLn . printMove spec . Just) (Map.elems defaultUn)
+---    liftIO $ mapM (putStrLn . printMove spec . Just) (Map.elems defaultEx)
 
     ls <- get
     put $ ls { defaultUnMoves   = defaultUn }
@@ -277,7 +281,7 @@ learnStates spec player ogt = do
     let s           = map (\x -> setAssignmentRankCopy x rank 0) as
 
     (es, f, gt)     <- makeFml spec player [] gt' False
-    cores           <- minimiseCore gt (Just s) f
+    cores           <- minimiseCore (gtMaxCopy gt) (Just s) f
 
     when (isJust cores) $ do
         cs          <- mapM (\core -> getConflicts (svars spec) core 0 rank) (fromJust cores)
@@ -304,7 +308,7 @@ getLosingStates spec player ogt = do
     let s           = map (\x -> setAssignmentRankCopy x rank 0) as
 
     (es, f, gt)     <- makeFml spec player [] gt' False
-    cores           <- minimiseCore gt (Just s) f
+    cores           <- minimiseCore (gtMaxCopy gt) (Just s) f
 
     if (isJust cores)
     then do
@@ -337,7 +341,7 @@ dbgOutNoLearning spec player s gt found = do
 learnWinning :: CompiledSpec -> Config -> Player -> [Assignment] -> GameTree -> SolverT ()
 learnWinning spec config player s gt@(gtUnsetNodes -> []) = do
     -- Learn from the root of the tree
-    found <- interpolateTree spec player [s] (gtExtend gt)
+    found <- interpolateTree spec player [s] True (gtExtend gt)
     dbgOutNoLearning spec player s gt found
     return ()
 learnWinning spec config player s ogt@(gtUnsetNodes -> gt:[]) = do
@@ -352,7 +356,7 @@ learnWinning spec config player s ogt@(gtUnsetNodes -> gt:[]) = do
                 then do
 ---                    coreExps    <- liftE $ mapM (assignmentToExpression 0) c
 ---                    allCores    <- liftE $ disjunct coreExps
-                    found <- interpolateTree spec player c (gtExtend (gtRebase 0 gt))
+                    found <- interpolateTree spec player c True (gtExtend (gtRebase 0 gt))
                     dbgOutNoLearning spec player s gt found
                     return ()
                 else do
@@ -373,10 +377,10 @@ learnWinning spec config player s gt = do
     liftIO $ putStrLn (printTree spec gt)
     throwError "Found more than one unset node in learnWinning"
 
-interpolateTree :: CompiledSpec -> Player -> [[Assignment]] -> GameTree -> SolverT Bool
-interpolateTree spec player s gt' = do
+interpolateTree :: CompiledSpec -> Player -> [[Assignment]] -> Bool -> GameTree -> SolverT Bool
+interpolateTree spec player s useDefault gt' = do
     let gt = normaliseCopies gt'
-    fmls <- makeSplitFmls spec player s gt
+    fmls <- makeSplitFmls spec player s useDefault gt
     if (isJust fmls)
     then do
         let Just (gtA, gtB, fmlA, fmlB) = fmls
@@ -391,7 +395,7 @@ interpolateTree spec player s gt' = do
         if (not (satisfiable rA))
         then do
             -- We lose in the prefix, so just keep going
-            interpolateTree spec player s gtA
+            interpolateTree spec player s useDefault gtA
         else do
             ir <- interpolate (gtMaxCopy gt) project fmlA fmlB
             if (not (success ir))
@@ -418,17 +422,33 @@ interpolateTree spec player s gt' = do
 
                 when (any (\cs -> not $ all (\a -> assignmentCopy a == assignmentCopy (head cs)) cs) cube') $ do
                     throwError "Not all cubes of the same copy"
+
+                --EXPERIMENTAL minimise interpolants
+                Just (_, _, _, minFml) <- makeSplitFmls spec player s False gt
+                fGtB <- fillTree player gtB
+                let minMove = (if player == Existential then last else head) (tail (gtMoves (head (gtChildren fGtB))))
+                minCube' <- forM cube'' $ \c -> do
+                    cores   <- minimiseCore (gtMaxCopy gt) (Just (c ++ fromMaybe [] minMove)) minFml 
+                    mapM (\core -> getConflicts (svars spec) core vCopy vRank) (fromJust cores)
+
+                let minCubeTest = map (sort . map (\a -> setAssignmentRankCopy a 0 0)) (concat minCube')
+                liftIO $ putStrLn "======="
+                liftIO $ putStrLn (show minCubeTest)
+                liftIO $ putStrLn (show cube)
+                liftIO $ putStrLn "======="
+                let minCube = cube
+                --EXPERIMENTAL minimise interpolants
                 
                 ls <- get
                 if player == Existential
                 then put $ ls {
-                      winningMay    = alterAll (insertIntoSet cube) [1..gtBaseRank gtB] (winningMay ls)
+                      winningMay    = alterAll (insertIntoSet minCube) [1..gtBaseRank gtB] (winningMay ls)
                     }
                 else put $ ls {
-                      winningMust   = foldl insertCube (winningMust ls) cube 
+                      winningMust   = foldl insertCube (winningMust ls) minCube
                     }
 
-                interpolateTree spec player s gtA
+                interpolateTree spec player s useDefault gtA
                 return True
     else return False
 

@@ -26,6 +26,7 @@ import Data.Maybe
 import Data.List as L
 import Data.String
 import qualified Data.Set as Set
+import qualified Data.Map as Map
 import System.IO
 import qualified Data.ByteString as BS
 import Text.Blaze.Html5 as H
@@ -60,6 +61,7 @@ data Log = Log {
     , crumb     :: [TraceCrumb]
     , spec      :: Maybe CompiledSpec
     , debugMode :: DebugMode
+    , auxLogs   :: Map.Map Int [(Bool, String)]
     }
 
 emptyLog dm = Log {
@@ -71,6 +73,7 @@ emptyLog dm = Log {
         1   -> FinalLogOnly
         2   -> DumpLogs
         3   -> LogEachRank
+    , auxLogs   = Map.empty
     }
 
 type LoggerT m = StateT Log m
@@ -85,10 +88,10 @@ clearLogDir dm = do
 printLog :: Int -> LoggerT IO a -> IO (a)
 printLog dm logger = do
     (r, Log{..}) <- runStateT logger (emptyLog dm)
-    when (debugMode /= NoDebug && isJust trace && isJust spec) $ do
+    when (debugMode == FinalLogOnly && isJust trace && isJust spec) $ do
         putStrLn "Printing final log to debug.html"
         withFile "debug/debug.html" WriteMode $ \h -> do
-            renderHtmlToByteStringIO (BS.hPut h) (outputLog (fromJust spec) (fromJust trace))
+            renderHtmlToByteStringIO (BS.hPut h) (outputLog Nothing (fromJust spec) (fromJust trace))
     return r
 
 logRank :: Int -> LoggerT IO ()
@@ -97,15 +100,21 @@ logRank k = do
     let dumpFn = "debug/debug" ++ (show k) ++ ".html"
     when (debugMode == LogEachRank && isJust trace && isJust spec) $ liftIO $ do
         withFile dumpFn WriteMode $ \h -> do
-            renderHtmlToByteStringIO (BS.hPut h) (outputLog (fromJust spec) (fromJust trace))
+            renderHtmlToByteStringIO (BS.hPut h) (outputLog Nothing (fromJust spec) (fromJust trace))
 
-logRankAux :: Int -> Int -> LoggerT IO ()
-logRankAux k a = do
-    Log{..} <- get
+logRankAux :: String -> String -> Bool -> Int -> Int -> LoggerT IO ()
+logRankAux cube curr res k a = do
+    log@Log{..} <- get
+    put $ log { auxLogs = Map.insert k (fromMaybe [] (Map.lookup k auxLogs) ++ [(res, curr)]) auxLogs }
+    log@Log{..} <- get
+    let indFn = "debug/debug.html"
     let dumpFn = "debug/debug_aux" ++ show k ++ "_" ++ show a ++ ".html"
     when (debugMode == LogEachRank && isJust trace && isJust spec) $ liftIO $ do
         withFile dumpFn WriteMode $ \h -> do
-            renderHtmlToByteStringIO (BS.hPut h) (outputLog (fromJust spec) (fromJust trace))
+            renderHtmlToByteStringIO (BS.hPut h) (outputLog (Just cube) (fromJust spec) (fromJust trace))
+
+        withFile indFn WriteMode $ \h -> do
+            renderHtmlToByteStringIO (BS.hPut h) (outputLogIndex auxLogs)
 
 logDumpLog :: LoggerT IO ()
 logDumpLog = do
@@ -113,9 +122,25 @@ logDumpLog = do
     let dumpFn = "debug/debug.html"
     when (debugMode == DumpLogs && isJust trace && isJust spec) $ liftIO $ do
         withFile dumpFn WriteMode $ \h -> do
-            renderHtmlToByteStringIO (BS.hPut h) (outputLog (fromJust spec) (fromJust trace))
+            renderHtmlToByteStringIO (BS.hPut h) (outputLog Nothing (fromJust spec) (fromJust trace))
 
-outputLog spec trace = H.docTypeHtml $ do
+outputLogIndex aux = do
+    H.head $ do
+        H.title "TermiteSAT Trace Index"
+        link ! rel "stylesheet" ! href "debug.css"
+    H.body $ do
+        forM_ (Map.toList aux) $ \(r, cubes) -> do
+            h3 $ a ! A.href (stringValue ("debug" ++ show r ++ ".html")) $ fromString $ "Rank " ++ (show r)
+            forM_ (zip [0..] cubes) $ \(i, (res, cube)) -> do
+                a 
+                    ! A.href (stringValue ("debug_aux" ++ show r ++ "_" ++ show i ++ ".html")) 
+                    ! class_ (if res then "ExistentialText" else "UniversalText")
+                    $ fromString (show cube)
+                br
+                br
+
+
+outputLog comment spec trace = H.docTypeHtml $ do
     H.head $ do
         H.title "TermiteSAT Trace"
         link ! rel "stylesheet" ! href "debug.css"
@@ -126,6 +151,7 @@ outputLog spec trace = H.docTypeHtml $ do
         script ! src "debug.js" $ ""
     H.body $ do
         H.div ! A.id "options" $ img ! src "options.png"
+        when (isJust comment) $ H.p $ fromString (fromJust comment)
         H.div ! A.id "optionsVarnames" $ do
             let getNames = nub . sort . (L.map varname)
             let allVars = getNames (svars spec) ++ getNames (cont spec) ++ getNames (ucont spec)

@@ -100,22 +100,7 @@ unboundedLoop init spec def config satcalls k = do
 finishedLoop :: CompiledSpec -> Maybe Int -> Int -> SolverT (Maybe Int)
 finishedLoop spec r satcalls = do
     ls <- get
-
-    liftIO $ withFile "winningMay" WriteMode $ \h -> do
-        forM (Map.toList (winningMay ls)) $ \(r, wm) -> do
-            hPutStrLn h (show r)
-            forM (Set.toList wm) $ \s ->
-                hPutStrLn h (printMove spec (Just (Set.toList s)))
-            hPutStrLn h "--"
-        return ()
-
-    liftIO $ withFile "winningMust" WriteMode $ \h -> do
-        forM (Set.toList (winningMust ls)) $ \s -> do
-            hPutStrLn h (printMove spec (Just (Set.toList s)))
-        return ()
-
     liftIO $ putStrLn $ "Total SAT Calls: " ++ (show satcalls)
-
     return r
 
 synthesise' k spec config learning = do
