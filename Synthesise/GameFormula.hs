@@ -111,12 +111,12 @@ makeSplitFmls spec player s useDefault gt = do
     let nCopy   = gtCopyId (gtRoot t2)
     let pCopy   = gtCopyId (gtRoot t2)
     let copy1   = gtCopyId t2
-    let copy2   = gtCopyId (head (gtChildren t2))
+    let copy2s  = map gtCopyId (gtChildren t2)
 
     liftE $ clearTempExpressions
     liftE $ initCopyMaps maxCopy
 
-    constA <- liftM (zip (repeat True)) $ getConstructsFor spec maxCopy t1 player useDefault (Just (nRank-1, copy2))
+    constA <- liftM (zip (repeat True)) $ getConstructsFor spec maxCopy t1 player useDefault (Just (nRank-1, copy2s))
     constB <- liftM (zip (repeat False)) $ getConstructsFor spec maxCopy t2 player useDefault Nothing
     let sorted = sortBy (\x y -> compare (sortIndex (snd x)) (sortIndex (snd y))) (constA ++ constB)
 
@@ -144,24 +144,34 @@ makeSplitFmls spec player s useDefault gt = do
 
     fmlA        <- liftE $ conjunctTemp maxCopy (fmlA' : s' ++ exprsA)
 
-    stepB       <- liftE $ getCached nRank pCopy copy1 copy2 (exprIndex ((t spec) !! (nRank-1)))
-    let goalB   = goalFor player spec nRank
-    let goalB'  = goalFor player spec (nRank - 1)
-    cg          <- liftE $ getCached nRank pCopy pCopy pCopy (exprIndex goalB)
-    cg'         <- liftE $ getCached (nRank - 1) copy2 copy2 copy2 (exprIndex goalB')
-    bCons       <- getBlockedStates player [(copy2, nRank-1)]
-    block       <- mapM blockExpression bCons
+    bsteps <- forM (gtStepChildren (gtRoot t2)) $ \c -> do
+        let parentCopy          = gtCopyId (gtRoot t2)
+        let copy1               = gtCopyId (gtParent c)
+        let copy2               = gtCopyId c
 
-    when (isNothing stepB) $ throwError $ "makeSplitFmls: Transition was not created in advance for fmlB"
+        singleStep spec nRank maxCopy player parentCopy copy1 copy2 Nothing False
+
+    stepB       <- liftE $ conjunctTemp maxCopy bsteps
+---    stepB       <- liftE $ getCached nRank pCopy copy1 copy2 (exprIndex ((t spec) !! (nRank-1)))
+
+    let goalB   = goalFor player spec nRank
+    cg          <- liftE $ getCached nRank pCopy pCopy pCopy (exprIndex goalB)
     when (isNothing cg) $ throwError $ "makeSplitFmls: Goal was not created in advance: " ++ show (nRank, nCopy)
-    when (isNothing cg') $ throwError $ "makeSplitFmls: Goal was not created in advance: " ++ show (nRank-1, nCopy)
+
+    let goalB'  = goalFor player spec (nRank - 1)
+    cgs'        <- mapM (\c -> liftE $ getCached (nRank - 1) c c c (exprIndex goalB')) copy2s
+    when (any isNothing cgs') $ throwError $ "makeSplitFmls: Goals not created in advance: " ++ show (nRank-1) ++ show copy2s
+    cg'         <- liftE $ conjunctTemp maxCopy (map fromJust cgs')
+
+    bCons       <- mapM (\c -> getBlockedStates player [(c, nRank-1)]) copy2s
+    block       <- mapM blockExpression (concat bCons)
 
     -- If gtB is the final step then we must end up in the goal
     -- Otherwise the only requirement is that there exists a valid
     -- transition that keeps us inside winningMay
     fmlB'       <- case nRank of
-                    1   -> liftE $ conjunctTemp maxCopy (fromJust stepB : fromJust cg' : exprsB ++ block)
-                    _   -> liftE $ conjunctTemp maxCopy (fromJust stepB : exprsB ++ block)
+                    1   -> liftE $ conjunctTemp maxCopy (stepB : cg' : exprsB ++ block)
+                    _   -> liftE $ conjunctTemp maxCopy (stepB : exprsB ++ block)
     fmlB        <- case player of
                     Existential -> liftE $ disjunctTemp maxCopy [fromJust cg, fmlB']
                     Universal   -> liftE $ conjunctTemp maxCopy [fromJust cg, fmlB']
@@ -252,7 +262,7 @@ construct s p f bm@CBlockMove{} = makeBlockedMove bm
 sortConstructibles :: [Construct] -> [Construct]
 sortConstructibles = sortBy (\x y -> compare (sortIndex x) (sortIndex y))
 
-getConstructsFor :: CompiledSpec -> Int -> GameTree -> Player -> Bool -> Maybe (Int, Int) -> SolverT [Construct]
+getConstructsFor :: CompiledSpec -> Int -> GameTree -> Player -> Bool -> Maybe (Int, [Int]) -> SolverT [Construct]
 getConstructsFor spec maxCopy gt player useDefault stopAt = do
     let root    = gtRoot gt
     let rank    = gtRank root
@@ -270,11 +280,11 @@ getConstructsFor spec maxCopy gt player useDefault stopAt = do
                               else return root
             return $ concatMap (getMoves rank player filledTree) (gtSteps filledTree)
     let cr      = case stopAt of
-                Just (stopRank, stopCopy)   -> filter (\(c, r) -> not (r <= stopRank && c == stopCopy)) (gtCopiesAndRanks gt)
-                Nothing                     -> [(gtCopyId root, rank), (gtCopyId (head (gtChildren gt)), rank-1)]
+                Just (stopRank, stopCopy)   -> filter (\(c, r) -> not (r <= stopRank && c `elem` stopCopy)) (gtCopiesAndRanks gt)
+                Nothing                     -> gtCopiesAndRanks gt ++ (map (\c -> (c, rank-1)) (nub (map fst (gtCopiesAndRanks gt))))
     block'      <- getBlockedStates player cr
     let block   = case stopAt of
-                Just (stopRank, stopCopy)   -> filter (\b -> not (cbRank b <= stopRank && cbCopy b == stopCopy)) block'
+                Just (stopRank, stopCopy)   -> filter (\b -> not (cbRank b <= stopRank && cbCopy b `elem` stopCopy)) block'
                 Nothing                     -> block'
 
     return $ trans ++ goals ++ moves ++ block
@@ -445,6 +455,14 @@ makeSteps maxCopy rank spec player extend unMustWin gt c = do
 
     s <- singleStep spec rank maxCopy player parentCopy copy1 copy2 next unMustWin
     return (es, s)
+
+makeOneStep :: Int -> Int -> CompiledSpec -> Player -> GameTree -> GameTree -> SolverT Expression
+makeOneStep maxCopy rank spec player gt c = do
+    let parentCopy          = gtCopyId gt 
+    let copy1               = gtCopyId (gtParent c)
+    let copy2               = gtCopyId c
+
+    singleStep spec rank maxCopy player parentCopy copy1 copy2 Nothing False
 
 makeMove :: CompiledSpec -> Player -> Construct -> SolverT (Maybe Expression)
 makeMove spec player CMove{..} = do

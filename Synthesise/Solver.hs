@@ -423,21 +423,21 @@ interpolateTree spec player s useDefault gt' = do
                 when (any (\cs -> not $ all (\a -> assignmentCopy a == assignmentCopy (head cs)) cs) cube') $ do
                     throwError "Not all cubes of the same copy"
 
-                --EXPERIMENTAL minimise interpolants
-                Just (_, _, _, minFml) <- makeSplitFmls spec player s False gt
-                fGtB <- fillTree player gtB
-                let minMove = (if player == Existential then last else head) (tail (gtMoves (head (gtChildren fGtB))))
-                minCube' <- forM cube'' $ \c -> do
-                    cores   <- minimiseCore (gtMaxCopy gt) (Just (c ++ fromMaybe [] minMove)) minFml 
-                    mapM (\core -> getConflicts (svars spec) core vCopy vRank) (fromJust cores)
+                minCube <- if (all (all ((==) StateVar . assignmentSection)) cube)
+                    then do
+                        minCube'' <- forM cube'' $ \c -> do
+                            cores   <- minimiseCore (gtMaxCopy gt) (Just c) fmlB
+                            mapM (\core -> getConflicts (svars spec) core vCopy vRank) (fromJust cores)
 
-                let minCubeTest = map (sort . map (\a -> setAssignmentRankCopy a 0 0)) (concat minCube')
-                liftIO $ putStrLn "======="
-                liftIO $ putStrLn (show minCubeTest)
-                liftIO $ putStrLn (show cube)
-                liftIO $ putStrLn "======="
-                let minCube = cube
-                --EXPERIMENTAL minimise interpolants
+                        return $ map (filter ((==) StateVar . assignmentSection)) cube
+                    else do
+                        liftIO $ putStrLn (show player)
+                        liftIO $ putStrLn "AAAAAAAAAAAAAAAAA"
+                        liftIO $ putStrLn (printTree spec gtA)
+                        liftIO $ putStrLn "BBBBBBBBBBBBBBBBB"
+                        liftIO $ putStrLn (printTree spec gtB)
+                        liftIO $ putStrLn "CCCCCCCCCCCCCCCCC"
+                        return $ map (filter ((==) StateVar . assignmentSection)) cube
                 
                 ls <- get
                 if player == Existential

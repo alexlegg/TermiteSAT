@@ -731,12 +731,9 @@ gtSplit player gt = (updateGTCrumb (gtParent splitAt) (\x -> setChildren x cs'),
         leafDepth       = map (length . gtCrumb) leaves
         maxDepthLeaf    = fst $ maximumBy (\x y -> compare (snd x) (snd y)) (zip leaves leafDepth)
         splitAt         = if isUNode (followGTCrumb maxDepthLeaf) then gtParent maxDepthLeaf else maxDepthLeaf
-        cs'             = case (length (gtChildren splitAt)) of
-            0   -> delete (followGTCrumb splitAt) (children (followGTCrumb (gtParent splitAt)))
-            1   -> delete (followGTCrumb splitAt) (children (followGTCrumb (gtParent splitAt)))
-            _   -> map (\x -> if x == (followGTCrumb splitAt) then (setChildren x (delete (followGTCrumb maxDepthLeaf) (children x))) else x) (children (followGTCrumb (gtParent splitAt)))
+        cs'             = delete (followGTCrumb splitAt) (children (followGTCrumb (gtParent splitAt)))
         parentCopy      = gtCopyId (gtParent splitAt)
-        rebase          = gtRebase parentCopy $ updateGTCrumb splitAt (\x -> setChildren x [followGTCrumb maxDepthLeaf])
+        rebase          = gtRebase parentCopy splitAt
 
 gtStripMoves :: GameTree -> GameTree
 gtStripMoves gt = setRoot gt (stripMoves (root gt))
