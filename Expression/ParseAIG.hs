@@ -27,6 +27,8 @@ data Latch  = Latch Int Int (Maybe String)  deriving (Show, Eq)
 data Output = Output Int (Maybe String)     deriving (Show, Eq)
 data Gate   = Gate Int Int Int              deriving (Show, Eq)
 
+gateToTuple (Gate x y z) = (x, y, z)
+
 inputId (Input i _)     = i
 latchId (Latch i _ _)   = i
 outputId (Output i _)   = i
@@ -64,6 +66,8 @@ parser fn f = do
         , goal      = makeVarAST (head oVars)
         , ucont     = Nothing
         , trans     = ts ++ [o]
+        , aigTrans  = Just ((map (\(Latch i _ _) -> i) latches), map gateToTuple gates)
+        , aigVars   = Just vMap
         , stateVars = sVars
         , ucontVars = uVars
         , contVars  = cVars

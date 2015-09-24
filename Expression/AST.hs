@@ -10,6 +10,10 @@ import qualified Expression.HAST as HAST
 import Expression.Expression (Assignment(..), Section(..))
 
 data Void
+
+instance Show Void where
+    show _ = "void"
+
 type AST = HAST.AST VarInfo Void Void VarInfo
 
 data VarInfo = VarInfo {
@@ -19,7 +23,10 @@ data VarInfo = VarInfo {
     slice   :: Slice,
     virank  :: Int,
     enum    :: Maybe [(String, Int)]
-} deriving (Show, Eq)
+} deriving (Eq)
+
+instance Show VarInfo where
+    show v = name v
 
 type Slice = Maybe (Int, Int)
 

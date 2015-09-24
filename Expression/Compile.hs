@@ -1,6 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 module Expression.Compile (
         compile
+      , compileAIG
       , compileVar
       , compileInit
       , CompiledSpec(..)
@@ -9,11 +10,13 @@ module Expression.Compile (
 import Control.Monad.State
 import Control.Monad.Trans.Either
 import Data.List
+import Data.Maybe
 import qualified Data.Map as Map
 
 import qualified Expression.HAST as HAST
 import Expression.AST
 import Expression.Expression
+import Utils.Utils
 
 data CompiledSpec = CompiledSpec {
       t         :: [Expression]
@@ -152,3 +155,52 @@ compile (HAST.Let _ _) = do
 
 compile (HAST.LetLit _) = do
     throwError "LetLit not implemented"
+
+compileAIG :: MonadIO m => ([Int], [(Int, Int, Int)]) -> [(Int, AST)] -> ExpressionT m [Expression]
+compileAIG (latches, gates) vMap = do
+    cGates      <- compileGates vMap [] gates
+    cLatches    <- mapM (aigToExpression vMap cGates) latches
+    when (any isNothing cLatches) $ throwError "Latch not compiled"
+    return $ map fromJust cLatches
+
+aigVar x    | odd x     = x - 1
+            | otherwise = x
+
+aigSign x   | odd x     = False
+            | otherwise = True
+
+compileGates :: MonadIO m => [(Int, AST)] -> [(Int, Expression)] -> [(Int, Int, Int)] -> ExpressionT m [(Int, Expression)]
+compileGates vMap done gates = do
+    done' <- foldM (compileGate vMap) done gates
+    let gates' = filter (isNothing . (`lookup` done) . fst3) gates
+    if null gates'
+        then return done'
+        else compileGates vMap done' gates'
+
+compileGate vMap done (i, a, b) = do
+    ae <- aigToExpression vMap done a
+    be <- aigToExpression vMap done b
+
+    if isJust ae && isJust be
+        then do
+            c <- conjunct [fromJust ae, fromJust be]
+            return ((i, c) : done)
+        else return done
+
+aigToExpression vMap done v = do
+    case (lookup (aigVar v) done) of
+        Just e -> do
+            s <- if aigSign v
+                then return e
+                else negation e
+            return (Just s)
+        Nothing -> case (lookup (aigVar v) vMap) of
+            (Just (HAST.Var x)) -> do
+                x'  <- compileHVar x
+                when (length x' /= 1) $ throwError "Var must be of size 1"
+                l   <- literal (head x')
+                s <- if aigSign v
+                    then return l
+                    else negation l
+                return (Just s)
+            Nothing -> return Nothing

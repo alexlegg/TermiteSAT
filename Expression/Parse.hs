@@ -31,6 +31,8 @@ data ParsedSpec = ParsedSpec {
     goal        :: AST, 
     ucont       :: Maybe AST, 
     trans       :: [AST],
+    aigTrans    :: Maybe ([Int], [(Int, Int, Int)]),
+    aigVars     :: Maybe [(Int, AST)],
     stateVars   :: [VarInfo],
     ucontVars   :: [VarInfo],
     contVars    :: [VarInfo]
@@ -108,6 +110,8 @@ parser fn f = do
                                         Just f  -> Just $ head (map binExprToHAST f)
                                         Nothing -> Nothing
                      , trans        = map (resolveTransLHS theMap) (ctrlExprToHAST transR)
+                     , aigTrans     = Nothing
+                     , aigVars      = Nothing
                      , stateVars    = concatMap (declToVarInfo StateVar) stateDecls
                      , ucontVars    = concatMap (declToVarInfo UContVar) outcomeDecls
                      , contVars     = concatMap (declToVarInfo ContVar) labelDecls

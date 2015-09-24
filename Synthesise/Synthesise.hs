@@ -155,7 +155,13 @@ loadFmls k spec = do
     let ParsedSpec{..} = spec
 
     when (null trans) $ lift $ left "Empty transition relation"
-    t'  <- mapM compile trans
+
+    t' <- if isJust aigTrans
+        then do
+            liftIO $ putStrLn "AIG compile"
+            compileAIG (fromJust aigTrans) (fromJust aigVars)
+        else mapM compile trans
+
     t   <- conjunct t'
     g'  <- compile goal
     cg  <- setRank 0 g'

@@ -8,6 +8,7 @@ module Expression.HAST(AST(..),
 
 import Data.Text.Lazy hiding (intercalate, map, take, length)
 import Text.PrettyPrint.Leijen.Text
+import Utils.Utils
 
 -- f   == type of anonymous free variables 
 -- e   == type of variables bound by exists statements 
@@ -41,6 +42,15 @@ data AST f e c v = T
                  | NExists String Int (e -> AST f e c v)
                  | Let     (AST f e c v) (c -> AST f e c v)
                  | LetLit  c
+
+instance (Show f, Show e, Show c, Show v) => Show (AST f e c v) where
+    show T          = "True"
+    show F          = "False"
+    show (Not x)    = "Not (" ++ show x ++ ")"
+    show (And x y)  = "And (" ++ show x ++ ", " ++ show y ++ ")"
+    show (Conj xs)  = "Conj (" ++ interMap ", " show xs ++ ")"
+    show (XNor x y) = "XNor (" ++ show x ++ ", " ++ show y ++ ")"
+    show (Var x)    = show x
 
 existsMany :: [Int] -> ([e] -> AST f e c v) -> AST f e c v
 existsMany ws f = existsMany' ws [] f

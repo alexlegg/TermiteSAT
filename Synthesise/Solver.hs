@@ -205,7 +205,7 @@ buildStratGameTree player gt strat = gtParent $ gtParent $ foldl (buildStratGame
 
 solveAbstract :: Player -> CompiledSpec -> Config -> [Assignment] -> GameTree -> Shortening -> SolverT (Maybe (GameTree, GameTree))
 solveAbstract player spec config s gt short = do
----    liftIO $ putStrLn ("Solve abstract for " ++ show player)
+    liftIO $ putStrLn ("Solve abstract for " ++ show player)
 ---    pLearn <- printLearnedStates spec player
     liftLog $ logSolve gt player []
 
@@ -226,13 +226,13 @@ refinementLoop player spec config s short (Just (wholeGt, cand)) origGT absGT = 
     v <- verify player spec config s short origGT cand
     case v of
         (Just cex) -> do
----            liftIO $ putStrLn ("Counterexample found against " ++ show player)
+            liftIO $ putStrLn ("Counterexample found against " ++ show player)
             absGT' <- refine absGT cex
             liftLog $ logRefine
             cand' <- solveAbstract player spec config s absGT' short
             refinementLoop player spec config s short cand' origGT absGT'
         Nothing -> do
----            liftIO $ putStrLn ("Verified candidate for " ++ show player)
+            liftIO $ putStrLn ("Verified candidate for " ++ show player)
 
             -- Try to learn bad moves from the bad candidate
             learnBadMoves spec config player wholeGt
@@ -423,29 +423,17 @@ interpolateTree spec player s useDefault gt' = do
                 when (any (\cs -> not $ all (\a -> assignmentCopy a == assignmentCopy (head cs)) cs) cube') $ do
                     throwError "Not all cubes of the same copy"
 
-                minCube <- if (all (all ((==) StateVar . assignmentSection)) cube)
-                    then do
-                        minCube'' <- forM cube'' $ \c -> do
-                            cores   <- minimiseCore (gtMaxCopy gt) (Just c) fmlB
-                            mapM (\core -> getConflicts (svars spec) core vCopy vRank) (fromJust cores)
-
-                        return $ map (filter ((==) StateVar . assignmentSection)) cube
-                    else do
-                        liftIO $ putStrLn (show player)
-                        liftIO $ putStrLn "AAAAAAAAAAAAAAAAA"
-                        liftIO $ putStrLn (printTree spec gtA)
-                        liftIO $ putStrLn "BBBBBBBBBBBBBBBBB"
-                        liftIO $ putStrLn (printTree spec gtB)
-                        liftIO $ putStrLn "CCCCCCCCCCCCCCCCC"
-                        return $ map (filter ((==) StateVar . assignmentSection)) cube
+                minCube <- forM cube'' $ \c -> do
+                    cores   <- minimiseCore (gtMaxCopy gt) (Just c) fmlB
+                    mapM (\core -> getConflicts (svars spec) core vCopy vRank) (fromJust cores)
                 
                 ls <- get
                 if player == Existential
                 then put $ ls {
-                      winningMay    = alterAll (insertIntoSet minCube) [1..gtBaseRank gtB] (winningMay ls)
+                      winningMay    = alterAll (insertIntoSet (concat minCube)) [1..gtBaseRank gtB] (winningMay ls)
                     }
                 else put $ ls {
-                      winningMust   = foldl insertCube (winningMust ls) minCube
+                      winningMust   = foldl insertCube (winningMust ls) (concat minCube)
                     }
 
                 interpolateTree spec player s useDefault gtA
