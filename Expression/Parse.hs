@@ -31,7 +31,7 @@ data ParsedSpec = ParsedSpec {
     goal        :: AST, 
     ucont       :: Maybe AST, 
     trans       :: [AST],
-    aigTrans    :: Maybe ([Int], [(Int, Int, Int)]),
+    aigTrans    :: Maybe ([(AST, Int)], [(Int, Int, Int)]),
     aigVars     :: Maybe [(Int, AST)],
     stateVars   :: [VarInfo],
     ucontVars   :: [VarInfo],

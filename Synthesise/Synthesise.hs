@@ -157,9 +157,7 @@ loadFmls k spec = do
     when (null trans) $ lift $ left "Empty transition relation"
 
     t' <- if isJust aigTrans
-        then do
-            liftIO $ putStrLn "AIG compile"
-            compileAIG (fromJust aigTrans) (fromJust aigVars)
+        then compileAIG (fromJust aigTrans) (fromJust aigVars)
         else mapM compile trans
 
     t   <- conjunct t'

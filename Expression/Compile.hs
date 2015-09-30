@@ -156,12 +156,11 @@ compile (HAST.Let _ _) = do
 compile (HAST.LetLit _) = do
     throwError "LetLit not implemented"
 
-compileAIG :: MonadIO m => ([Int], [(Int, Int, Int)]) -> [(Int, AST)] -> ExpressionT m [Expression]
+compileAIG :: MonadIO m => ([(AST, Int)], [(Int, Int, Int)]) -> [(Int, AST)] -> ExpressionT m [Expression]
 compileAIG (latches, gates) vMap = do
     cGates      <- compileGates vMap [] gates
-    cLatches    <- mapM (aigToExpression vMap cGates) latches
-    when (any isNothing cLatches) $ throwError "Latch not compiled"
-    return $ map fromJust cLatches
+    cLatches    <- mapM (mapSndM (aigToExpression vMap cGates)) latches
+    mapM latchToExpression cLatches
 
 aigVar x    | odd x     = x - 1
             | otherwise = x
@@ -187,6 +186,12 @@ compileGate vMap done (i, a, b) = do
             return ((i, c) : done)
         else return done
 
+aigToExpression _ _ 0 = do
+    f <- falseExpr
+    return (Just f)
+aigToExpression _ _ 1 = do
+    t <- trueExpr
+    return (Just t)
 aigToExpression vMap done v = do
     case (lookup (aigVar v) done) of
         Just e -> do
@@ -204,3 +209,10 @@ aigToExpression vMap done v = do
                     else negation l
                 return (Just s)
             Nothing -> return Nothing
+
+latchToExpression (HAST.Var v, e) = do
+    v' <- compileHVar v
+    when (length v' /= 1) $ throwError "Var must be of size 1"
+    l   <- literal (head v')
+    when (isNothing e) $ throwError $ "Could not compile latch"
+    equate l (fromJust e)

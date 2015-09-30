@@ -61,12 +61,15 @@ parser fn f = do
     let ts      = map (makeLatch gates') latches
     let o       = makeOutput gates' (head outputs)
 
+    let aigLatches (Latch i x nm)   = (makeVarAST (makeVar (varName "_l" i nm) StateVar 0), x)
+    let aigOutput (Output i n)      = (makeVarAST (makeVar (varName "_o" i n) StateVar 0), i)
+
     let spec = ParsedSpec {
           init      = makeEqualsZero sVars
         , goal      = makeVarAST (head oVars)
         , ucont     = Nothing
         , trans     = ts ++ [o]
-        , aigTrans  = Just ((map (\(Latch i _ _) -> i) latches), map gateToTuple gates)
+        , aigTrans  = Just (map aigLatches latches ++ map aigOutput outputs, map gateToTuple gates)
         , aigVars   = Just vMap
         , stateVars = sVars
         , ucontVars = uVars

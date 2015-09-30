@@ -205,7 +205,7 @@ buildStratGameTree player gt strat = gtParent $ gtParent $ foldl (buildStratGame
 
 solveAbstract :: Player -> CompiledSpec -> Config -> [Assignment] -> GameTree -> Shortening -> SolverT (Maybe (GameTree, GameTree))
 solveAbstract player spec config s gt short = do
-    liftIO $ putStrLn ("Solve abstract for " ++ show player)
+---    liftIO $ putStrLn ("Solve abstract for " ++ show player)
 ---    pLearn <- printLearnedStates spec player
     liftLog $ logSolve gt player []
 
@@ -226,13 +226,13 @@ refinementLoop player spec config s short (Just (wholeGt, cand)) origGT absGT = 
     v <- verify player spec config s short origGT cand
     case v of
         (Just cex) -> do
-            liftIO $ putStrLn ("Counterexample found against " ++ show player)
+---            liftIO $ putStrLn ("Counterexample found against " ++ show player)
             absGT' <- refine absGT cex
             liftLog $ logRefine
             cand' <- solveAbstract player spec config s absGT' short
             refinementLoop player spec config s short cand' origGT absGT'
         Nothing -> do
-            liftIO $ putStrLn ("Verified candidate for " ++ show player)
+---            liftIO $ putStrLn ("Verified candidate for " ++ show player)
 
             -- Try to learn bad moves from the bad candidate
             learnBadMoves spec config player wholeGt
@@ -423,10 +423,12 @@ interpolateTree spec player s useDefault gt' = do
                 when (any (\cs -> not $ all (\a -> assignmentCopy a == assignmentCopy (head cs)) cs) cube') $ do
                     throwError "Not all cubes of the same copy"
 
-                minCube <- forM cube'' $ \c -> do
+                minCube' <- forM cube'' $ \c -> do
                     cores   <- minimiseCore (gtMaxCopy gt) (Just c) fmlB
                     mapM (\core -> getConflicts (svars spec) core vCopy vRank) (fromJust cores)
-                
+
+                let minCube = map (map (sort . map (\a -> setAssignmentRankCopy a 0 0))) minCube'
+
                 ls <- get
                 if player == Existential
                 then put $ ls {
