@@ -20,6 +20,7 @@ module Utils.Utils (
     , update
     , lookupIndex
     , interMap
+    , interMapM
     , ungroupZip
     , paddedZip
     , fst3 , snd3 , thd3
@@ -130,6 +131,11 @@ lookupIndex x = findIndex (\(a, b) -> a == x)
 
 interMap :: [a] -> (b -> [a]) -> [b] -> [a]
 interMap x f bs = intercalate x (map f bs)
+
+interMapM :: Monad m => [a] -> (b -> m [a]) -> [b] -> m [a]
+interMapM x f bs = do
+    bs' <- mapM f bs
+    return $ intercalate x bs'
 
 ungroupZip :: [(a, [b])] -> [(a, b)]
 ungroupZip = concatMap (\(a, bs) -> map (\b -> (a, b)) bs)

@@ -60,7 +60,7 @@ unboundedLoop init spec def config satcalls k = do
     liftIO $ hPutStrLn stderr $ "Unbounded Loop " ++ show k
 
     ls <- get 
-    
+
     liftIO $ withFile ("debug/winningMay" ++ show (k-1)) WriteMode $ \h -> do
         forM (Map.toList (winningMay ls)) $ \(r, wm) -> do
             hPutStrLn h (show r)

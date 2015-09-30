@@ -14,6 +14,8 @@ module Utils.Logger (
     , logCandidate
     , logLostInPrefix
     , logSpec
+    , logDefaultMoves
+    , logWinning
     , putStrLnDbg
     ) where
 
@@ -57,23 +59,29 @@ data TraceCrumb = VerifyCrumb Int Int | RefineCrumb Int
 data DebugMode = NoDebug | FinalLogOnly | DumpLogs | LogEachRank deriving (Show, Eq, Enum)
 
 data Log = Log {
-      trace     :: Maybe SynthTrace
-    , crumb     :: [TraceCrumb]
-    , spec      :: Maybe CompiledSpec
-    , debugMode :: DebugMode
-    , auxLogs   :: Map.Map Int [(Bool, String)]
+      trace         :: Maybe SynthTrace
+    , crumb         :: [TraceCrumb]
+    , spec          :: Maybe CompiledSpec
+    , debugMode     :: DebugMode
+    , auxLogs       :: Map.Map Int [(Bool, String)]
+    , defaultMoves  :: [(String, String)]
+    , winningMay    :: [String]
+    , winningMust   :: [String]
     }
 
 emptyLog dm = Log {
-      trace     = Nothing
-    , crumb     = []
-    , spec      = Nothing
-    , debugMode = case dm of
+      trace         = Nothing
+    , crumb         = []
+    , spec          = Nothing
+    , debugMode     = case dm of
         0   -> NoDebug
         1   -> FinalLogOnly
         2   -> DumpLogs
         3   -> LogEachRank
-    , auxLogs   = Map.empty
+    , auxLogs       = Map.empty
+    , defaultMoves  = []
+    , winningMay    = []
+    , winningMust   = []
     }
 
 type LoggerT m = StateT Log m
@@ -98,9 +106,14 @@ logRank :: Int -> LoggerT IO ()
 logRank k = do
     Log{..} <- get
     let dumpFn = "debug/debug" ++ (show k) ++ ".html"
+    let indFn = "debug/debug.html"
     when (debugMode == LogEachRank && isJust trace && isJust spec) $ liftIO $ do
         withFile dumpFn WriteMode $ \h -> do
             renderHtmlToByteStringIO (BS.hPut h) (outputLog Nothing (fromJust spec) (fromJust trace))
+
+        withFile indFn WriteMode $ \h -> do
+            let mkMap = zip [1..]
+            renderHtmlToByteStringIO (BS.hPut h) (outputLogIndex k (mkMap defaultMoves) (mkMap winningMay) (mkMap winningMust) auxLogs)
 
 logRankAux :: String -> String -> Bool -> Int -> Int -> LoggerT IO ()
 logRankAux cube curr res k a = do
@@ -114,7 +127,8 @@ logRankAux cube curr res k a = do
             renderHtmlToByteStringIO (BS.hPut h) (outputLog (Just cube) (fromJust spec) (fromJust trace))
 
         withFile indFn WriteMode $ \h -> do
-            renderHtmlToByteStringIO (BS.hPut h) (outputLogIndex auxLogs)
+            let mkMap = zip [1..]
+            renderHtmlToByteStringIO (BS.hPut h) (outputLogIndex k (mkMap defaultMoves) (mkMap winningMay) (mkMap winningMust) auxLogs)
 
 logDumpLog :: LoggerT IO ()
 logDumpLog = do
@@ -124,13 +138,18 @@ logDumpLog = do
         withFile dumpFn WriteMode $ \h -> do
             renderHtmlToByteStringIO (BS.hPut h) (outputLog Nothing (fromJust spec) (fromJust trace))
 
-outputLogIndex aux = do
+outputLogIndex k dm winningMay winningMust aux = do
     H.head $ do
         H.title "TermiteSAT Trace Index"
         link ! rel "stylesheet" ! href "debug.css"
     H.body $ do
         forM_ (Map.toList aux) $ \(r, cubes) -> do
             h3 $ a ! A.href (stringValue ("debug" ++ show r ++ ".html")) $ fromString $ "Rank " ++ (show r)
+            case (lookup r dm) of
+                Just (u, e) -> do
+                    pre $ fromString u
+                    pre $ fromString e
+                Nothing     -> return ()
             forM_ (zip [0..] cubes) $ \(i, (res, cube)) -> do
                 a 
                     ! A.href (stringValue ("debug_aux" ++ show r ++ "_" ++ show i ++ ".html")) 
@@ -138,6 +157,32 @@ outputLogIndex aux = do
                     $ fromString (show cube)
                 br
                 br
+            h4 "winningMay"
+            pre $ fromString (fromMaybe "" (lookup r winningMay))
+            h4 "winningMust"
+            pre $ fromString (fromMaybe "" (lookup r winningMust))
+            br
+            br
+
+        let maxAuxRank = case (Map.keys aux) of
+                            []  -> 1
+                            ks  -> maximum ks
+        forM_ ([maxAuxRank..k]) $ \r -> do
+            h3 $ a ! A.href (stringValue ("debug" ++ show r ++ ".html")) $ fromString $ "Rank " ++ (show r)
+            case (lookup r dm) of
+                Just (u, e) -> do
+                    pre $ fromString u
+                    pre $ fromString e
+                Nothing     -> return ()
+            br
+            br
+            h4 "winningMay"
+            pre $ fromString (fromMaybe "" (lookup r winningMay))
+            h4 "winningMust"
+            pre $ fromString (fromMaybe "" (lookup r winningMust))
+            br
+            br
+
 
 
 outputLog comment spec trace = H.docTypeHtml $ do
@@ -344,3 +389,15 @@ putStrLnDbg :: MonadIO m  => Int -> String -> LoggerT m ()
 putStrLnDbg d s = do
     Log{..} <- get
     when (fromEnum debugMode >= d) $ liftIO $ putStrLn s
+
+logDefaultMoves :: MonadIO m => (String, String) -> LoggerT m ()
+logDefaultMoves s = do
+    log@Log{..} <- get
+    put $ log { defaultMoves = defaultMoves ++ [s] }
+
+logWinning :: MonadIO m => String -> String -> LoggerT m ()
+logWinning winMay winMust = do
+    log@Log{..} <- get
+    put $ log { winningMay  = winningMay ++ [winMay]
+              , winningMust = winningMust ++ [winMust]
+              }

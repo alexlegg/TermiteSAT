@@ -52,8 +52,6 @@ checkRank spec rnk s def config = do
     liftLog $ putStrLnDbg 1 $ "timeInEnodeB = " ++ (show ((fromInteger $ round $ (eB * 10)) / 10.0))
     liftLog $ putStrLnDbg 1 "----------------"
 
-    liftLog (logRank rnk)
-
     extraSatCalls <- if (isJust (initMin config) && isJust r && rnk <= fromJust (initMin config))
     then do
         let init    = fromJust (gtMove (gtRoot (snd (fromJust r))))
@@ -69,6 +67,14 @@ checkRank spec rnk s def config = do
     else return 0
 
     liftIO $ putStrLn "==================================================="
+
+    ls <- get 
+    let printSet = printMove spec . Just . sort . Set.toList
+    let wMayStr = interMap "\n--\n" (\(r, wm) -> interMap "\n" printSet (Set.toList wm)) (Map.toList (winningMay ls))
+    let wMustStr = interMap "\n" printSet (Set.toList (winningMust ls))
+    liftLog $ logWinning wMayStr wMustStr
+    
+    liftLog (logRank rnk)
 
     return (satCalls + extraSatCalls, isNothing r)
 
@@ -112,6 +118,11 @@ initDefaultMoves spec config rank s Nothing = do
         MLDefaultMoves n -> do
             initDefaultMoves' spec rank True s 
             replicateM_ (n-1) (initDefaultMoves' spec rank False s)
+
+            ls <- get
+            let uMoveStr = interMap "\n" (printMove spec . Just) (Map.elems (defaultUnMoves ls))
+            let eMoveStr = interMap "\n" (printMove spec . Just) (Map.elems (defaultExMoves ls))
+            liftLog $ logDefaultMoves (uMoveStr, eMoveStr)
         _ -> return ()
 
 initDefaultMoves' spec rank wipe s = do
@@ -160,9 +171,6 @@ initDefaultMoves' spec rank wipe s = do
                 return $ foldl (\m r -> Map.insert r someUnMove m) Map.empty [1..rank]
             else do
                 return $ defaultUnMoves ls
-
----    liftIO $ mapM (putStrLn . printMove spec . Just) (Map.elems defaultUn)
----    liftIO $ mapM (putStrLn . printMove spec . Just) (Map.elems defaultEx)
 
     ls <- get
     put $ ls { defaultUnMoves   = defaultUn }
