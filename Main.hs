@@ -6,7 +6,7 @@ import System.TimeIt
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
-import Control.Error
+import Control.Monad.Trans.Either
 import Data.Maybe
 import Data.String.Utils
 
@@ -34,7 +34,7 @@ data Option = InputFile String
 defaultConfig = Config {
       tslFile       = ""
     , bound         = Nothing
-    , debugMode     = 1
+    , debugMode     = 0
     , strategyFile  = Nothing
     , moveLearning  = MLDefaultMoves 2
     , initMin       = Nothing

@@ -61,17 +61,17 @@ unboundedLoop init spec def config satcalls k = do
 
     ls <- get 
 
-    liftIO $ withFile ("debug/winningMay" ++ show (k-1)) WriteMode $ \h -> do
-        forM (Map.toList (winningMay ls)) $ \(r, wm) -> do
-            hPutStrLn h (show r)
-            forM (Set.toList wm) $ \s ->
-                hPutStrLn h (printMove spec (Just (sort (Set.toList s))))
-            hPutStrLn h "--"
-        return ()
+---    liftIO $ withFile ("debug/winningMay" ++ show (k-1)) WriteMode $ \h -> do
+---        forM (Map.toList (winningMay ls)) $ \(r, wm) -> do
+---            hPutStrLn h (show r)
+---            forM (Set.toList wm) $ \s ->
+---                hPutStrLn h (printMove spec (Just (sort (Set.toList s))))
+---            hPutStrLn h "--"
+---        return ()
 
-    liftIO $ withFile ("debug/winningMust" ++ show (k-1)) WriteMode $ \h -> do
-        forM (Set.toList (winningMust ls)) $ \s ->
-            hPutStrLn h (printMove spec (Just (sort (Set.toList s))))
+---    liftIO $ withFile ("debug/winningMust" ++ show (k-1)) WriteMode $ \h -> do
+---        forM (Set.toList (winningMust ls)) $ \s ->
+---            hPutStrLn h (printMove spec (Just (sort (Set.toList s))))
 
     exWins <- checkInit k init (map Set.toList (Set.toList (winningMust ls))) (head (cg spec))
 
