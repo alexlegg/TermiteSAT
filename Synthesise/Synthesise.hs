@@ -12,7 +12,6 @@ import qualified Data.Set as Set
 import Data.List.Split
 import System.IO
 import System.CPUTime
-import Text.Printf
 
 import Utils.Logger
 import Utils.Utils
@@ -48,10 +47,6 @@ unbounded spec config = do
 
 unboundedLoop :: [Assignment] -> CompiledSpec -> Maybe ([[Assignment]], [[Assignment]]) -> Config -> Int -> Int -> SolverT (Maybe Int)
 unboundedLoop i spec def config satcalls k = do
-    liftIO $ putStrLn "-----"
-    liftIO $ putStrLn $ "Unbounded Loop " ++ show k
-    liftIO $ hPutStrLn stderr $ "Unbounded Loop " ++ show k
-
     ls <- get 
 
     exWins <- checkInit k i (map Set.toList (Set.toList (winningMust ls))) (head (cg spec))
@@ -69,7 +64,7 @@ unboundedLoop i spec def config satcalls k = do
             t2      <- liftIO $ getCPUTime
             let t   = fromIntegral (t2-t1) * 1e-12 :: Double
 
-            liftIO $ printf "checkRank : %6.2fs\n" t
+            liftLog $ putStrLnDbg 1 $ "checkRank: " ++ show t ++ "s"
 
             if r
             then finishedLoop (Just k) (sc + satcalls) --Counterexample exists for Universal player
@@ -80,7 +75,7 @@ unboundedLoop i spec def config satcalls k = do
 
 finishedLoop :: Maybe Int -> Int -> SolverT (Maybe Int)
 finishedLoop r satcalls = do
-    liftIO $ putStrLn $ "Total SAT Calls: " ++ (show satcalls)
+    liftLog $ putStrLnDbg 1 $ "Total SAT Calls: " ++ (show satcalls)
     return r
 
 synthesise' :: Int -> ParsedSpec -> Config -> LearningType -> ExpressionT (LoggerT IO) (Maybe Int)

@@ -57,8 +57,6 @@ checkRank spec rnk s def config = do
         return sc
     else return 0
 
-    liftIO $ putStrLn "==================================================="
-
     ls <- get 
     let printSet = printMove spec . Just . sort . Set.toList
     let wMayStr = interMap "\n--\n" (\(_, wm) -> interMap "\n" printSet (Set.toList wm)) (Map.toList (winningMay ls))
@@ -268,7 +266,7 @@ learnWinning spec player _ (gtUnsetNodes -> gt:[]) = do
     -- Learn from the highest node under the fixed prefix
     core <- getLosingStates spec player gt
     case core of
-        Just [] -> liftIO $ putStrLn "empty core"
+        Just [] -> liftLog $ putStrLnDbg 1 "empty core"
         Just c  -> interpolateTree spec player c True (gtExtend (gtRebase 0 gt))
         Nothing -> do
             -- Can't find a core, so we must have lost in the prefix

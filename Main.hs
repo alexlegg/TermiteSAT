@@ -54,26 +54,24 @@ addOption (InitMinimisation i)  c   = c {initMin = Just (read i)}
 addOption (StratShortening s) c     = maybe c (\x -> c {shortening = toEnum (read x)}) s
 
 main :: IO ()
-main = do
-    putStrLn "------------------------------------"
-    putStrLn "TermiteSAT  v0.1"
-    timeIt $ mainTimed
+main = timeIt $ mainTimed
 
 mainTimed :: IO ()
 mainTimed = do
     getConfig >>= \case
         Left e          -> putStrLn e
         Right config    -> do
-            putStrLn $ "TSL file    " ++ tslFile config
-            putStrLn $ "Solver Type " ++ show (solverType config)
-            putStrLn $ "Debug Mode  " ++ case (debugMode config) of
-                0 -> "No output"
-                1 -> "Print log"
-                2 -> "Continuous log dumping"
-                3 -> "Log each rank (unbounded)"
-                _ -> "Log each rank (unbounded)"
-            putStrLn $ "Shortening  " ++ show (shortening config)
-            putStrLn $ "Move Learning " ++ show (moveLearning config)
+            when (debugMode config > 0) $ do
+                putStrLn $ "TSL file    " ++ tslFile config
+                putStrLn $ "Solver Type " ++ show (solverType config)
+                putStrLn $ "Debug Mode  " ++ case (debugMode config) of
+                    0 -> "No output"
+                    1 -> "Print log"
+                    2 -> "Continuous log dumping"
+                    3 -> "Log each rank (unbounded)"
+                    _ -> "Log each rank (unbounded)"
+                putStrLn $ "Shortening  " ++ show (shortening config)
+                putStrLn $ "Move Learning " ++ show (moveLearning config)
 
             clearLogDir (debugMode config)
             f   <- readFile (tslFile config)

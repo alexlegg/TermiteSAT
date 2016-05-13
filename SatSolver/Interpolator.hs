@@ -87,7 +87,6 @@ interpolate mc project a b = do
     t2  <- liftIO $ getCPUTime
     let t = fromIntegral (t2-t1) * 1e-12 :: Double
     liftIO $ modifyIORef totalTime (\total -> t + total)
----    liftIO $ putStrLn $ "int " ++ (show ((fromInteger $ round $ (t * 10)) / 10.0))
     return r
 
 interpolate' :: Int -> [Int] -> Expression -> Expression -> SolverT InterpolantResult

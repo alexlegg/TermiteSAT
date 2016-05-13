@@ -59,7 +59,6 @@ module Expression.Expression (
     , assignmentToVar
     , setVarRank
     , getCachedStepDimacs
-    , analyseManagers
     , flipAssignment
     , assignmentSection
     , assignmentRank
@@ -341,11 +340,6 @@ insertExpression' c e = do
     when (nextIndex cm' >= maxIndex cm') $ do
         --Throw away all copy managers > c
         mgr <- get
-        let maxCopies = IMap.size (copyManagers mgr)
-
-        when (c+1 < maxCopies) $ do
-            liftIO $ putStrLn ("Flushing managers: " ++ show (c+1) ++ " - " ++ show maxCopies)
-            --analyseManagers
 
         let copyManagers' = IMap.filterWithKey (\k _ -> k <= c) (copyManagers mgr)
         when (copyManagers mgr /= copyManagers') $ do
@@ -843,18 +837,3 @@ makeVector e = case exprType e of
         (x:_)   = cs
         litc (Var Pos v) = fromIntegral v
         litc (Var Neg v) = fromIntegral (-v)
-
-analyseManagers :: MonadIO m => ExpressionT m ()
-analyseManagers = do
-    ExprManager{..} <- get
-    liftIO $ putStrLn $ "Total copy managers: " ++ show (IMap.size copyManagers)
-    forM_ [0..(IMap.size copyManagers)-1] analyseCopyManager
-    return ()
-
-analyseCopyManager :: MonadIO m => Int -> ExpressionT m ()
-analyseCopyManager i = do
-    CopyManager{..} <- getCopyManager i
-    liftIO $ putStrLn $ "Manager " ++ (show i)
-    liftIO $ putStrLn $ "  Next: " ++ (show nextIndex)
-    liftIO $ putStrLn $ "  Max: " ++ (show maxIndex)
-    liftIO $ putStrLn $ "  Unused: " ++ (show (maxIndex - nextIndex))
