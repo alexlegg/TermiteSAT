@@ -62,11 +62,9 @@ executable TermiteSAT
                         , transformers
                         , either
                         , monad-loops
-                        , tuple
                         , bytestring
                         , blaze-html
                         , timeit
-                        , array
                         , vector
                         , split
                         , directory
@@ -96,14 +94,13 @@ executable TermiteSAT-prof
                         , transformers
                         , either
                         , monad-loops
-                        , tuple
                         , bytestring
                         , blaze-html
                         , timeit
-                        , array
                         , vector
                         , split
                         , directory
+
   else
     buildable:          False
 
