@@ -9,14 +9,15 @@ import Foreign
 import Foreign.C.Types
 import Control.Monad.State
 import qualified Data.Vector.Storable as SV
-import Expression.Expression hiding (exprChildren)
-import SatSolver.Enode
-import Synthesise.SolverT
-import System.TimeIt
+import Data.Maybe
 import Data.IORef
 import Data.List
 import System.IO.Unsafe
 import System.CPUTime
+
+import Expression.Expression hiding (exprChildren)
+import SatSolver.Enode
+import Synthesise.SolverT
 
 data PeriploSolver
 data Enode
@@ -89,6 +90,7 @@ interpolate mc project a b = do
 ---    liftIO $ putStrLn $ "int " ++ (show ((fromInteger $ round $ (t * 10)) / 10.0))
     return r
 
+interpolate' :: Int -> [Int] -> Expression -> Expression -> SolverT InterpolantResult
 interpolate' mc project a b = do
     ctx <- liftIO $ c_newSolver
 
@@ -98,8 +100,6 @@ interpolate' mc project a b = do
     tA2     <- liftIO $ getCPUTime
     let tA = fromIntegral (tA2-tA1) * 1e-12 :: Double
     liftIO $ modifyIORef enodeATime (\total -> tA + total)
-
----    liftIO $ putStrLn $ "intA " ++ (show ((fromInteger $ round $ (tA * 10)) / 10.0))
 
     if (rA == 0)
     then do
@@ -116,8 +116,6 @@ interpolate' mc project a b = do
         let tB = fromIntegral (tB2-tB1) * 1e-12 :: Double
         liftIO $ modifyIORef enodeBTime (\total -> tB + total)
 
----        liftIO $ putStrLn $ "intB " ++ (show ((fromInteger $ round $ (tB * 10)) / 10.0))
-
         if (rB == 1)
         then do
             liftIO $ c_deleteSolver ctx
@@ -130,8 +128,7 @@ interpolate' mc project a b = do
             r <- liftIO $ SV.unsafeWith pv (\ps -> c_interpolate ctx ps (fromIntegral (SV.length pv)) enodeA enodeB)
             liftIO $ c_deleteSolver ctx
 
-            let succ = (r /= nullPtr)
-            i   <- if succ 
+            i   <- if r /= nullPtr
                 then do 
                     assignments <- liftIO $ cubesToAssignments r
                     liftM Just $ forM assignments $ \vs -> do
@@ -144,22 +141,23 @@ interpolate' mc project a b = do
             when (r /= nullPtr) $ liftIO $ freeCubes r
 
             return $ InterpolantResult {
-                success     = succ,
+                success     = isJust i,
                 interpolant = i
             }
 
 exprToEnode :: Ptr PeriploSolver -> Int -> Expr -> [(Sign, Ptr Enode)] -> IO (Ptr Enode)
-exprToEnode ctx i (ELit _) []       = c_mkVariable ctx (fromIntegral i)
-exprToEnode ctx i (ENot _) (c:[])   = c_mkNegation ctx (snd c)
-exprToEnode ctx i (EConjunct _) cs  = do
+exprToEnode ctx i (ELit _) _        = c_mkVariable ctx (fromIntegral i)
+exprToEnode ctx _ (ENot _) (c:[])   = c_mkNegation ctx (snd c)
+exprToEnode _ _ (ENot _) _          = error "Error in exprToEnode"
+exprToEnode ctx _ (EConjunct _) cs  = do
     let (ps, ns) = partition ((==) Pos . fst) cs
     ns' <- mapM (c_mkNegation ctx) (map snd ns)
     let lits = map snd ps ++ ns'
     SV.unsafeWith (SV.fromList lits) (c_mkConjunct ctx (fromIntegral (length lits)))
-exprToEnode ctx i (EDisjunct _) cs  = do
+exprToEnode ctx _ (EDisjunct _) cs  = do
     let (ps, ns) = partition ((==) Pos . fst) cs
     ns' <- mapM (c_mkNegation ctx) (map snd ns)
     let lits = map snd ps ++ ns'
     SV.unsafeWith (SV.fromList lits) (c_mkDisjunct ctx (fromIntegral (length lits)))
-exprToEnode ctx i (ETrue) _         = c_mkTrue ctx
-exprToEnode ctx i (EFalse) _        = c_mkFalse ctx
+exprToEnode ctx _ (ETrue) _         = c_mkTrue ctx
+exprToEnode ctx _ (EFalse) _        = c_mkFalse ctx

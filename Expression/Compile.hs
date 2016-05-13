@@ -11,7 +11,6 @@ import Control.Monad.State
 import Control.Monad.Trans.Either
 import Data.List
 import Data.Maybe
-import qualified Data.Map as Map
 
 import qualified Expression.HAST as HAST
 import Expression.AST
@@ -51,6 +50,7 @@ compileInit ((v, val):vs)   = zipWith Assignment signs (map (makeVar v) bits) ++
                 Just (s, e) -> [s..e]
         signs = makeSignsFromValue val (length bits)
 
+compileHVar :: MonadIO m => HAST.ASTVar VarInfo t VarInfo -> ExpressionT m [ExprVar]
 compileHVar (HAST.FVar f) = do
     return $ map (makeVar f) [0..((sz f)-1)]
 
@@ -63,6 +63,7 @@ compileHVar (HAST.NVar v) = do
                 Just (s, e) -> [s..e]
     return $ map (makeVar v) bits
 
+makeVar :: VarInfo -> Int -> ExprVar
 makeVar vi bit = ExprVar {
     varname = name vi,
     varsect = section vi,
@@ -71,6 +72,7 @@ makeVar vi bit = ExprVar {
     ecopy   = 0
     }
     
+makeConditions :: MonadIO m => [Expression] -> ExpressionT m [Expression]
 makeConditions xs = do
     mapM f (tail (inits xs))
     where
@@ -110,7 +112,7 @@ compile (HAST.Disj xs) = do
     xs' <- mapM compile xs
     disjunct xs'
 
-compile (HAST.XOr a b) = do
+compile (HAST.XOr _ _) = do
     throwError "XOr not implemented"
 
 compile (HAST.XNor a b) = do
@@ -162,9 +164,11 @@ compileAIG (latches, gates) vMap = do
     cLatches    <- mapM (mapSndM (aigToExpression vMap cGates)) latches
     mapM latchToExpression cLatches
 
+aigVar :: Int -> Int
 aigVar x    | odd x     = x - 1
             | otherwise = x
 
+aigSign :: Int -> Bool
 aigSign x   | odd x     = False
             | otherwise = True
 
@@ -176,6 +180,7 @@ compileGates vMap done gates = do
         then return done'
         else compileGates vMap done' gates'
 
+compileGate :: MonadIO m => [(Int, AST)] -> [(Int, Expression)] -> (Int, Int, Int) -> ExpressionT m [(Int, Expression)]
 compileGate vMap done (i, a, b) = do
     ae <- aigToExpression vMap done a
     be <- aigToExpression vMap done b
@@ -186,6 +191,7 @@ compileGate vMap done (i, a, b) = do
             return ((i, c) : done)
         else return done
 
+aigToExpression :: MonadIO m => [(Int, AST)] -> [(Int, Expression)] -> Int -> ExpressionT m (Maybe Expression)
 aigToExpression _ _ 0 = do
     f <- falseExpr
     return (Just f)
@@ -208,11 +214,13 @@ aigToExpression vMap done v = do
                     then return l
                     else negation l
                 return (Just s)
-            Nothing -> return Nothing
+            _       -> return Nothing
 
+latchToExpression :: (MonadIO m) => (AST, Maybe Expression) -> ExpressionT m Expression
 latchToExpression (HAST.Var v, e) = do
     v' <- compileHVar v
     when (length v' /= 1) $ throwError "Var must be of size 1"
     l   <- literal (head v')
     when (isNothing e) $ throwError $ "Could not compile latch"
     equate l (fromJust e)
+latchToExpression _ = throwError "Latch is not a Var"

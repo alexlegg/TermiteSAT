@@ -5,17 +5,16 @@ module Expression.ParseAIG (
 
 import Prelude hiding (init)
 import Control.Monad
-import Text.Read hiding (Symbol)
 import Data.EitherR
 import Data.Maybe
 import Data.List hiding (init)
 import Data.String.Utils
+import Text.Parsec hiding (space, spaces)
+
+import Utils.Utils
+import qualified Expression.HAST as HAST
 import Expression.Parse(ParsedSpec(..))
 import Expression.AST
-import qualified Expression.HAST as HAST
-import Text.Parsec hiding (space, spaces)
-import Utils.Utils
-import Debug.Trace
 
 data AIG = AIG [Input] [Latch] [Output] [Gate]
     deriving (Show, Eq)
@@ -27,12 +26,20 @@ data Latch  = Latch Int Int (Maybe String)  deriving (Show, Eq)
 data Output = Output Int (Maybe String)     deriving (Show, Eq)
 data Gate   = Gate Int Int Int              deriving (Show, Eq)
 
+gateToTuple :: Gate -> (Int, Int, Int)
 gateToTuple (Gate x y z) = (x, y, z)
 
-inputId (Input i _)     = i
-latchId (Latch i _ _)   = i
-outputId (Output i _)   = i
-gateId (Gate i _ _)     = i
+inputId :: Input -> Int
+inputId (Input i _) = i
+
+latchId :: Latch -> Int
+latchId (Latch i _ _) = i
+
+outputId :: Output -> Int
+outputId (Output i _) = i
+
+gateId :: Gate -> Int
+gateId (Gate i _ _) = i
 
 data SymTyp = ISym Int | LSym Int | OSym Int
     deriving (Show, Eq)
@@ -65,7 +72,7 @@ parser fn f = do
     let aigOutput (Output i n)      = (makeVarAST (makeVar (varName "_o" i n) StateVar 0), i)
 
     let spec = ParsedSpec {
-          init      = makeEqualsZero sVars
+          initial   = zip sVars (repeat 0)
         , goal      = makeVarAST (head oVars)
         , ucont     = Nothing
         , trans     = ts ++ [o]
@@ -78,17 +85,25 @@ parser fn f = do
 
     Right spec
 
+inputVarType :: Maybe String -> Section
 inputVarType Nothing                = UContVar
 inputVarType (Just nm)
     | startswith "controllable_" nm = UContVar
     | otherwise                     = ContVar
 
-makeInputVar (Input i n)    = makeVar (varName "_i" i n) (inputVarType n) 1
-makeLatchVar (Latch i _ n)  = makeVar (varName "_l" i n) StateVar 1
-makeOutputVar (Output i n)  = makeVar (varName "_o" i n) StateVar 1
+makeInputVar :: Input -> VarInfo
+makeInputVar (Input i n) = makeVar (varName "_i" i n) (inputVarType n) 1
 
+makeLatchVar :: Latch -> VarInfo
+makeLatchVar (Latch i _ n) = makeVar (varName "_l" i n) StateVar 1
+
+makeOutputVar :: Output -> VarInfo
+makeOutputVar (Output i n) = makeVar (varName "_o" i n) StateVar 1
+
+varName :: String -> Int -> Maybe String -> String
 varName pre i nm = fromMaybe "" nm ++ pre ++ show i
 
+makeVar :: String -> Section -> Int -> VarInfo
 makeVar nm sect r = VarInfo {
       name      = fromMaybe nm (stripPrefix "controllable_" nm)
     , sz        = 1
@@ -98,10 +113,10 @@ makeVar nm sect r = VarInfo {
     , enum      = Nothing
     }
 
-makeEqualsZero vars = map (\v -> (v, 0)) vars
-
+makeVarAST :: VarInfo -> HAST.AST VarInfo e c v
 makeVarAST var = HAST.Var (HAST.FVar var)
 
+varId :: Int -> Int
 varId x | odd x     = x - 1
         | otherwise = x
 
@@ -112,26 +127,31 @@ makeGates done gates    = makeGates (done ++ map (gateId >< fromJust) done') (ma
         loop            = map (makeGate done) gates
         (done', gates') = partition (isJust . snd) (zip gates loop)
 
+setSign :: Int -> HAST.AST VarInfo e c v -> HAST.AST VarInfo e c v
 setSign x ast | x <= 1      = ast
               | odd x       = HAST.Not ast
               | otherwise   = ast
 
-makeGate done (Gate i x y) = case (x', y') of
+makeGate :: [(Int, HAST.AST VarInfo e c v)] -> Gate -> Maybe (HAST.AST VarInfo e c v)
+makeGate done (Gate _ x y) = case (x', y') of
     (Just xd, Just yd)  -> Just (HAST.And (setSign x xd) (setSign y yd))
     _                   -> Nothing
     where
         x'  = lookupDone done x
         y'  = lookupDone done y
 
-lookupDone done 0 = Just HAST.F
-lookupDone done 1 = Just HAST.T
-lookupDone done i = lookup (varId i) done
+lookupDone :: [(Int, HAST.AST f e c v)] -> Int -> Maybe (HAST.AST f e c v)
+lookupDone _ 0      = Just HAST.F
+lookupDone _ 1      = Just HAST.T
+lookupDone done i   = lookup (varId i) done
 
+makeLatch :: [(Int, HAST.AST VarInfo e c v)] -> Latch -> HAST.AST VarInfo e c v
 makeLatch done (Latch i x nm) = HAST.XNor var (setSign x x')
     where
         var     = makeVarAST $ makeVar (varName "_l" i nm) StateVar 0
         Just x' = lookupDone done x
 
+makeOutput :: [(Int, HAST.AST VarInfo e c v)] -> Output -> HAST.AST VarInfo e c v
 makeOutput done (Output i nm) = HAST.XNor var (setSign i x')
     where
         var     = makeVarAST $ makeVar (varName "_o" i nm) StateVar 0
@@ -139,8 +159,9 @@ makeOutput done (Output i nm) = HAST.XNor var (setSign i x')
 
 -- AIG Parsing
 
+aig :: Monad m => ParsecT String u m AIG
 aig = do
-    Header m i l o a    <- header
+    Header _ i l o a    <- header
     inputs              <- count i input
     latches             <- count l latch
     outputs             <- count o output
@@ -154,6 +175,7 @@ aig = do
 
     return $ AIG inputs' latches' outputs' gates
 
+header :: Monad m => ParsecT String u m Header
 header = Header <$ string "aag" <* spaces
     <*> number <* spaces
     <*> number <* spaces
@@ -161,51 +183,53 @@ header = Header <$ string "aag" <* spaces
     <*> number <* spaces
     <*> number <* eol
 
+makeSymTab :: Symbol -> (SymTyp, String)
 makeSymTab (Symbol t n) = (t, n)
 
 setSymbol :: [(SymTyp, String)] -> SymTyp -> (Maybe String -> a) -> a
 setSymbol st i f = f (lookup i st)
 
-input   = Input <$> number <* eol
-latch   = Latch <$> number <* spaces <*> number <* eol
-output  = Output <$> number <* eol
-gate    = Gate <$> number <* spaces <*> number <* spaces <*> number <* eol
+input :: Monad m => ParsecT String u m (Maybe String -> Input)
+input = Input <$> number <* eol
 
+latch :: Monad m => ParsecT String u m (Maybe String -> Latch)
+latch = Latch <$> number <* spaces <*> number <* eol
+
+output :: Monad m => ParsecT String u m (Maybe String -> Output)
+output = Output <$> number <* eol
+
+gate :: Monad m => ParsecT String u m Gate
+gate = Gate <$> number <* spaces <*> number <* spaces <*> number <* eol
+
+symbol :: Monad m => ParsecT String u m Symbol
 symbol  = Symbol <$> (iSymbol <|> lSymbol <|> oSymbol) <* spaces <*> identifier <* eol
 
+iSymbol :: Monad m => ParsecT String u m SymTyp
 iSymbol = ISym <$ char 'i' <*> number
+
+lSymbol :: Monad m => ParsecT String u m SymTyp
 lSymbol = LSym <$ char 'l' <*> number
+
+oSymbol :: Monad m => ParsecT String u m SymTyp
 oSymbol = OSym <$ char 'o' <*> number
 
-space       = satisfy isSpace <?> "space"
-spaces      = skipMany space <?> "white space"
-eol         = spaces <* endOfLine
-number      = liftM read (many1 digit)
-identifier  = many1 (noneOf "\n\r")
+space :: Monad m => ParsecT String u m Char
+space = satisfy isSpace <?> "space"
+
+spaces :: Monad m => ParsecT String u m ()
+spaces = skipMany space <?> "white space"
+
+eol :: Monad m => ParsecT String u m ()
+eol = spaces <* endOfLine
+
+number :: Monad m => ParsecT String u m Int
+number = liftM read (many1 digit)
+
+identifier :: Monad m => ParsecT String u m String
+identifier = many1 (noneOf "\n\r")
 
 -- Definition is different than normal, we don't want to consume newlines
+isSpace :: Char -> Bool
 isSpace ' '     = True
 isSpace '\t'    = True
 isSpace _       = False
-
-preprocess gates = map replaceAll gates
-    where
-        rMap                    = catMaybes (map findSingleGates gates)
-        gateInd (Gate i _ _)    = i
-        replaceAll (Gate i x y) = Gate i (replace x) (replace y)
-        fixSign x x'            
-            | odd x && odd x'   = x' - 1
-            | odd x && even x'  = x' + 1
-            | even x            = x'
-        replace x               = case (lookup (varId x) rMap) of
-                                    Just x' -> fixSign x x'
-                                    Nothing -> x
-
-findSingleGates (Gate i x y) = if x == y then Just (i, x) else Nothing
-
-printHAST HAST.T = "T"
-printHAST HAST.F = "F"
-printHAST (HAST.And a b)    = "(" ++ printHAST a ++ " && " ++ printHAST b ++ ")"
-printHAST (HAST.Not x)      = "not(" ++ printHAST x ++ ")"
-printHAST (HAST.XNor a b)   = printHAST a ++ " := " ++ printHAST b
-printHAST (HAST.Var (HAST.FVar x))  = (name x)

@@ -27,7 +27,7 @@ executable TermiteSAT
                         , Synthesise.Synthesise
                         , Synthesise.GameTree
                         , Synthesise.GameFormula
-                        , Synthesise.Strategy
+                        , Synthesise.Config
                         , Utils.Logger
                         , Utils.Utils
                         , Expression.Parse
@@ -48,6 +48,7 @@ executable TermiteSAT
 
   ghc-options:          -O2
                         -threaded
+                        -Wall
 
   build-depends:          base
                         , MissingH
@@ -79,7 +80,7 @@ executable TermiteSAT
                         , stdc++
                         , gmpxx
                         , gmp
-  ld-options:           -static -pthread
+  ld-options:           -pthread
 
 executable TermiteSAT-prof
   if flag(profiling)
@@ -113,7 +114,6 @@ executable TermiteSAT-prof
                         , Synthesise.Synthesise
                         , Synthesise.GameTree
                         , Synthesise.GameFormula
-                        , Synthesise.Strategy
                         , Utils.Logger
                         , Utils.Utils
                         , Expression.Parse

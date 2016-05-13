@@ -13,7 +13,6 @@ module SatSolver.Enode (
 import Foreign
 import Foreign.C
 import Data.Maybe
-import Control.Monad (forM)
 import Expression.Expression (Sign(..))
 
 #include "periplo_wrapper.h"
@@ -41,10 +40,7 @@ data EnodeStruct = EnodeStruct
     , enodeArity    :: !CInt
     } deriving (Show)
 
-data AssignmentStruct = AssignmentStruct
-    { assignmentSign    :: !CInt
-    , assignmentVarId   :: !CInt
-    } deriving (Show, Eq)
+data AssignmentStruct = AssignmentStruct !CInt !CInt deriving (Show, Eq)
 
 #let alignment t = "%lu", (unsigned long)offsetof(struct {char x__; t (y__); }, y__)
 
@@ -145,7 +141,7 @@ freeEnodeStruct p = do
 
         _               -> do
             cs <- peekArray (fromIntegral (enodeArity s)) (enodeChildren s)
-            mapM freeEnodeStruct cs
+            mapM_ freeEnodeStruct cs
             free (enodeChildren s)
             free p
 
@@ -175,5 +171,5 @@ cubesToAssignments p = do
 freeCubes :: Ptr (Ptr AssignmentStruct) -> IO ()
 freeCubes p = do
     cubes <- peekArray0 nullPtr p
-    mapM free cubes
+    mapM_ free cubes
     free p

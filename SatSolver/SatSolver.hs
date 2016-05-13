@@ -15,15 +15,13 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Loops
 import qualified Data.Vector.Storable as SV
-import qualified Data.IntSet as ISet
-import Data.Maybe
-import Expression.Expression
-import Synthesise.SolverT
-import Synthesise.GameTree
-import Utils.Utils
 import System.TimeIt
 import Data.IORef
 import System.IO.Unsafe
+
+import Utils.Utils
+import Synthesise.SolverT
+import Expression.Expression
 
 data GlucoseSolver
 
@@ -56,7 +54,10 @@ totalSATCalls = do
 unsatisfiable :: SatResult -> Bool
 unsatisfiable = not . satisfiable
 
+var :: Var -> Int
 var (Var _ v)   = v
+
+sign :: Var -> Sign
 sign (Var s _)  = s
 
 satSolve :: Int -> Maybe [Assignment] -> Expression -> SolverT SatResult
@@ -64,11 +65,12 @@ satSolve mc a e = do
     maxId       <- liftE $ getMaxId mc
     clauses     <- toDimacs mc e
     assumptions <- liftE $ maybeM [] (mapM (assignmentToVar mc)) a
-    let as      = map (\a -> if sign a == Pos then var a else -(var a)) assumptions
+    let as      = map (\x -> if sign x == Pos then var x else -(var x)) assumptions
+
     (time, res) <- liftIO $ timeItT $ callSolver maxId as clauses
----    liftIO $ putStrLn $ "sat " ++ (show ((fromInteger $ round $ (time * 10)) / 10.0))
     liftIO $ modifyIORef totalTime (time +)
     liftIO $ modifyIORef totalCalls (1 +)
+
     return res
 
 dumpDimacs :: Int -> Expression -> FilePath -> SolverT ()
@@ -80,28 +82,29 @@ dumpDimacs mc e fp = do
     liftIO $ writeFile fp (p ++ d)
     
 
-callSolver max assumptions clauses = do
+callSolver :: Int -> [Int] -> [SV.Vector CInt] -> IO SatResult
+callSolver maxId assumptions clauses = do
     solver <- c_glucose_new
 
     -- Add one var so we can ignore 0
     c_glucose_addVar solver
 
     -- Add enough vars for our clause set
-    replicateM_ max (c_glucose_addVar solver)
+    replicateM_ maxId (c_glucose_addVar solver)
 
     -- Add assumptions
     addAssumptions solver assumptions
 
     -- Add the clauses
-    allM (addClause solver) clauses
+    _ <- allM (addClause solver) clauses
 
     -- Get the result
     res <- c_solve solver
-    model <- if res 
+    m <- if res 
         then liftM Just $ getModel solver 
         else return Nothing
 
-    conflicts <- if not res
+    cs <- if not res
         then liftM Just $ getConflicts solver
         else return Nothing
 
@@ -110,10 +113,11 @@ callSolver max assumptions clauses = do
 
     return $ SatResult {
         satisfiable = res,
-        model = fmap (map fromIntegral) model,
-        conflicts = fmap (map fromIntegral) conflicts
+        model       = fmap (map fromIntegral) m,
+        conflicts   = fmap (map fromIntegral) cs
         }
 
+toDimacs :: Int -> Expression -> SolverT [SV.Vector CInt]
 toDimacs mc e = do
     dimacs <- liftE $ getCachedStepDimacs mc e
     return (SV.singleton (fromIntegral (exprIndex e)) : dimacs)
@@ -123,24 +127,19 @@ minimiseCore mc a e = do
     maxId       <- liftE $ getMaxId mc 
     clauses     <- toDimacs mc e
     assumptions <- liftE $ maybeM [] (mapM (assignmentToVar mc)) a
-    let as      = map (\a -> if sign a == Pos then var a else -(var a)) assumptions
-
----    forM_ clauses $ \cl -> do
----        forM_ (SV.toList cl) $ \l -> do
----            when ((abs (fromIntegral l)) > maxId) $ do
----                throwError "lit larger than maxid"
+    let as      = map (\x -> if sign x == Pos then var x else -(var x)) assumptions
 
     doMinimiseCore maxId as clauses
 
 doMinimiseCore :: Int -> [Int] -> [SV.Vector CInt] -> SolverT (Maybe [[Int]])
-doMinimiseCore max assumptions clauses = do
+doMinimiseCore maxId assumptions clauses = do
     solver <- liftIO $ c_glucose_new
 
-    liftIO $ replicateM_ (max+1) (c_glucose_addVar solver)
+    liftIO $ replicateM_ (maxId+1) (c_glucose_addVar solver)
 
     liftIO $ addAssumptions solver assumptions
 
-    liftIO $ allM (addClause solver) clauses
+    _ <- liftIO $ allM (addClause solver) clauses
 
     res <- liftIO $ c_solve solver
 
@@ -151,13 +150,14 @@ doMinimiseCore max assumptions clauses = do
         return Nothing
     else do
         --UNSAT, try with no core
-        conflicts <- liftIO $ getConflicts solver
+        cs <- liftIO $ getConflicts solver
+
         liftIO $ c_clearAssumptions solver
         noCore <- liftIO $ c_solve solver
 
         if noCore
         then do
-            liftIO $ addAssumptions solver conflicts
+            liftIO $ addAssumptions solver cs
             coresPtr    <- liftIO $ c_minimise_core solver
             coresPtrs   <- liftIO $ peekArray0 nullPtr coresPtr
 
@@ -174,22 +174,26 @@ doMinimiseCore max assumptions clauses = do
             liftIO $ c_glucose_delete solver
             return (Just [])
 
+addAssumptions :: Integral a => Ptr GlucoseSolver -> [a] -> IO ()
 addAssumptions solver ass = do
     forM_ ass (c_addAssumption solver . fromIntegral)
 
+addClause :: Ptr GlucoseSolver -> SV.Vector CInt -> IO Bool
 addClause solver clause = do
     SV.unsafeWith clause (c_addClauseVector solver (fromIntegral (SV.length clause)))
 
+getModel :: Ptr GlucoseSolver -> IO [CInt]
 getModel solver = do
-    model <- c_model solver
-    res <- peekArray0 0 model
-    free model
-    return res
+    p <- c_model solver
+    m <- peekArray0 0 p
+    free p
+    return m
 
+getConflicts :: Ptr GlucoseSolver -> IO [CInt]
 getConflicts solver = do
-    conflicts <- c_conflicts solver
-    res <- peekArray0 0 conflicts
-    free conflicts
+    cs <- c_conflicts solver
+    res <- peekArray0 0 cs
+    free cs
     return res
 
 foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h glucose_new"
@@ -206,9 +210,6 @@ foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h addAssumption"
 
 foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h clearAssumptions"
     c_clearAssumptions :: Ptr GlucoseSolver -> IO ()
-
-foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h addClause_addLit"
-    c_addClause_addLit :: Ptr GlucoseSolver -> CInt -> IO ()
 
 foreign import ccall unsafe "glucose_wrapper/glucose_wrapper.h addClauseVector"
     c_addClauseVector :: Ptr GlucoseSolver -> CInt -> Ptr CInt -> IO Bool

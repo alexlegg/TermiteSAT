@@ -2,7 +2,7 @@
 module Synthesise.GameTree (
       GameTree
     , Player(..)
-    , Move(..)
+    , Move
     , printMove
     , printVar
     , opponent
@@ -56,8 +56,6 @@ module Synthesise.GameTree (
     , gtSetExprIds
     , projectMoves
     , appendChild
-    , gtAppendMove
-    , gtAppendMoveU
     , appendNextMove
     , normaliseCopies
     , gtSplit
@@ -69,22 +67,18 @@ module Synthesise.GameTree (
 import Data.Maybe
 import Data.List
 import Data.Tuple (swap)
-import qualified Data.Map as Map
+import Control.Monad
+
 import Utils.Utils
 import Expression.Expression
 import Expression.Compile
 import Expression.AST
-import Control.Monad
-import qualified Debug.Trace as D
 
 data Player = Existential | Universal deriving (Show, Eq)
 
+opponent :: Player -> Player
 opponent Existential    = Universal
 opponent Universal      = Existential
-
-instance Show Assignment where
-    show (Assignment Pos v) = show v
-    show (Assignment Neg v) = '-' : show v
 
 type Move = Maybe [Assignment]
 
@@ -98,32 +92,32 @@ data Node (t :: NodeType) (p :: Player) where
         , uState        :: Move
         , uExWins       :: Maybe Bool
         , uExprId       :: (Maybe Int, Maybe Int)
-        , uChildren     :: [Node InternalNode Existential]
-    } -> Node InternalNode Universal
+        , uChildren     :: [Node 'InternalNode 'Existential]
+    } -> Node 'InternalNode 'Universal
 
     E :: {
           eCopy         :: Int
         , eNodeId       :: Int
         , eMove         :: Move
         , eExprId       :: (Maybe Int, Maybe Int)
-        , eChildren     :: [Node InternalNode Universal]
-    } -> Node InternalNode Existential
+        , eChildren     :: [Node 'InternalNode 'Universal]
+    } -> Node 'InternalNode 'Existential
 
     SU :: {
           suCopy        :: Int
         , suNodeId      :: Int
         , suState       :: Move
         , suExprId      :: (Maybe Int, Maybe Int)
-        , suChildren    :: [Node InternalNode Existential]
-    } -> Node RootNode Universal
+        , suChildren    :: [Node 'InternalNode 'Existential]
+    } -> Node 'RootNode 'Universal
 
     SE :: {
           seCopy        :: Int
         , seNodeId      :: Int
         , seState       :: Move
         , seExprId      :: (Maybe Int, Maybe Int)
-        , seChildren    :: [Node InternalNode Universal]
-    } -> Node RootNode Existential
+        , seChildren    :: [Node 'InternalNode 'Universal]
+    } -> Node 'RootNode 'Existential
 
 data SNode where
     SNode   :: Node t p -> SNode
@@ -137,27 +131,27 @@ class SNodeC (t :: NodeType) (p :: Player) where
     mapNodes    :: (SNode -> SNode) -> [Node t p] -> [Node t p]
     mapNodes f = map (viaSNode f)
 
-instance SNodeC InternalNode Universal where
+instance SNodeC 'InternalNode 'Universal where
     toNode (SNode u@(U{}))  = u
     toNode _                = error "Conversion to U Node failed"
 
-instance SNodeC RootNode Universal where
+instance SNodeC 'RootNode 'Universal where
     toNode (SNode u@(SU{})) = u
     toNode _                = error "Conversion to SU Node failed"
 
-instance SNodeC InternalNode Existential where
+instance SNodeC 'InternalNode 'Existential where
     toNode (SNode e@(E{}))  = e
     toNode _                = error "Conversion to E Node failed"
 
-instance SNodeC RootNode Existential where
+instance SNodeC 'RootNode 'Existential where
     toNode (SNode e@(SE{})) = e
     toNode _                = error "Conversion to SE Node failed"
 
 newNode :: SNode -> Int -> Int -> Move -> Move -> SNode
-newNode (SNode E{}) id c m s    = SNode $ U { uCopy = c, uNodeId = id, uMove = m, uExprId = (Nothing, Nothing), uState = s, uExWins = Nothing, uChildren = [] }
-newNode (SNode U{}) id c m s    = SNode $ E { eCopy = c, eNodeId = id, eMove = m, eExprId = (Nothing, Nothing), eChildren = [] }
-newNode (SNode SE{}) id c m s   = SNode $ U { uCopy = c, uNodeId = id, uMove = m, uExprId = (Nothing, Nothing), uState = s, uExWins = Nothing, uChildren = [] }
-newNode (SNode SU{}) id c m s   = SNode $ E { eCopy = c, eNodeId = id, eMove = m, eExprId = (Nothing, Nothing), eChildren = [] }
+newNode (SNode E{}) i c m s    = SNode $ U { uCopy = c, uNodeId = i, uMove = m, uExprId = (Nothing, Nothing), uState = s, uExWins = Nothing, uChildren = [] }
+newNode (SNode U{}) i c m _    = SNode $ E { eCopy = c, eNodeId = i, eMove = m, eExprId = (Nothing, Nothing), eChildren = [] }
+newNode (SNode SE{}) i c m s   = SNode $ U { uCopy = c, uNodeId = i, uMove = m, uExprId = (Nothing, Nothing), uState = s, uExWins = Nothing, uChildren = [] }
+newNode (SNode SU{}) i c m _   = SNode $ E { eCopy = c, eNodeId = i, eMove = m, eExprId = (Nothing, Nothing), eChildren = [] }
 
 children :: SNode -> [SNode]
 children (SNode n@U{})  = map SNode (uChildren n)
@@ -185,7 +179,7 @@ setMove s (SNode n@SE{..})  = SNode (n { seState = s })
 
 exWins :: SNode -> Maybe Bool
 exWins (SNode n@U{})    = uExWins n
-exWins (SNode n@SU{})   = Nothing
+exWins (SNode SU{})     = Nothing
 exWins _                = error "Tried to get ExWins for wrong node type"
 
 setExWins :: Maybe Bool -> SNode -> SNode
@@ -194,13 +188,13 @@ setExWins _ _                   = error "Tried to set ExWins for wrong node type
 
 snodeState :: SNode -> Move
 snodeState (SNode n@U{})     = uState n
-snodeState (SNode n@E{})     = Nothing
+snodeState (SNode E{})       = Nothing
 snodeState (SNode n@SU{})    = suState n
 snodeState (SNode n@SE{})    = seState n
 
 setState :: Move -> SNode -> SNode
 setState s (SNode n@U{})     = SNode (n { uState = s })
-setState _ (SNode n@E{})     = error "Trying to set state of Existential node"
+setState _ (SNode E{})       = error "Trying to set state of Existential node"
 setState s (SNode n@SU{})    = SNode (n { suState = s })
 setState s (SNode n@SE{})    = SNode (n { seState = s })
 
@@ -248,7 +242,7 @@ data GameTree where
         , maxCopy       :: Int
         , maxId         :: Int
         , crumb         :: [Int]
-        , eroot         :: Node RootNode Universal
+        , eroot         :: Node 'RootNode 'Universal
     } -> GameTree
 
     UTree   :: {
@@ -256,12 +250,13 @@ data GameTree where
         , maxCopy       :: Int
         , maxId         :: Int
         , crumb         :: [Int]
-        , uroot         :: Node RootNode Existential
+        , uroot         :: Node 'RootNode 'Existential
     } -> GameTree
 
 instance Eq GameTree where
     x@(ETree{}) == y@(ETree{})  = baseRank x == baseRank y && root x == root y
     x@(UTree{}) == y@(UTree{})  = baseRank x == baseRank y && root x == root y
+    _ == _                      = error "Cannot decide equality of ETree and UTree"
 
 instance Eq SNode where
     x == y  = nodeId x == nodeId y 
@@ -310,9 +305,11 @@ gtAtBottom :: GameTree -> Bool
 gtAtBottom t@(ETree{})  = gtRank t == 1 && isUNode (followGTCrumb t)
 gtAtBottom t@(UTree{})  = gtRank t == 1 && isENode (followGTCrumb t)
 
+isUNode :: SNode -> Bool
 isUNode (SNode (U{}))   = True
 isUNode _               = False
 
+isENode :: SNode -> Bool
 isENode (SNode (E{}))   = True
 isENode _               = False
 
@@ -326,11 +323,13 @@ gtMaxCopy = maxCopy
 gtCopiesAndRanks :: GameTree -> [(Int, Int)]
 gtCopiesAndRanks gt = nub $ concatMap (\(c, r) -> [(c, r') | r' <- [1..r]]) $ nub $ gtCopiesAndRanks' (gtRoot gt)
 
+gtCopiesAndRanks' :: GameTree -> [(Int, Int)]
 gtCopiesAndRanks' gt = (gtCopyId gt, gtRank gt) : concatMap gtCopiesAndRanks' (gtChildren gt)
 
 gtCRMoves :: Player -> GameTree -> [(Int, Int, Move)]
 gtCRMoves p gt = concatMap (gtCRMoves' p) (gtChildren (gtRoot gt))
 
+gtCRMoves' :: Player -> GameTree -> [(Int, Int, Move)]
 gtCRMoves' p gt = n ++ concatMap (gtCRMoves' p) (gtChildren gt)
     where
         n = if (gtPlayer gt == p)
@@ -359,14 +358,6 @@ gtMoves gt = nodeMoves (crumb gt) (root gt)
 nodeMoves :: [Int] -> SNode -> [Move]
 nodeMoves [] n      = [snodeMove n]
 nodeMoves (c:cs) n  = snodeMove n : nodeMoves cs (children n !! c)
-
--- |Gets all the states leading to a node
-gtStates :: GameTree -> [Move]
-gtStates gt = nodeStates (crumb gt) (root gt)
-
-nodeStates :: [Int] -> SNode -> [Move]
-nodeStates [] n     = [snodeState n]
-nodeStates (c:cs) n = snodeState n : nodeStates cs (children n !! c)
 
 gtExWins :: GameTree -> Maybe Bool
 gtExWins gt = exWins (followGTCrumb gt)
@@ -399,6 +390,7 @@ prevStateNode :: GameTree -> [Int] -> [Int]
 prevStateNode gt cr = case followCrumb (root gt) cr of
     (SNode (E{}))   -> init cr
     (SNode (U{}))   -> init (init cr)
+    _               -> error "Root node should not have prevState"
 
 -- |Creates a new tree with the current node as its base
 gtRebase :: Int -> GameTree -> GameTree
@@ -431,13 +423,15 @@ getLeaves n
 gtPathMoves :: Int -> GameTree -> Maybe [(Move, Move)]
 gtPathMoves d gt = Just $ movesToDepth d (root gt)
 
+movesToDepth :: Int -> SNode -> [(Move, Move)]
 movesToDepth d n = case children n of
     []      -> [(snodeMove n, snodeState n)]
-    (c:[])  -> (snodeMove n, snodeState n) : if d == 0 then [] else movesToDepth (d-1) c
+    (c:_)   -> (snodeMove n, snodeState n) : if d == 0 then [] else movesToDepth (d-1) c
 
 gtMaxDepth :: GameTree -> Int
 gtMaxDepth gt = nodeDepth 0 (root gt)
 
+nodeDepth :: Int -> SNode -> Int
 nodeDepth d n = case children n of
     []  -> d+1
     cs  -> maximum $ map (nodeDepth (d+1)) cs
@@ -462,7 +456,7 @@ gtChildMoves gt = map snodeMove (children (followGTCrumb gt))
 gtChildren :: GameTree -> [GameTree]
 gtChildren gt = zipWith f (children (followGTCrumb gt)) [0..]
     where
-        f n i = setCrumb gt (crumb gt ++ [i])
+        f _ i = setCrumb gt (crumb gt ++ [i])
 
 gtSetChildren :: GameTree -> [GameTree] -> GameTree
 gtSetChildren gt cs = updateGTCrumb gt f
@@ -483,14 +477,11 @@ gtSteps gt = concatMap gtMovePairs (gtChildren gt)
 gtStepChildren :: GameTree -> [GameTree]
 gtStepChildren gt = concatMap gtChildren (gtChildren gt)
 
-stateFromPair :: SNode -> SNode -> Move
-stateFromPair (SNode (E{})) (SNode n@(U{})) = uState n
-stateFromPair (SNode n@(U{})) (SNode (E{})) = uState n
-
 -- |Finds the first Nothing move
 gtUnsetNodes :: GameTree -> [GameTree]
 gtUnsetNodes gt = map (setCrumb gt) $ nub $ filter (not . null) $ map (firstUnsetNode (root gt) 0) (getLeaves (root gt))
 
+firstUnsetNode :: SNode -> Int -> [Int] -> [Int]
 firstUnsetNode r cc cr
     | cc == length cr + 1                                   = []
     | isNothing (snodeMove (followCrumb r (take cc cr)))    = take cc cr
@@ -517,6 +508,7 @@ gtSetInit s gt = updateRoot gt fsi
     where
         fsi (SNode n@(SU{}))    = SNode (n { suState = Just s })
         fsi (SNode n@(SE{}))    = SNode (n { seState = Just s })
+        fsi _                   = error "Root node in tree is not a root node"
 
 gtSetExprIds :: Player -> [(Int, Int)] -> GameTree -> GameTree
 gtSetExprIds p n2e gt = updateRoot gt f
@@ -546,6 +538,7 @@ appendChild gt = gt' { maxCopy = c, maxId = n }
         (c, n, r)   = appendNodeAt (maxCopy gt) (maxId gt) (crumb gt) (root gt)
         gt'         = setRoot gt r
 
+appendNodeAt :: Int -> Int -> [Int] -> SNode -> (Int, Int, SNode)
 appendNodeAt mc mn [] n       = appendNode mc mn Nothing Nothing n
 appendNodeAt mc mn (c:cs) n   = (mc', mn', setChildren n (update n' c ns))
     where
@@ -558,7 +551,7 @@ appendNode mc mn m' s' n = (mc', mn+1, n')
         (mc', c')   = appendCopy mc (copy n) (children n)
         n'          = case children n of
             [] -> setChildren n [newNode n mn c' m' s']
-            cs -> setExprId (Nothing, Nothing) $ setChildren n (children n ++ [newNode n mn c' m' s'])
+            _  -> setExprId (Nothing, Nothing) $ setChildren n (children n ++ [newNode n mn c' m' s'])
 
 append2Nodes :: Int -> Int -> Move -> Move -> Move -> Move -> SNode -> (Int, Int, SNode)
 append2Nodes mc mn m1 s1 m2 s2 n = (mc', mn+2, setExprId (Nothing, Nothing) node)
@@ -578,29 +571,9 @@ append2Nodes mc mn m1 s1 m2 s2 n = (mc', mn+2, setExprId (Nothing, Nothing) node
 append2Nodes1st :: Int -> Int -> Move -> Move -> SNode -> (Int, Int, SNode)
 append2Nodes1st mc mn m1 s1 n = append2Nodes mc mn m1 s1 Nothing Nothing n
 
+appendCopy :: Int -> Int -> [SNode] -> (Int, Int)
 appendCopy mc c [] = (mc, c)
-appendCopy mc _ ns = (mc+1, mc+1)
-
-append2NodesAt mc mn [] m1 s1 m2 s2 n       = append2Nodes mc mn m1 s1 m2 s2 n
-append2NodesAt mc mn (c:cs) m1 s1 m2 s2  n  = (mc', mn', setChildren n (update n' c ns))
-    where
-        ns              = children n
-        (mc', mn', n')  = append2NodesAt mc mn cs m1 s1 m2 s2 (ns !! c)
-
-gtAppendMove :: GameTree -> Move -> GameTree
-gtAppendMove gt m = gt' { maxCopy = c, maxId = n, crumb = crumb gt ++ [newCrumb-1, 0] }
-    where
-        (c, n, r)   = append2NodesAt (maxCopy gt) (maxId gt) (crumb gt) m Nothing Nothing Nothing (root gt)
-        gt'         = setRoot gt r
-        newCrumb    = length (children (followGTCrumb gt'))
-
-gtAppendMoveU :: GameTree -> Move -> GameTree
-gtAppendMoveU gt m = gt' { maxCopy = c, maxId = n, crumb = crumb gt ++ [newCrumb-1, newCrumb2-1] }
-    where
-        (c, n, r)   = append2NodesAt (maxCopy gt) (maxId gt) (crumb gt) Nothing Nothing m Nothing (root gt)
-        gt'         = setRoot gt r
-        newCrumb    = length (children (followGTCrumb gt'))
-        newCrumb2   = length (children (followCrumb (root gt') (crumb gt ++ [newCrumb-1])))
+appendCopy mc _ _  = (mc+1, mc+1)
 
 -- |Appends the first move in the list that is not already in the tree
 appendNextMove :: GameTree -> GameTree -> GameTree
@@ -622,6 +595,7 @@ appendMove r mc mn cex n
         addNew              = if r <= 1 then appendNode else append2Nodes1st
         addMove (c, i, x) y = addNew c i (snodeMove y) (snodeState y) x
 
+equalModCopy :: Move -> Move -> Bool
 equalModCopy (Just xs) (Just ys)    = all (uncurry aEqualModCopy) (zip (sort xs) (sort ys))
     where
         aEqualModCopy (Assignment sx x) (Assignment sy y) = sx == sy && x {ecopy = 0} == y {ecopy = 0}
@@ -641,7 +615,7 @@ matchIndices f (x:xs) ys    = if isJust m
     else mapSnd (\ns -> ns ++ [x]) (matchIndices f xs ys)
     where
         m                   = match 0 x ys
-        match i a []        = Nothing
+        match _ _ []        = Nothing
         match i a (b:bs)    = if f a b then Just i else match (i+1) a bs
 
 printTree :: CompiledSpec -> GameTree -> String
@@ -653,29 +627,28 @@ printNode spec r t cs n = tab t
     ++ show (r `div` 2) ++ " "
     ++ printNodeType n 
     ++ show (copy n) ++ " "
----    ++ show (nodeId n) ++ " "
----    ++ "(" ++ show (exprId n) ++ ") "
     ++ printMove spec (snodeMove n) 
     ++ maybe "" ((" | " ++) . printMove spec) (getStateIfU n) 
     ++ "\n" ++ concatMap (uncurry (printNode spec (r-1) (t+1))) (nextC cs (children n))
     where
         nextC Nothing ns        = zip (repeat Nothing) ns
         nextC (Just []) ns      = zip (repeat Nothing) ns
-        nextC (Just (c:cs)) ns  = attachC c cs 0 ns
+        nextC (Just (x:xs)) ns  = attachC x xs 0 ns
         attachC _ _ _ []        = []
-        attachC c cs i (n:ns)   = (if c == i then Just cs else Nothing, n) : attachC c cs (i+1) ns
+        attachC x xs i (y:ys)   = (if x == i then Just xs else Nothing, y) : attachC x xs (i+1) ys
         
 
 printNodeType :: SNode -> String
-printNodeType (SNode n@(E{}))    = "E "
-printNodeType (SNode n@(U{}))    = "U "
-printNodeType (SNode n@(SE{}))   = "SE "
-printNodeType (SNode n@(SU{}))   = "SU "
+printNodeType (SNode (E{}))     = "E "
+printNodeType (SNode (U{}))     = "U "
+printNodeType (SNode (SE{}))    = "SE "
+printNodeType (SNode (SU{}))    = "SU "
 
+tab :: Int -> String
 tab ind = concat (replicate ind "| ") ++ "|-"
 
 printMove :: CompiledSpec -> Move -> String
-printMove spec Nothing   = "Nothing"
+printMove _ Nothing      = "Nothing"
 printMove spec (Just as) = interMap ", " (printVar spec) vs
     where
         vs = groupBy f (sortBy g as)
@@ -683,22 +656,24 @@ printMove spec (Just as) = interMap ", " (printVar spec) vs
         g (Assignment _ x) (Assignment _ y) = compare (varname x) (varname y)
 
 printVar :: CompiledSpec -> [Assignment] -> String
-printVar spec as = vname ++ show vrank ++ {- "_" ++ show vcopy ++ -} " = " ++ valsToEnums vi vals
+printVar spec as = vname ++ show vrank ++ " = " ++ valsToEnums vi vals
     where
         vname       = let (Assignment _ v) = (head as) in varname v
         vrank       = let (Assignment _ v) = (head as) in rank v
-        vcopy       = let (Assignment _ v) = (head as) in ecopy v
         (Just vi)   = find (\v -> name v == vname) (vinfo spec)
         vals        = signsToVals 1 [0] (map f [0..(sz vi)-1])
-        f b         = fmap sign (find (\(Assignment s v) -> bit v == b) as)
+        f b         = fmap sign (find (\(Assignment _ v) -> bit v == b) as)
 
+sign :: Assignment -> Sign
 sign (Assignment s _) = s
 
-signsToVals v vs []                   = vs
+signsToVals :: Int -> [Int] -> [Maybe Sign] -> [Int]
+signsToVals _ vs []                   = vs
 signsToVals v vs (Nothing: bs)        = signsToVals (v*2) (vs ++ map (+ v) vs) bs
 signsToVals v vs ((Just Pos): bs)     = signsToVals (v*2) (map (+ v) vs) bs
 signsToVals v vs ((Just Neg): bs)     = signsToVals (v*2) vs bs
 
+valsToEnums :: VarInfo -> [Int] -> String
 valsToEnums VarInfo {enum = Nothing} (v:[])     = show v
 valsToEnums VarInfo {enum = Nothing} vs         = show vs
 valsToEnums VarInfo {enum = Just eMap} (v:[])   = fromMaybe (show v) (lookup v (map swap eMap))
@@ -709,6 +684,7 @@ normaliseCopies gt = (setRoot gt root') { maxCopy = c' }
     where
         (root', c') = normaliseNodes 0 (root gt)
 
+normaliseNodes :: Int -> SNode -> (SNode, Int)
 normaliseNodes c n = if null (children n') then (n', c) else (setChildren n' (fst ns), snd ns)
     where
         n'      = setNodeCopy c n
@@ -724,22 +700,23 @@ gtExtend gt = case filter (not . gtAtBottom) (gtLeaves gt) of
 gtEmpty :: GameTree -> Bool
 gtEmpty gt = null (children (root gt))
     
-gtSplit :: Player -> GameTree -> (GameTree, GameTree)
-gtSplit player gt = (updateGTCrumb (gtParent splitAt) (\x -> setChildren x cs'), rebase)
+gtSplit :: GameTree -> (GameTree, GameTree)
+gtSplit gt = (updateGTCrumb (gtParent n) (\x -> setChildren x cs'), rebase)
     where
         leaves          = gtLeaves gt
         leafDepth       = map (length . gtCrumb) leaves
         maxDepthLeaf    = fst $ maximumBy (\x y -> compare (snd x) (snd y)) (zip leaves leafDepth)
-        splitAt         = if isUNode (followGTCrumb maxDepthLeaf) then gtParent maxDepthLeaf else maxDepthLeaf
-        cs'             = delete (followGTCrumb splitAt) (children (followGTCrumb (gtParent splitAt)))
-        parentCopy      = gtCopyId (gtParent splitAt)
-        rebase          = gtRebase parentCopy splitAt
+        n               = if isUNode (followGTCrumb maxDepthLeaf) then gtParent maxDepthLeaf else maxDepthLeaf
+        cs'             = delete (followGTCrumb n) (children (followGTCrumb (gtParent n)))
+        parentCopy      = gtCopyId (gtParent n)
+        rebase          = gtRebase parentCopy n
 
 gtStripMoves :: GameTree -> GameTree
 gtStripMoves gt = setRoot gt (stripMoves (root gt))
+    where
+        stripMoves n = setChildren (setMove Nothing n) (map stripMoves (children n))
 
-stripMoves n = setChildren (setMove Nothing n) (map stripMoves (children n))
-
+gtIsPrefix :: GameTree -> Bool
 gtIsPrefix gt = not $ hasNothingMove (root gt)
     where
         hasNothingMove (snodeMove -> Nothing)   = True
@@ -758,6 +735,7 @@ gtLostInPrefix gt
 gtStateMovePairs :: Player -> GameTree -> [(Move, Move)]
 gtStateMovePairs p gt = concatMap (gtStateMovePairs' p) (gtChildren (gtRoot gt))
 
+gtStateMovePairs' :: Player -> GameTree -> [(Move, Move)]
 gtStateMovePairs' p gt = if (gtPlayer gt == p)
     then let s = if p == Universal then gtState (gtParent (gtParent gt)) else gtState (gtParent gt) in
         (s, gtMove gt) : (concatMap (gtStateMovePairs' p) (gtChildren gt))
@@ -766,6 +744,7 @@ gtStateMovePairs' p gt = if (gtPlayer gt == p)
 gtOpponentSelectedMoves :: Player -> GameTree -> GameTree -> [(Move, Move)]
 gtOpponentSelectedMoves p candGt wholeGt = gtOpponentSelectedMoves' p (gtRoot (gtExtend candGt)) (gtRoot wholeGt)
 
+gtOpponentSelectedMoves' :: Player -> GameTree -> GameTree -> [(Move, Move)]
 gtOpponentSelectedMoves' p candGt wholeGt = node ++ concat (zipWith (gtOpponentSelectedMoves' p) (gtChildren candGt) (gtChildren wholeGt))
     where
         state   = if p == Universal then gtState (gtParent (gtParent wholeGt)) else gtState (gtParent wholeGt)

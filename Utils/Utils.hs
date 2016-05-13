@@ -30,6 +30,7 @@ module Utils.Utils (
     , maybeM
     , zipWith3M
     , floor2
+    , toSeconds
     ) where
 
 import Data.Maybe
@@ -83,7 +84,7 @@ concatMapM f xs = (liftM concat) (mapM f xs)
 
 mapUntilJust :: (a -> Maybe b) -> [a] -> Maybe b
 mapUntilJust _ []                   = Nothing
-mapUntilJust f ((f -> Just b):as)   = Just b
+mapUntilJust f ((f -> Just b):_)    = Just b
 mapUntilJust f (_:as)               = mapUntilJust f as
 
 mapMUntilJust :: (Monad m) => (a -> m (Maybe b)) -> [a] -> m (Maybe b)
@@ -107,27 +108,27 @@ liftMSnd a b = do
 everyOdd :: [a] -> [a]
 everyOdd []         = []
 everyOdd (a:[])     = [a]
-everyOdd (a:b:as)   = a : everyOdd as
+everyOdd (a:_:as)   = a : everyOdd as
 
 everyEven :: [a] -> [a]
 everyEven []         = []
-everyEven (a:[])     = []
-everyEven (a:b:as)   = b : everyEven as
+everyEven (_:[])     = []
+everyEven (_:b:as)   = b : everyEven as
 
 adjust :: (a -> a) -> Int -> [a] -> [a]
-adjust f k []   = []
+adjust _ _ []   = []
 adjust f k (m:ms)
     | k == 0    = (f m) : ms
     | otherwise = m : (adjust f (k-1) ms)
 
 update :: a -> Int -> [a] -> [a]
-update a k []   = []
+update _ _ []   = []
 update a k (b:bs)
     | k == 0    = a : bs
     | otherwise = b : (update a (k-1) bs)
 
 lookupIndex :: Eq a => a -> [(a, b)] -> Maybe Int
-lookupIndex x = findIndex (\(a, b) -> a == x)
+lookupIndex x = findIndex (\(a, _) -> a == x)
 
 interMap :: [a] -> (b -> [a]) -> [b] -> [a]
 interMap x f bs = intercalate x (map f bs)
@@ -146,25 +147,25 @@ paddedZip (a:as) []     = (a, Nothing) : paddedZip as []
 paddedZip (a:as) (b:bs) = (a, Just b) : paddedZip as bs
 
 fst3 :: (a, b, c) -> a
-fst3 (a, b, c) = a
+fst3 (a, _, _) = a
 
 snd3 :: (a, b, c) -> b
-snd3 (a, b, c) = b
+snd3 (_, b, _) = b
 
 thd3 :: (a, b, c) -> c
-thd3 (a, b, c) = c
+thd3 (_, _, c) = c
 
 fst4 :: (a, b, c, d) -> a
-fst4 (a, b, c, d) = a
+fst4 (a, _, _, _) = a
 
 snd4 :: (a, b, c, d) -> b
-snd4 (a, b, c, d) = b
+snd4 (_, b, _, _) = b
 
 thd4 :: (a, b, c, d) -> c
-thd4 (a, b, c, d) = c
+thd4 (_, _, c, _) = c
 
 fth4 :: (a, b, c, d) -> d
-fth4 (a, b, c, d) = d
+fth4 (_, _, _, d) = d
 
 uncurry3 :: (a -> b -> c -> d) -> (a, b, c) -> d
 uncurry3 f (a, b, c) = f a b c
@@ -174,10 +175,13 @@ unzipM = liftM unzip
 
 maybeM :: Monad m => b -> (a -> m b) -> Maybe a -> m b
 maybeM _ f (Just a) = f a
-maybeM b f Nothing  = return b
+maybeM b _ Nothing  = return b
 
 floor2 :: Int -> Int
 floor2 x = (quot x 2) * 2
 
 zipWith3M :: Monad m => (a -> b -> c -> m d) -> [a] -> [b] -> [c] -> m [d]
 zipWith3M f as bs cs = sequence (zipWith3 f as bs cs)
+
+toSeconds :: Double -> Double
+toSeconds t = (fromInteger (round (t * 10)) / 10.0)

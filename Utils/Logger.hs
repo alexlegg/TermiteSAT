@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings, RecordWildCards #-}
 module Utils.Logger (
-      LoggerT(..)
+      LoggerT
     , clearLogDir
     , printLog
     , logSolve
@@ -19,11 +19,8 @@ module Utils.Logger (
     , putStrLnDbg
     ) where
 
-import Synthesise.GameTree
-import Expression.Expression
-import Expression.Compile
+import Prelude hiding (log)
 import Control.Monad.State
-import Control.Monad
 import Data.Maybe
 import Data.List as L
 import Data.String
@@ -35,8 +32,11 @@ import Text.Blaze.Html5 as H
 import Text.Blaze.Html5.Attributes as A
 import Text.Blaze.Html.Renderer.Utf8
 import Utils.Utils
-import Data.String.Utils
 import System.Directory
+
+import Synthesise.GameTree
+import Expression.Expression
+import Expression.Compile
 
 data SynthTrace = SynthTrace {
       inputGT           :: GameTree
@@ -69,6 +69,7 @@ data Log = Log {
     , winningMust   :: [String]
     }
 
+emptyLog :: Int -> Log
 emptyLog dm = Log {
       trace         = Nothing
     , crumb         = []
@@ -78,6 +79,7 @@ emptyLog dm = Log {
         1   -> FinalLogOnly
         2   -> DumpLogs
         3   -> LogEachRank
+        _   -> LogEachRank
     , auxLogs       = Map.empty
     , defaultMoves  = []
     , winningMay    = []
@@ -89,9 +91,9 @@ type LoggerT m = StateT Log m
 clearLogDir :: Int -> IO ()
 clearLogDir dm = do
     when ((toEnum dm) /= NoDebug) $ do
-        ls          <- getDirectoryContents "debug/"
-        let delete  = filter (not . (`elem` [".", "..", "debug.css", "debug.html", "debug.js"])) ls
-        mapM_ (removeFile . ("debug/" ++)) delete
+        ls <- getDirectoryContents "debug/"
+        let toRemove = filter (not . (`elem` [".", "..", "debug.css", "debug.html", "debug.js"])) ls
+        mapM_ (removeFile . ("debug/" ++)) toRemove
 
 printLog :: Int -> LoggerT IO a -> IO (a)
 printLog dm logger = do
@@ -116,12 +118,13 @@ logRank k = do
             renderHtmlToByteStringIO (BS.hPut h) (outputLogIndex k (mkMap defaultMoves) (mkMap winningMay) (mkMap winningMust) auxLogs)
 
 logRankAux :: String -> String -> Bool -> Int -> Int -> LoggerT IO ()
-logRankAux cube curr res k a = do
-    log@Log{..} <- get
-    put $ log { auxLogs = Map.insert k (fromMaybe [] (Map.lookup k auxLogs) ++ [(res, curr)]) auxLogs }
-    log@Log{..} <- get
+logRankAux cube curr res k aux = do
+    log <- get
+    put $ log { auxLogs = Map.insert k (fromMaybe [] (Map.lookup k (auxLogs log)) ++ [(res, curr)]) (auxLogs log) }
+
+    Log{..} <- get
     let indFn = "debug/debug.html"
-    let dumpFn = "debug/debug_aux" ++ show k ++ "_" ++ show a ++ ".html"
+    let dumpFn = "debug/debug_aux" ++ show k ++ "_" ++ show aux ++ ".html"
     when (debugMode == LogEachRank && isJust trace && isJust spec) $ liftIO $ do
         withFile dumpFn WriteMode $ \h -> do
             renderHtmlToByteStringIO (BS.hPut h) (outputLog (Just cube) (fromJust spec) (fromJust trace))
@@ -138,6 +141,7 @@ logDumpLog = do
         withFile dumpFn WriteMode $ \h -> do
             renderHtmlToByteStringIO (BS.hPut h) (outputLog Nothing (fromJust spec) (fromJust trace))
 
+outputLogIndex :: Show a => Int -> [(Int, (String, String))] -> [(Int, String)] -> [(Int, String)] -> Map.Map Int [(Bool, a)] -> Html
 outputLogIndex k dm winningMay winningMust aux = do
     H.head $ do
         H.title "TermiteSAT Trace Index"
@@ -145,18 +149,15 @@ outputLogIndex k dm winningMay winningMust aux = do
     H.body $ do
         forM_ (Map.toList aux) $ \(r, cubes) -> do
             h3 $ a ! A.href (stringValue ("debug" ++ show r ++ ".html")) $ fromString $ "Rank " ++ (show r)
+
             case (lookup r dm) of
                 Just (u, e) -> do
                     pre $ fromString u
                     pre $ fromString e
                 Nothing     -> return ()
-            forM_ (zip [0..] cubes) $ \(i, (res, cube)) -> do
-                a 
-                    ! A.href (stringValue ("debug_aux" ++ show r ++ "_" ++ show i ++ ".html")) 
-                    ! class_ (if res then "ExistentialText" else "UniversalText")
-                    $ fromString (show cube)
-                br
-                br
+
+            mapM_ (outputInitGen r) (zip [0..] cubes)
+
             h4 "winningMay"
             pre $ fromString (fromMaybe "" (lookup r winningMay))
             h4 "winningMust"
@@ -167,6 +168,7 @@ outputLogIndex k dm winningMay winningMust aux = do
         let maxAuxRank = case (Map.keys aux) of
                             []  -> 1
                             ks  -> maximum ks
+
         forM_ ([maxAuxRank..k]) $ \r -> do
             h3 $ a ! A.href (stringValue ("debug" ++ show r ++ ".html")) $ fromString $ "Rank " ++ (show r)
             case (lookup r dm) of
@@ -183,135 +185,153 @@ outputLogIndex k dm winningMay winningMust aux = do
             br
             br
 
+outputInitGen :: Show a => Int -> (Int, (Bool, a)) -> Html
+outputInitGen r (n, (res, cube)) = do
+    a 
+        ! A.href (stringValue ("debug_aux" ++ show r ++ "_" ++ show n ++ ".html")) 
+        ! class_ (if res then "ExistentialText" else "UniversalText")
+        $ fromString (show cube)
+    br
+    br
 
-
-outputLog comment spec trace = H.docTypeHtml $ do
-    H.head $ do
-        H.title "TermiteSAT Trace"
-        link ! rel "stylesheet" ! href "debug.css"
-        link ! rel "stylesheet" ! href "http://code.jquery.com/ui/1.11.4/themes/ui-lightness/jquery-ui.css"
-        script ! src "http://code.jquery.com/jquery-1.11.3.min.js" $ ""
-        script ! src "http://code.jquery.com/jquery-migrate-1.2.1.min.js" $ ""
-        script ! src "http://code.jquery.com/ui/1.11.3/jquery-ui.min.js" $ ""
-        script ! src "debug.js" $ ""
-    H.body $ do
-        H.div ! A.id "options" $ img ! src "options.png"
-        when (isJust comment) $ H.p $ fromString (fromJust comment)
-        H.div ! A.id "optionsVarnames" $ do
-            let getNames = nub . sort . (L.map varname)
-            let allVars = getNames (svars spec) ++ getNames (cont spec) ++ getNames (ucont spec)
-            toHtml $ intercalate ", " (L.map sanitise allVars)
-        H.div ! A.id "optionsDialog" $ "Select variables to show/hide"
-        outputTrace spec trace
+outputLog :: Maybe String -> CompiledSpec -> SynthTrace -> Html
+outputLog comment spec trace = 
+    H.docTypeHtml $ do
+        H.head $ do
+            H.title "TermiteSAT Trace"
+            link ! rel "stylesheet" ! href "debug.css"
+            link ! rel "stylesheet" ! href "http://code.jquery.com/ui/1.11.4/themes/ui-lightness/jquery-ui.css"
+            script ! src "http://code.jquery.com/jquery-1.11.3.min.js" $ ""
+            script ! src "http://code.jquery.com/jquery-migrate-1.2.1.min.js" $ ""
+            script ! src "http://code.jquery.com/ui/1.11.3/jquery-ui.min.js" $ ""
+            script ! src "debug.js" $ ""
+        H.body $ do
+            H.div ! A.id "options" $ img ! src "options.png"
+            when (isJust comment) $ H.p $ fromString (fromJust comment)
+            H.div ! A.id "optionsVarnames" $ do
+                let getNames = nub . sort . (L.map varname)
+                let allVars = getNames (svars spec) ++ getNames (cont spec) ++ getNames (ucont spec)
+                toHtml $ intercalate ", " (L.map sanitise allVars)
+            H.div ! A.id "optionsDialog" $ "Select variables to show/hide"
+            outputTrace spec trace
         
-outputTrace spec trace = H.div ! class_ (fromString ("trace " ++ (show (player trace)))) $ do
-    h3 $ do
-        button ! type_ "button" ! class_ "shrink" $ "-"
-        toHtml $ "Trace for " ++ show (player trace)
-    hr
-    H.div ! class_ "input gametree" $ do
-        h3 "Input GT"
-        br
-        outputTree spec (gtRoot (inputGT trace))
-        br
-
----        when (not (null (prevLearned trace))) $ H.div ! class_ "previousLearning" $ do
----            h3 "Previously Learnt"
----            pre $ toHtml (intercalate "\n" (prevLearned trace))
-
-        H.div ! class_ "candidate gametree" $ do
-            h3 "Candidate"
+outputTrace :: CompiledSpec -> SynthTrace -> Html
+outputTrace spec trace = 
+    H.div ! class_ (fromString ("trace " ++ (show (player trace)))) $ do
+        h3 $ do
+            button ! type_ "button" ! class_ "shrink" $ "-"
+            toHtml $ "Trace for " ++ show (player trace)
+        hr
+        H.div ! class_ "input gametree" $ do
+            h3 "Input GT"
             br
-            case candidate trace of
-                Nothing     -> "Nothing"
-                Just tree   -> outputTree spec (gtRoot tree)
+            outputTree spec (gtRoot (inputGT trace))
             br
 
-        when (not (null (learned trace))) $ H.div ! class_ "learning" $ do
-            h3 "Losing States"
-            if (lostInPrefix trace == Just True)
-                then "Lost in Prefix"
-                else pre $ toHtml $ intercalate "\n" $ L.map (printMove spec . Just . Set.toList) (learned trace)
+            H.div ! class_ "candidate gametree" $ do
+                h3 "Candidate"
+                br
+                case candidate trace of
+                    Nothing     -> "Nothing"
+                    Just tree   -> outputTree spec (gtRoot tree)
+                br
 
-        H.div ! class_ "verifyRefineLoop" $ forM_ (paddedZip (verification trace) (refinement trace)) (outputVerifyRefine spec)
+            when (not (null (learned trace))) $ H.div ! class_ "learning" $ do
+                h3 "Losing States"
+                if (lostInPrefix trace == Just True)
+                    then "Lost in Prefix"
+                    else pre $ toHtml $ intercalate "\n" $ L.map (printMove spec . Just . Set.toList) (learned trace)
 
-        H.div ! class_ "result gametree" $ do
-            h3 "Result"
-            br
-            case result trace of
-                Nothing     -> "Nothing"
-                Just tree   -> outputTree spec (gtRoot tree)
-            br
+            H.div ! class_ "verifyRefineLoop" $ forM_ (paddedZip (verification trace) (refinement trace)) (outputVerifyRefine spec)
 
+            H.div ! class_ "result gametree" $ do
+                h3 "Result"
+                br
+                case result trace of
+                    Nothing     -> "Nothing"
+                    Just tree   -> outputTree spec (gtRoot tree)
+                br
+
+sanitise :: String -> String
 sanitise = filter (\c -> c /= '<' && c /= '>')
 
+outputVar :: CompiledSpec -> [Assignment] -> Html
 outputVar spec v = do
     H.span ! class_ (toValue ("var_" ++ sanitise vname)) $ toHtml (printVar spec v)
     where
         vname = let (Assignment _ vi) = (L.head v) in varname vi
 
-outputMove spec Nothing = "Nothing" >> return ()
-outputMove spec (Just m) = do
+outputMove :: CompiledSpec -> Maybe [Assignment] -> Html
+outputMove _ Nothing        = "Nothing" >> return ()
+outputMove spec (Just m)    = do
     mapM_ (outputVar spec) (groupMoveVars m)
 
+groupMoveVars :: [Assignment] -> [[Assignment]]
 groupMoveVars as = groupBy f (sortBy g as)
     where
         f (Assignment _ x) (Assignment _ y) = varname x == varname y
         g (Assignment _ x) (Assignment _ y) = compare (varname x) (varname y)
 
+outputTree :: CompiledSpec -> GameTree -> Html
 outputTree spec gt = do
     H.div ! class_ "tree" $ do
         case gtPlayer gt of
-            Existential -> "E "
-            Universal   -> "U "
+            Existential -> H.span "E "
+            Universal   -> H.span "U "
         when (gtPlayer gt == Universal && gtExWins gt == Just True) $ "EXWINS: "
         outputMove spec (gtMove gt)
         when (gtPlayer gt == Universal) $ do
-            " | "
+            H.span " | "
             outputMove spec (gtState gt)
         mapM_ (outputTree spec) (gtChildren gt)
 
+outputVerifyRefine :: CompiledSpec -> ([SynthTrace], Maybe SynthTrace) -> Html
 outputVerifyRefine spec (vs, r) = do
     hr
-    forM_ (zip [0..] vs) $ \(i, v) -> do
-        H.div ! class_ "verification" $ do
-            h3 $ toHtml ("Verification " ++ show i)
-            outputTrace spec v
+    mapM_ (outputVerify spec) (zip [0..] vs)
 
     when (isJust r) $ H.div ! class_ "refinement" $ do
         h3 "Refinement"
         outputTrace spec (fromJust r)
     hr
 
+outputVerify :: CompiledSpec -> (Int, SynthTrace) -> Html
+outputVerify spec (n, v) = do
+    H.div ! class_ "verification" $ do
+        h3 $ toHtml ("Verification " ++ show n)
+        outputTrace spec v
+
 insertAt :: SynthTrace -> [TraceCrumb] -> SynthTrace -> SynthTrace
-insertAt x [] t             = x
-insertAt x ((VerifyCrumb c i):[]) t
+insertAt x [] _             = x
+insertAt x ((VerifyCrumb c n):[]) t
     | c == length (verification t)  = t { verification = verification t ++ [[x]] }
-    | c < length (verification t)   = t { verification = adjust (insVerify x i) c (verification t) }
+    | c < length (verification t)   = t { verification = adjust (insVerify x n) c (verification t) }
     | otherwise                     = error $ "Error in Logger"
 insertAt x ((RefineCrumb c):[]) t
     | c == length (refinement t)    = t { refinement = refinement t ++ [x] }
     | c < length (refinement t)     = t { refinement = adjust (\_ -> x) c (refinement t) }
     | otherwise                     = error $ "Error in Logger"
-insertAt x ((VerifyCrumb c i):cs) t
+insertAt x ((VerifyCrumb c n):cs) t
     | null (verification t) = t { verification = [[x]] }
-    | otherwise             = t { verification = adjust (adjust (insertAt x cs) i) c (verification t) }
+    | otherwise             = t { verification = adjust (adjust (insertAt x cs) n) c (verification t) }
 insertAt x ((RefineCrumb c):cs) t   
     | null (refinement t)   = t { refinement = [x] }
     | otherwise             = t { refinement = adjust (insertAt x cs) c (refinement t) }
 
-insVerify x i vs
-    | i == length vs    = vs ++ [x]
-    | i < length vs     = adjust (\_ -> x) i vs
+insVerify :: SynthTrace -> Int -> [SynthTrace] -> [SynthTrace]
+insVerify x n vs
+    | n == length vs    = vs ++ [x]
+    | n < length vs     = adjust (\_ -> x) n vs
     | otherwise         = error $ "Error in Logger"
 
+follow :: SynthTrace -> [TraceCrumb] -> SynthTrace
 follow trace []                     = trace
-follow trace ((VerifyCrumb c i):cs) = follow ((verification trace !! c) !! i) cs
+follow trace ((VerifyCrumb c n):cs) = follow ((verification trace !! c) !! n) cs
 follow trace ((RefineCrumb c):cs)   = follow (refinement trace !! c) cs
     
 updateAt :: (SynthTrace -> SynthTrace) -> [TraceCrumb] -> SynthTrace -> SynthTrace
 updateAt f [] t                     = f t
-updateAt f ((VerifyCrumb c i):cs) t = t { verification = adjust (adjust (updateAt f cs) i) c (verification t) }
+updateAt f ((VerifyCrumb c n):cs) t = t { verification = adjust (adjust (updateAt f cs) n) c (verification t) }
 updateAt f ((RefineCrumb c):cs) t   = t { refinement = adjust (updateAt f cs) c (refinement t) }
 
 logSolve :: Monad m => GameTree -> Player -> [String] -> LoggerT m ()
@@ -348,15 +368,15 @@ logSolveComplete gt = do
         put $ log { trace = Just trace', crumb = if null crumb then [] else init crumb }
 
 logVerify :: Monad m => Int -> LoggerT m ()
-logVerify i = do
+logVerify n = do
     log@Log{..} <- get
     when (debugMode /= NoDebug) $ do
         let currentTrace = follow (fromJust trace) crumb
-        if i > 0
+        if n > 0
         then do
-            put $ log { crumb = crumb ++ [VerifyCrumb ((length (verification currentTrace))-1) i] }
+            put $ log { crumb = crumb ++ [VerifyCrumb ((length (verification currentTrace))-1) n] }
         else do
-            put $ log { crumb = crumb ++ [VerifyCrumb (length (verification currentTrace)) i] }
+            put $ log { crumb = crumb ++ [VerifyCrumb (length (verification currentTrace)) n] }
 
 logRefine :: Monad m => LoggerT m ()
 logRefine = do

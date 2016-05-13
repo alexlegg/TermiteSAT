@@ -44,13 +44,20 @@ data AST f e c v = T
                  | LetLit  c
 
 instance (Show f, Show e, Show c, Show v) => Show (AST f e c v) where
-    show T          = "True"
-    show F          = "False"
-    show (Not x)    = "Not (" ++ show x ++ ")"
-    show (And x y)  = "And (" ++ show x ++ ", " ++ show y ++ ")"
-    show (Conj xs)  = "Conj (" ++ interMap ", " show xs ++ ")"
-    show (XNor x y) = "XNor (" ++ show x ++ ", " ++ show y ++ ")"
-    show (Var x)    = show x
+    show T              = "True"
+    show F              = "False"
+    show (Not x)        = "Not (" ++ show x ++ ")"
+    show (And x y)      = "And (" ++ show x ++ ", " ++ show y ++ ")"
+    show (Or x y)       = "Or (" ++ show x ++ ", " ++ show y ++ ")"
+    show (Imp x y)      = "Imp (" ++ show x ++ ", " ++ show y ++ ")"
+    show (XOr x y)      = "XOr (" ++ show x ++ ", " ++ show y ++ ")"
+    show (Conj xs)      = "Conj (" ++ interMap ", " show xs ++ ")"
+    show (Disj xs)      = "Disj (" ++ interMap ", " show xs ++ ")"
+    show (XNor x y)     = "XNor (" ++ show x ++ ", " ++ show y ++ ")"
+    show (Var x)        = show x
+    show (EqVar x y)    = show x ++ " == " ++ show y
+    show (EqConst x y)  = show x ++ " == " ++ show y
+    show _              = error "Show not implemented"
 
 existsMany :: [Int] -> ([e] -> AST f e c v) -> AST f e c v
 existsMany ws f = existsMany' ws [] f
@@ -81,6 +88,7 @@ printAST = prettyPrint' 0
         prettyPrint'' (Not e)               = text "!" <+> prettyPrint'' e
         prettyPrint'' (And x y)             = parens $ prettyPrint'' x <+> text "&&"  <+> prettyPrint'' y
         prettyPrint'' (Or x y)              = parens $ prettyPrint'' x <+> text "||"  <+> prettyPrint'' y
+        prettyPrint'' (XOr x y)             = parens $ prettyPrint'' x <+> text "^"  <+> prettyPrint'' y
         prettyPrint'' (Imp x y)             = parens $ prettyPrint'' x <+> text "->"  <+> prettyPrint'' y
         prettyPrint'' (XNor x y)            = parens $ prettyPrint'' x <+> text "<->" <+> prettyPrint'' y
         prettyPrint'' (Conj es)             = text "CONJ" <+> lbrace <$$> indent 2 (vcat $ map ((<> semi) . prettyPrint'') es) <$$> rbrace

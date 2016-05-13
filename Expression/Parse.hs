@@ -8,26 +8,22 @@ module Expression.Parse (
 
 import Control.Applicative hiding (optional)
 import Text.Parsec hiding ((<|>), many)
-import Text.Parsec.String
 import Text.Parsec.Expr
 import qualified Text.Parsec.Token as T
 import Text.Parsec.Language
-import Data.Functor
-import Data.Foldable hiding (concat, concatMap)
-import Data.Traversable hiding (mapM)
+import Data.Functor.Identity
 import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.Bits
 import Control.Monad
 import Data.EitherR
 import Control.Arrow
-import Debug.Trace
 
 import qualified Expression.HAST as HAST
 import Expression.AST
 
 data ParsedSpec = ParsedSpec {
-    init        :: [(VarInfo, Int)], 
+    initial     :: [(VarInfo, Int)], 
     goal        :: AST, 
     ucont       :: Maybe AST, 
     trans       :: [AST],
@@ -61,10 +57,7 @@ data Rels a = Rels {
     transR       :: CtrlExpr String a
 }
 
-data Spec = Spec {
-    decls :: Decls,
-    rels  :: Rels (Either (String, Slice) Int)
-}
+data Spec = Spec Decls (Rels (Either (String, Slice) Int))
 
 --The transition section
 data CtrlExpr a v where
@@ -92,40 +85,43 @@ data BinExpr v where
 
 data AssignmentExpr a = AssignmentExpr a Int
 
+parser :: SourceName -> String -> Either String ParsedSpec
 parser fn f = do
-    (Spec Decls{..} Rels{..}) <- fmapL show $ parse top fn f
-    let theMap = case (doDecls stateDecls labelDecls outcomeDecls) of
+    (Spec decls rels) <- fmapL show $ parse top fn f
+    let theMap = case (doDecls (stateDecls decls) (labelDecls decls) (outcomeDecls decls)) of
                     Left s -> error s
                     Right m -> m
-    Rels{..} <- Rels     initR
-                     <$> mapM (resolve theMap) goalR
-                     <*> case fair of
-                            (Just f)    -> (liftM Just) $ mapM (resolve theMap) f
-                            Nothing     -> return Nothing
-                     <*> resolve theMap transR
 
-    Right ParsedSpec { init         = map (assignmentToVarInfo theMap) initR
+    Rels{..} <- Rels     (initR rels)
+                     <$> mapM (resolve theMap) (goalR rels)
+                     <*> case fair rels of
+                            Just fr -> (liftM Just) $ mapM (resolve theMap) fr
+                            Nothing -> return Nothing
+                     <*> resolve theMap (transR rels)
+
+    Right ParsedSpec { initial      = map (assignmentToVarInfo theMap) initR
                      , goal         = head (map binExprToHAST goalR)
                      , ucont        = case fair of
-                                        Just f  -> Just $ head (map binExprToHAST f)
+                                        Just fr -> Just $ head (map binExprToHAST fr)
                                         Nothing -> Nothing
                      , trans        = map (resolveTransLHS theMap) (ctrlExprToHAST transR)
                      , aigTrans     = Nothing
                      , aigVars      = Nothing
-                     , stateVars    = concatMap (declToVarInfo StateVar) stateDecls
-                     , ucontVars    = concatMap (declToVarInfo UContVar) outcomeDecls
-                     , contVars     = concatMap (declToVarInfo ContVar) labelDecls
+                     , stateVars    = concatMap (declToVarInfo StateVar) (stateDecls decls)
+                     , ucontVars    = concatMap (declToVarInfo UContVar) (outcomeDecls decls)
+                     , contVars     = concatMap (declToVarInfo ContVar) (labelDecls decls)
                      }
 
-declToVarInfo sect decl = map mk (vars decl)
+declToVarInfo :: Section -> Decl -> [VarInfo]
+declToVarInfo sect d = map mk (vars d)
     where 
-        size = case varType decl of
+        size = case varType d of
                 BoolType        -> 1
                 IntType sz      -> sz
-                EnumType es     -> ceiling (logBase 2 (fromIntegral (length es)))
-        enums = case varType decl of
+                EnumType es     -> ceiling (logBase (2::Double) (fromIntegral (length es)))
+        enums = case varType d of
                 BoolType        -> Nothing
-                IntType sz      -> Nothing
+                IntType _       -> Nothing
                 EnumType es     -> Just (zip es [0..])
         mk n = VarInfo {
                   name      = n
@@ -136,6 +132,7 @@ declToVarInfo sect decl = map mk (vars decl)
                 , enum      = enums
             }
 
+resolveTransLHS :: Show a => Map String (Either (Section, Int, Maybe [(String, Int)]) a) -> (String, VarInfo -> t) -> t
 resolveTransLHS st (s, f) = f v
     where
         v = VarInfo {
@@ -147,69 +144,101 @@ resolveTransLHS st (s, f) = f v
             enum = es }
         (sect, sz, es) = case Map.lookup s st of
             Nothing                     -> error "LHS of transition relation not in sym tab"
-            Just (Left (se, sz, es))    -> (se, sz, es)
-            Just (Right sz)             -> error ("LHS of transition relation right: " ++ show sz)
+            Just (Left (se, size, ens)) -> (se, size, ens)
+            Just (Right size)           -> error ("LHS of transition relation right: " ++ show size)
 
 --The lexer
+reservedNames :: [String]
 reservedNames = ["case", "true", "false", "else", "abs", "conc", "uint", "bool"]
-reservedOps   = ["!", "&&", "||", "!=", "==", ":=", "<=", "<->"]
+
+reservedOps :: [String]
+reservedOps = ["!", "&&", "||", "!=", "==", ":=", "<=", "<->"]
 
 --Variable types
-boolTyp   t@T.TokenParser{..} = BoolType <$  reserved "bool"
-intTyp    t@T.TokenParser{..} = IntType  <$  reserved "uint" <*> angles (fromIntegral <$> natural)
-enumTyp   t@T.TokenParser{..} = EnumType <$> braces (sepBy identifier comma)
-typ       t@T.TokenParser{..} = boolTyp t <|> intTyp t <|> enumTyp t
+boolTyp :: T.GenTokenParser String () Identity -> ParsecT String () Identity Type
+boolTyp T.TokenParser{..} = BoolType <$  reserved "bool"
+
+intTyp :: T.GenTokenParser String () Identity -> ParsecT String () Identity Type
+intTyp T.TokenParser{..} = IntType  <$  reserved "uint" <*> angles (fromIntegral <$> natural)
+
+enumTyp :: T.GenTokenParser String () Identity -> ParsecT String () Identity Type
+enumTyp T.TokenParser{..} = EnumType <$> braces (sepBy identifier comma)
+
+typ :: T.GenTokenParser String () Identity -> ParsecT String () Identity Type
+typ t@T.TokenParser{..} = boolTyp t <|> intTyp t <|> enumTyp t
 
 --Variable declarations
-decl      t@T.TokenParser{..} = Decl <$> (sepBy identifier comma <* colon) <*> typ t
----decl      t@T.TokenParser{..} = Decl <$> sepBy identifier comma <* colon <*> absTypes t <*> typ t
+decl :: T.GenTokenParser String () Identity -> ParsecT String () Identity Decl
+decl t@T.TokenParser{..} = Decl <$> (sepBy identifier comma <* colon) <*> typ t
 
 --Expressions
 
 --The Bin expression parser
+binExpr :: T.GenTokenParser String () Identity -> ParsecT String () Identity (BinExpr (Either (String, Maybe (Int, Int)) Int))
 binExpr   t@T.TokenParser{..} =   buildExpressionParser (table t) (term t)
                               <?> "expression"
 
-assignExpr t@T.TokenParser{..} = AssignmentExpr <$> identifier <* reservedOp ":=" <*> (fromIntegral <$> integer)
+assignExpr :: T.GenTokenParser String () Identity -> ParsecT String () Identity (AssignmentExpr String)
+assignExpr T.TokenParser{..} = AssignmentExpr <$> identifier <* reservedOp ":=" <*> (fromIntegral <$> integer)
 
+predicate :: T.GenTokenParser String () Identity -> ParsecT String () Identity (BinExpr (Either (String, Maybe (Int, Int)) Int))
 predicate t@T.TokenParser{..} =   try (Pred Eq  <$> valExpr t <* reservedOp "==" <*> valExpr t)
                               <|> try (Pred Neq <$> valExpr t <* reservedOp "!=" <*> valExpr t)
 
-term      t@T.TokenParser{..} =   parens (binExpr t)
-                              <|> TrueE <$ (reserved "true"  <|> reserved "else")
-                              <|> FalseE <$ reserved "false"
-                              <|> try (predicate t)
-                              <?> "simple expression"
+term :: T.GenTokenParser String () Identity -> ParsecT String () Identity (BinExpr (Either (String, Maybe (Int, Int)) Int))
+term t@T.TokenParser{..} = parens (binExpr t)
+                         <|> TrueE <$ (reserved "true"  <|> reserved "else")
+                         <|> FalseE <$ reserved "false"
+                         <|> try (predicate t)
+                         <?> "simple expression"
 
-table     t@T.TokenParser{..} = [[prefix t "!"  Not]
-                                ,[binary t  "&&" (Bin And) AssocLeft]
-                                ,[binary t  "||" (Bin Or)  AssocLeft]
-                                ,[binary t  "<->" (Bin LogEq) AssocLeft]
-                                ]
+table :: T.GenTokenParser String () Identity -> [[Operator String () Identity (BinExpr v)]]
+table t@T.TokenParser{..} = [[prefix t "!"  Not]
+                            ,[binary t  "&&" (Bin And) AssocLeft]
+                            ,[binary t  "||" (Bin Or)  AssocLeft]
+                            ,[binary t  "<->" (Bin LogEq) AssocLeft]
+                            ]
 
-binary    t@T.TokenParser{..} name fun assoc = Infix  (fun <$ reservedOp name) assoc
-prefix    t@T.TokenParser{..} name fun       = Prefix (fun <$ reservedOp name) 
+binary :: T.GenTokenParser String () Identity -> String -> (a -> a -> a) -> Assoc -> Operator String () Identity a
+binary T.TokenParser{..} name fun assoc = Infix  (fun <$ reservedOp name) assoc
+
+prefix :: T.GenTokenParser String () Identity -> String -> (a -> a) -> Operator String () Identity a
+prefix T.TokenParser{..} name fun = Prefix (fun <$ reservedOp name) 
 
 --Control expressions
-assign    t@T.TokenParser{..} = Assign <$> identifier <* reservedOp ":=" <*> valExpr t
-signal    t@T.TokenParser{..} = Signal <$> identifier <* reservedOp "<=" <*> valExpr t
-ccase     t@T.TokenParser{..} = CaseC  <$  reserved "case" <*> braces (sepEndBy ((,) <$> binExpr t <* colon <*> ctrlExpr t) semi)
-conj      t@T.TokenParser{..} = Conj   <$> braces (sepEndBy (ctrlExpr t) semi)
-ctrlExpr  t@T.TokenParser{..} = conj t <|> ccase t <|> try (assign t) -- <|> signal t
+assign :: T.GenTokenParser String () Identity -> ParsecT String () Identity (CtrlExpr String (Either (String, Maybe (Int, Int)) Int))
+assign t@T.TokenParser{..} = Assign <$> identifier <* reservedOp ":=" <*> valExpr t
+
+ccase :: T.GenTokenParser String () Identity -> ParsecT String () Identity (CtrlExpr String (Either (String, Maybe (Int, Int)) Int))
+ccase t@T.TokenParser{..} = CaseC  <$  reserved "case" <*> braces (sepEndBy ((,) <$> binExpr t <* colon <*> ctrlExpr t) semi)
+
+conj :: T.GenTokenParser String () Identity -> ParsecT String () Identity (CtrlExpr String (Either (String, Maybe (Int, Int)) Int))
+conj t@T.TokenParser{..} = Conj   <$> braces (sepEndBy (ctrlExpr t) semi)
+
+ctrlExpr :: T.GenTokenParser String () Identity -> ParsecT String () Identity (CtrlExpr String (Either (String, Maybe (Int, Int)) Int))
+ctrlExpr t@T.TokenParser{..} = conj t <|> ccase t <|> try (assign t)
 
 --Value expressions
-
-pslice    t@T.TokenParser{..} = brackets $ f <$> integer <*> optionMaybe (colon *> integer)
+pslice :: T.GenTokenParser String () Identity -> ParsecT String () Identity (Int, Int)
+pslice T.TokenParser{..} = brackets $ f <$> integer <*> optionMaybe (colon *> integer)
     where
     f start Nothing    = (fromIntegral start, fromIntegral start)
     f start (Just end) = (fromIntegral start, fromIntegral end)
+
+slicedVar :: T.GenTokenParser String () Identity -> ParsecT String () Identity (String, Maybe (Int, Int))
 slicedVar t@T.TokenParser{..} = (,) <$> identifier <*> optionMaybe (pslice t)
 
-lit       t@T.TokenParser{..} = Lit   <$> ((Left <$> slicedVar t) <|> ((Right . fromIntegral) <$> integer))
-vcase     t@T.TokenParser{..} = CaseV <$  reserved "case" <*> braces (sepEndBy ((,) <$> binExpr t <* colon <*> valExpr t) semi)
-valExpr   t@T.TokenParser{..} = vcase t <|> lit t
+lit :: T.GenTokenParser String () Identity -> ParsecT String () Identity (ValExpr (Either (String, Maybe (Int, Int)) Int))
+lit t@T.TokenParser{..} = Lit <$> ((Left <$> slicedVar t) <|> ((Right . fromIntegral) <$> integer))
+
+vcase :: T.GenTokenParser String () Identity -> ParsecT String () Identity (ValExpr (Either (String, Maybe (Int, Int)) Int))
+vcase t@T.TokenParser{..} = CaseV <$ reserved "case" <*> braces (sepEndBy ((,) <$> binExpr t <* colon <*> valExpr t) semi)
+
+valExpr :: T.GenTokenParser String () Identity -> ParsecT String () Identity (ValExpr (Either (String, Maybe (Int, Int)) Int))
+valExpr t@T.TokenParser{..} = vcase t <|> lit t
 
 
+stdDef :: GenLanguageDef String () Identity
 stdDef = emptyDef {T.reservedNames = reservedNames 
                   ,T.reservedOpNames = reservedOps
                   ,T.identStart = letter <|> char '_'
@@ -219,10 +248,10 @@ stdDef = emptyDef {T.reservedNames = reservedNames
                   ,T.commentLine = "//"
                   }
 
+lexer :: T.GenTokenParser String () Identity
 lexer = T.makeTokenParser (stdDef {T.reservedNames = T.reservedNames stdDef ++ ["STATE", "LABEL", "OUTCOME", "INIT", "GOAL", "TRANS", "FAIR", "CONT", "LABELCONSTRAINTS"]})
 
-T.TokenParser {..} = lexer
-
+parseDecls :: ParsecT String () Identity Decls
 parseDecls = Decls
     <$  reserved "STATE"
     <*> sepEndBy (decl lexer) semi
@@ -230,7 +259,10 @@ parseDecls = Decls
     <*> sepEndBy (decl lexer) semi
     <*  reserved "OUTCOME"
     <*> sepEndBy (decl lexer) semi
+    where
+        T.TokenParser {..} = lexer
 
+parseRels :: ParsecT String () Identity (Rels (Either (String, Maybe (Int, Int)) Int))
 parseRels = Rels
     <$  reserved "INIT"
     <*> sepEndBy (assignExpr lexer) semi
@@ -245,10 +277,16 @@ parseRels = Rels
 
     <*  reserved "TRANS"
     <*> (Conj <$> sepEndBy (ctrlExpr lexer) semi)
+    where
+        T.TokenParser {..} = lexer
 
+spec :: ParsecT String () Identity Spec
 spec = Spec <$> parseDecls <*> parseRels
 
+top :: ParsecT String () Identity Spec
 top = whiteSpace *> (spec <* eof)
+    where
+        T.TokenParser {..} = lexer
 
 type SymTab = Map String (Either (Section, Int, Maybe [(String, Int)]) Int)
 
@@ -256,7 +294,7 @@ resolve :: (Traversable t) => SymTab -> t (Either (String, Slice) Int) -> Either
 resolve = traverse . func
 
 func :: SymTab -> Either (String, Slice) Int -> Either String (Either VarInfo Int)
-func mp lit = case lit of 
+func mp l = case l of 
     Left (str, slice) -> case Map.lookup str mp of
         Nothing                     -> Left  $ "Var doesn't exist: " ++ str
         Just (Left (sect, sz, es))  -> Right $ Left $ VarInfo str sz sect slice 1 es
@@ -264,9 +302,9 @@ func mp lit = case lit of
     Right x -> Right $ Right x
 
 constructSymTab :: (Ord a) => [(a, b)] -> Either a (Map a b)
-constructSymTab = foldM func (Map.empty) 
+constructSymTab = foldM f (Map.empty) 
     where
-    func mp (key, val) = case Map.lookup key mp of
+    f mp (key, val) = case Map.lookup key mp of
         Nothing -> Right $ Map.insert key val mp
         Just _  -> Left key
 
@@ -292,12 +330,14 @@ typeSize 0 = error "Enum with no items"
 typeSize 1 = error "Enum with one item"
 typeSize i = 1 + log2 (i - 1)
 
+doTypeSz :: Type -> Int
 doTypeSz BoolType      = 1
 doTypeSz (IntType n)   = n
 doTypeSz (EnumType es) = typeSize $ length es
 
+doTypeconsts :: Type -> [(String, Int)]
 doTypeconsts BoolType      = []
-doTypeconsts (IntType n)   = []
+doTypeconsts (IntType _)   = []
 doTypeconsts (EnumType es) = zip es [0..]
 
 getBits :: Slice -> Int -> Int
@@ -316,14 +356,15 @@ assignmentToVarInfo st (AssignmentExpr s val) = (v, val)
             enum = es }
         (sect, sz, es) = case Map.lookup s st of
             Nothing                     -> error "LHS of transition relation not in sym tab"
-            Just (Left (se, sz, es))    -> (se, sz, es)
-            Just (Right sz)             -> error ("LHS of transition relation right: " ++ show sz)
+            Just (Left (se, size, ens)) -> (se, size, ens)
+            Just (Right size)           -> error ("LHS of transition relation right: " ++ show size)
 
 predToHAST :: ValExpr (Either VarInfo Int) -> ValExpr (Either VarInfo Int) -> AST
 predToHAST (Lit (Right a)) (Lit (Right b))   = if (a == b) then HAST.T else HAST.F
 predToHAST (Lit (Left a)) (Lit (Right b))    = HAST.EqConst (HAST.NVar a) b
 predToHAST (Lit (Right a)) (Lit (Left b))    = HAST.EqConst (HAST.NVar b) a
 predToHAST (Lit (Left a)) (Lit (Left b))     = HAST.EqVar (HAST.NVar a) (HAST.NVar b)
+predToHAST _ _                               = error "predToHAST called incorrectly"
 
 binExprToHAST :: BinExpr (Either VarInfo Int) -> AST
 binExprToHAST TrueE             = HAST.T
@@ -338,8 +379,8 @@ binExprToHAST (Pred Neq a b)    = HAST.Not (predToHAST a b)
 ctrlExprToHAST :: CtrlExpr String (Either VarInfo Int) -> [(String, (VarInfo -> AST))]
 ctrlExprToHAST (Assign var val) = [(var, valExprToHAST val)]
 ctrlExprToHAST (Conj cs)        = concatMap ctrlExprToHAST cs
-ctrlExprToHAST (Signal var val) = error "Signal not implemented"
-ctrlExprToHAST (CaseC cs)       = error "CaseC not implemented"
+ctrlExprToHAST (Signal _ _ )    = error "Signal not implemented"
+ctrlExprToHAST (CaseC _)        = error "CaseC not implemented"
 
 valExprToHAST :: ValExpr (Either VarInfo Int) -> (VarInfo -> AST)
 valExprToHAST (Lit (Left a))    = (\x -> HAST.EqVar (HAST.FVar x) (HAST.NVar a))

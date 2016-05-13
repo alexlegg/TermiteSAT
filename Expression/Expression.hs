@@ -1,6 +1,6 @@
 {-# LANGUAGE RecordWildCards, ViewPatterns, NamedFieldPuns #-}
 module Expression.Expression (
-      ExpressionT(..)
+      ExpressionT
     , ExprVar(..)
     , Expression
     , Section(..)
@@ -70,7 +70,6 @@ module Expression.Expression (
 
 import Control.Monad.State
 import Control.Monad.Trans.Either
-import Control.Monad.ST
 import qualified Data.Map.Strict as Map
 import qualified Data.IntMap as IMap
 import qualified Data.Set as Set
@@ -80,7 +79,6 @@ import Data.Bits (testBit)
 import Data.Foldable (foldlM)
 import Data.Maybe
 import Utils.Utils
-import Debug.Trace
 import qualified Data.Vector.Storable as SV
 import Foreign.C.Types
 
@@ -89,7 +87,6 @@ type ExpressionT m = StateT ExprManager (EitherT String m)
 throwError :: MonadIO m => String -> ExpressionT m a
 throwError s = lift (left ("ERROR: " ++ s))
 
-type CopyId = Int
 type ExprId = Int
 
 data ExprVar = ExprVar {
@@ -105,16 +102,19 @@ instance Show ExprVar where
 
 data Var = Var Sign ExprId deriving (Show, Eq, Ord)
 
+var :: Var -> ExprId
 var (Var _ v)   = v
+
+sign :: Var -> Sign
 sign (Var s _)  = s
-lit (Var Pos v) = v
-lit (Var Neg v) = -v
 
 data Sign = Pos | Neg deriving (Show, Eq, Ord)
 
+flipSign :: Sign -> Sign
 flipSign Pos = Neg
 flipSign Neg = Pos
 
+flipAssignment :: Assignment -> Assignment
 flipAssignment (Assignment s v) = Assignment (flipSign s) v
 
 assignmentSection :: Assignment -> Section
@@ -161,7 +161,7 @@ setChildren (ETrue) _           = ETrue
 setChildren (EFalse) _          = EFalse
 setChildren (ELit l) _          = ELit l
 setChildren (ENot _) (v:[])     = ENot v
-setChildren (ENot _) []         = error $ "ENot of empty list"
+setChildren (ENot _) _          = error $ "ENot on non-singleton"
 setChildren (EConjunct _) vs    = EConjunct vs
 setChildren (EDisjunct _) vs    = EDisjunct vs
 
@@ -196,9 +196,14 @@ data Section = StateVar | ContVar | UContVar | HatVar
 
 data Assignment = Assignment Sign ExprVar deriving (Eq, Ord)
 
+instance Show Assignment where
+    show (Assignment Pos v) = show v
+    show (Assignment Neg v) = '-' : show v
+
 setAssignmentRankCopy :: Assignment -> Int -> Int -> Assignment
 setAssignmentRankCopy (Assignment s v) r c = Assignment s (v { rank = r, ecopy = c })
 
+emptyManager :: ExprManager
 emptyManager = ExprManager { 
       copyManagers  = IMap.empty
     , tempMaxIndex  = Nothing
@@ -209,6 +214,7 @@ emptyManager = ExprManager {
     , mgrMaxIndices = 200
 }
 
+emptyCopyManager :: Int -> Int -> CopyManager
 emptyCopyManager mi incr = CopyManager {
       maxIndex      = mi + incr
     , nextIndex     = mi + 1
@@ -229,16 +235,17 @@ clearTempExpressions = do
     put m { tempMaxIndex = Nothing, tempExprs = IMap.empty, tempDepMap = IMap.empty }
 
 -- |Call this function once the base formula is loaded
-initManager :: MonadIO m => [Int] -> ExpressionT m ()
-initManager save = do
+initManager :: MonadIO m => ExpressionT m ()
+initManager = do
     m@ExprManager{..} <- get
     let (Just c0)   = IMap.lookup 0 copyManagers
-    let incr        = ceiling ((fromIntegral (maxIndex c0)) * 1.5)
+    let incr        = ceiling ((fromIntegral (maxIndex c0)) * expansionFactor)
     put $ m { mgrMaxIndices = incr }
-    setCopyManager 0 (c0 { maxIndex = ceiling ((fromIntegral (maxIndex c0)) * 1.5) })
+    setCopyManager 0 (c0 { maxIndex = ceiling ((fromIntegral (maxIndex c0)) * expansionFactor) })
     clearCopyManagers
 
-    return ()
+expansionFactor :: Double
+expansionFactor = 1.5
 
 clearCopyManagers :: MonadIO m => ExpressionT m ()
 clearCopyManagers = do
@@ -252,14 +259,13 @@ initCopyMaps mc = do
     mapM_ initCopyMap [1..mc]
 
 -- Copy all variables into a copy map first
+initCopyMap :: MonadIO m => Int -> ExpressionT m ()
 initCopyMap c = do
     ExprManager{..} <- get
     let vars = Set.toList variables
-    es <- mapM (addExpression c . f) vars
-    return ()
+    mapM_ (addExpression c . f) vars
     where
         f v = ELit (v { ecopy = c })
-        unlit (ELit v)  = v
 
 getCopyManager :: MonadIO m => Int -> ExpressionT m CopyManager
 getCopyManager c = do
@@ -267,7 +273,7 @@ getCopyManager c = do
     case (IMap.lookup c (copyManagers mgr)) of
         Just cm -> return cm
         Nothing -> do
-            fillCopyManagers c
+            _ <- fillCopyManagers c
             mgr' <- get
             let (Just cm) = IMap.lookup c (copyManagers mgr')
             return cm
@@ -312,22 +318,9 @@ cacheMove mc mi e = do
 
 getCachedMove :: MonadIO m => Int -> (MoveCacheType, [Assignment]) -> ExpressionT m (Maybe Expression)
 getCachedMove copy mi = do
-    cm@CopyManager{..} <- getCopyManager copy
+    CopyManager{..} <- getCopyManager copy
     let ei = Map.lookup mi moveCache
     maybeM Nothing (lookupExpression copy) ei
-
-freeIndex :: MonadIO m => Int -> Int -> ExpressionT m ()
-freeIndex mc i = do
-    Just (e, c) <- lookupExpressionAndCopy mc i
-    cm          <- getCopyManager c
-
-    setCopyManager c $ cm {
-          indexPool     = ISet.insert i (indexPool cm)
-        , exprMap       = IMap.delete i (exprMap cm)
-        , depMap        = IMap.delete i (depMap cm)
-        , parentMap     = IMap.delete i (parentMap cm)
-        , indexMap      = Map.delete (expr e) (indexMap cm)
-        }
 
 insertExpression :: MonadIO m => Int -> Expr -> ExpressionT m Expression
 insertExpression _ (ELit v) = do
@@ -341,6 +334,7 @@ insertExpression _ (ELit v) = do
     return e
 insertExpression c e        = insertExpression' c e
 
+insertExpression' :: MonadIO m => Int -> Expr -> ExpressionT m Expression
 insertExpression' c e = do
     cm' <- getCopyManager c
 
@@ -370,19 +364,19 @@ insertExpression' c e = do
         parentMap   = IMap.insert i ISet.empty (parentMap cm),
         indexMap    = Map.insert e i (indexMap cm)
     }
-    mapM (insertParent c i) (map var (children e))
+    mapM_ (insertParent c i) (map var (children e))
 
     return $ Expression { eindex = i, expr = e }
 
 lookupExprIndex :: MonadIO m => Int -> Expr -> ExpressionT m (Maybe Int)
 lookupExprIndex 0 e   = do
-    cm@CopyManager{..} <- getCopyManager 0
+    CopyManager{..} <- getCopyManager 0
     return $ Map.lookup e indexMap
 lookupExprIndex mc e  = do
     ei <- lookupExprIndex (mc-1) e
     case ei of
         Nothing -> do
-            cm@CopyManager{..} <- getCopyManager mc
+            CopyManager{..} <- getCopyManager mc
             return $ Map.lookup e indexMap
         x       -> return x
 
@@ -390,7 +384,6 @@ addExpression :: MonadIO m => Int -> Expr -> ExpressionT m Expression
 addExpression _ ETrue   = return $ Expression { eindex = 1, expr = ETrue }
 addExpression _ EFalse  = return $ Expression { eindex = 2, expr = EFalse }
 addExpression c e       = do
-    mgr <- get
     ei <- lookupExprIndex c e
 
     case ei of
@@ -410,10 +403,11 @@ addTempExpression mc e = do
         tempMaxIndex    = Just (i+1),
         tempExprs       = IMap.insert i e tempExprs,
         tempDepMap      = IMap.insert i (ISet.insert i deps) tempDepMap,
-        tempParentMap   = IMap.insert i (ISet.empty) $ foldl (\m (Var _ x) -> IMap.adjust (ISet.insert i) x m) tempParentMap (children e)
+        tempParentMap   = IMap.insert i (ISet.empty) $ foldl (\mp (Var _ x) -> IMap.adjust (ISet.insert i) x mp) tempParentMap (children e)
     }
     return $ Expression { eindex = i, expr = e }
 
+childDependencies :: MonadIO m => Int -> Expr -> ExpressionT m ISet.IntSet
 childDependencies mc e = do
     deps <- mapM (getDependencies mc . var) (children e)
     return $ ISet.unions deps
@@ -427,7 +421,7 @@ lookupExpression mc i = do
     if isNothing e
     then case (IMap.lookup i tempExprs) of
         Nothing     -> return Nothing
-        (Just exp)  -> return $ Just (Expression { eindex = i, expr = exp })
+        (Just ex)   -> return $ Just (Expression { eindex = i, expr = ex })
     else return e
 
 lookupExpressionC :: MonadIO m => Int -> ExprId -> ExpressionT m (Maybe Expression)
@@ -435,12 +429,12 @@ lookupExpressionC c i = do
     CopyManager{..} <- getCopyManager c
     case (IMap.lookup i exprMap) of
         Nothing     -> return Nothing
-        (Just exp)  -> return $ Just (Expression { eindex = i, expr = exp })
+        (Just ex)   -> return $ Just (Expression { eindex = i, expr = ex })
 
 lookupExpressionC' :: MonadIO m => Int -> ExprId -> ExpressionT m (Maybe (Expression, Int))
 lookupExpressionC' c i = do
-    exp <- lookupExpressionC c i
-    case exp of
+    ex <- lookupExpressionC c i
+    case ex of
         Nothing     -> return Nothing
         (Just e)    -> return $ Just (e, c)
 
@@ -453,7 +447,7 @@ lookupExpressionAndCopy mc i    = do
     if isNothing e
     then case (IMap.lookup i tempExprs) of
         Nothing     -> return Nothing
-        (Just exp)  -> return $ Just ((Expression { eindex = i, expr = exp }), -1)
+        (Just ex)   -> return $ Just ((Expression { eindex = i, expr = ex }), -1)
     else return e
 
 getVars :: MonadIO m => Section -> Int -> Int -> ExpressionT m (Map.Map Int ExprVar)
@@ -497,20 +491,6 @@ getDependencies mc i    = do
         then return $ fromMaybe ISet.empty (IMap.lookup i tempDepMap)
         else return $ fromMaybe ISet.empty deps
 
-getParentsC :: MonadIO m => Int -> Int -> ExpressionT m (Maybe ISet.IntSet)
-getParentsC c i = do
-    CopyManager{..} <- getCopyManager c
-    return $ IMap.lookup i parentMap
-
-getParents :: MonadIO m => Int -> Int -> ExpressionT m ISet.IntSet
-getParents mc i = do
-    r <- mapMUntilJust (\c -> getParentsC c i) [0..mc]
-    case r of
-        Just p  -> return p
-        Nothing -> do
-            ExprManager{..} <- get
-            return $ fromMaybe ISet.empty (IMap.lookup i tempParentMap)
-
 insertParentC :: MonadIO m => Int -> Int -> Int -> ExpressionT m (Maybe Int)
 insertParentC i p c = do
     cm <- getCopyManager c
@@ -522,7 +502,7 @@ insertParentC i p c = do
 
 insertParent :: MonadIO m => Int -> Int -> Int -> ExpressionT m ()
 insertParent mc p i = do
-    mapMUntilJust (insertParentC i p) [0..mc]
+    _ <- mapMUntilJust (insertParentC i p) [0..mc]
     return ()
 
 foldExpressionM :: (MonadIO m) => Int -> (Int -> Expr -> [(Sign, a)] -> m a) -> Expression -> ExpressionT m a
@@ -533,45 +513,45 @@ foldExpressionM mc f e = do
     lift $ lift $ f (eindex e) (expr e) (zip (map sign cs) fes)
 
 foldExpression :: MonadIO m => Int -> (Int -> Expr -> [(Sign, a)] -> a) -> Expression -> ExpressionT m a
-foldExpression mc f e@(expr -> ETrue)   = return $ f 1 ETrue []
-foldExpression mc f e@(expr -> EFalse)  = return $ f 2 EFalse []
-foldExpression mc f e                   = do
+foldExpression _ f (expr -> ETrue)  = return $ f 1 ETrue []
+foldExpression _ f (expr -> EFalse) = return $ f 2 EFalse []
+foldExpression mc f e               = do
     ds <- getDependencies mc (eindex e)
     when (ISet.null ds) $ throwError "Empty dependencies"
 
     es <- (liftM catMaybes) $ mapM (lookupExpression mc) (ISet.toList ds)
-    done <- applyFold mc f es Map.empty
+    done <- applyFold f es Map.empty
     let (Just r) = Map.lookup (eindex e) done
     return r
 
 foldExpressionIO :: MonadIO m => Int -> (Int -> Expr -> [(Sign, a)] -> IO a) -> Expression -> ExpressionT m a
-foldExpressionIO mc f e@(expr -> ETrue)     = liftIO $ f 1 ETrue []
-foldExpressionIO mc f e@(expr -> EFalse)    = liftIO $ f 2 EFalse []
-foldExpressionIO mc f e                     = do
+foldExpressionIO _ f (expr -> ETrue)    = liftIO $ f 1 ETrue []
+foldExpressionIO _ f (expr -> EFalse)   = liftIO $ f 2 EFalse []
+foldExpressionIO mc f e                 = do
     ds <- getDependencies mc (eindex e)
     when (ISet.null ds) $ throwError "Empty dependencies"
 
     es      <- (liftM catMaybes) $ mapM (lookupExpression mc) (ISet.toList ds)
     fTrue   <- liftIO $ f 1 ETrue []
     fFalse  <- liftIO $ f 2 EFalse []
-    done    <- applyFoldIO mc f es (Map.fromList [(1, fTrue), (2, fFalse)])
+    done    <- applyFoldIO f es (Map.fromList [(1, fTrue), (2, fFalse)])
     let (Just r) = Map.lookup (eindex e) done
     return r
 
-applyFold :: MonadIO m => Int -> (Int -> Expr -> [(Sign, a)] -> a) -> [Expression] -> Map.Map Int a -> ExpressionT m (Map.Map Int a)
-applyFold mc _ [] done = return done
-applyFold mc f pool done = do
-    (pool', done') <- foldM (tryToApply' mc f) ([], done) pool
-    applyFold mc f pool' done'
+applyFold :: MonadIO m => (Int -> Expr -> [(Sign, a)] -> a) -> [Expression] -> Map.Map Int a -> ExpressionT m (Map.Map Int a)
+applyFold _ [] done = return done
+applyFold f pool done = do
+    (pool', done') <- foldM (tryToApply' f) ([], done) pool
+    applyFold f pool' done'
 
-applyFoldIO :: MonadIO m => Int -> (Int -> Expr -> [(Sign, a)] -> IO a) -> [Expression] -> Map.Map Int a -> ExpressionT m (Map.Map Int a)
-applyFoldIO mc _ [] done = return done
-applyFoldIO mc f pool done = do
-    (pool', done') <- foldM (tryToApplyIO' mc f) ([], done) pool
-    applyFoldIO mc f pool' done'
+applyFoldIO :: MonadIO m => (Int -> Expr -> [(Sign, a)] -> IO a) -> [Expression] -> Map.Map Int a -> ExpressionT m (Map.Map Int a)
+applyFoldIO _ [] done = return done
+applyFoldIO f pool done = do
+    (pool', done') <- foldM (tryToApplyIO' f) ([], done) pool
+    applyFoldIO f pool' done'
 
-tryToApply' :: MonadIO m => Int -> (Int -> Expr -> [(Sign, a)] -> a) -> ([Expression], Map.Map Int a) -> Expression -> ExpressionT m ([Expression], Map.Map Int a)
-tryToApply' mc f (pool, doneMap) e = do
+tryToApply' :: MonadIO m => (Int -> Expr -> [(Sign, a)] -> a) -> ([Expression], Map.Map Int a) -> Expression -> ExpressionT m ([Expression], Map.Map Int a)
+tryToApply' f (pool, doneMap) e = do
     let cs = children (expr e)
     let ds = map (\v -> Map.lookup (var v) doneMap) cs
     if (all isJust ds)
@@ -581,8 +561,8 @@ tryToApply' mc f (pool, doneMap) e = do
         return (pool, Map.insert (eindex e) x doneMap)
     else return (e : pool, doneMap)
 
-tryToApplyIO' :: MonadIO m => Int -> (Int -> Expr -> [(Sign, a)] -> IO a) -> ([Expression], Map.Map Int a) -> Expression -> ExpressionT m ([Expression], Map.Map Int a)
-tryToApplyIO' mc f (pool, doneMap) e = do
+tryToApplyIO' :: MonadIO m => (Int -> Expr -> [(Sign, a)] -> IO a) -> ([Expression], Map.Map Int a) -> Expression -> ExpressionT m ([Expression], Map.Map Int a)
+tryToApplyIO' f (pool, doneMap) e = do
     let cs = children (expr e)
     let ds = map (\v -> Map.lookup (var v) doneMap) cs
     if (all isJust ds)
@@ -593,8 +573,8 @@ tryToApplyIO' mc f (pool, doneMap) e = do
     else return (e : pool, doneMap)
 
 traverseExpression :: MonadIO m => Int -> (ExprVar -> ExprVar) -> Expression -> ExpressionT m Expression
-traverseExpression mc f e@(expr -> ETrue)   = return e
-traverseExpression mc f e@(expr -> EFalse)  = return e
+traverseExpression _  _ e@(expr -> ETrue)   = return e
+traverseExpression _  _ e@(expr -> EFalse)  = return e
 traverseExpression mc f e                   = do
     ds  <- getDependencies mc (eindex e)
     when (ISet.null ds) $ throwError "Empty dependencies"
@@ -604,7 +584,7 @@ traverseExpression mc f e                   = do
     liftM fromJust $ lookupExpression mc e'
 
 applyTraverse :: MonadIO m => Int -> (ExprVar -> ExprVar) -> [Expression] -> Map.Map Int Int -> ExpressionT m (Map.Map Int Int)
-applyTraverse mc _ [] done = return done
+applyTraverse _ _ [] done = return done
 applyTraverse mc f pool done = do
     (pool', done') <- foldlM (tryToApply mc f) ([], done) pool
     applyTraverse mc f pool' done'
@@ -613,7 +593,7 @@ tryToApply :: MonadIO m => Int -> (ExprVar -> ExprVar) -> ([Expression], Map.Map
 tryToApply mc f (pool, doneMap) e@(expr -> ELit v)  = do
     e' <- addExpression mc (ELit (f v))
     return (pool, Map.insert (eindex e) (eindex e') doneMap)
-tryToApply mc f (pool, doneMap) e = do
+tryToApply mc _ (pool, doneMap) e = do
     let cs = children (expr e)
     let ds = map (\v -> Map.lookup (var v) doneMap) cs
     if (all isJust ds)
@@ -626,11 +606,13 @@ tryToApply mc f (pool, doneMap) e = do
 setRank :: MonadIO m => Int -> Expression -> ExpressionT m Expression
 setRank r = traverseExpression 0 (setVarRank r)
     
+setVarRank :: Int -> ExprVar -> ExprVar
 setVarRank r v = v {rank = r}
 
 setHatVar :: MonadIO m => Int -> Expression -> ExpressionT m Expression
 setHatVar mc = traverseExpression mc setVarHat
 
+setVarHat :: ExprVar -> ExprVar
 setVarHat v = if varsect v == UContVar || varsect v == ContVar
                 then v {varname = varname v ++ "_hat", varsect = HatVar}
                 else v
@@ -638,6 +620,7 @@ setVarHat v = if varsect v == UContVar || varsect v == ContVar
 unrollExpression :: MonadIO m => Expression -> ExpressionT m Expression
 unrollExpression = traverseExpression 0 shiftVar
 
+shiftVar :: ExprVar -> ExprVar
 shiftVar v = v {rank = rank v + 1}
 
 liftConjuncts :: Expression -> [Var]
@@ -647,11 +630,12 @@ liftConjuncts Expression { expr = ENot (Var Pos i) }    = [Var Neg i]
 liftConjuncts Expression { expr = ENot (Var Neg i) }    = [Var Pos i]
 liftConjuncts Expression { eindex = i }                 = [Var Pos i]
 
-conjunct' c f [] []                 = throwError "Empty conjunction"
+conjunct' :: MonadIO m => Int -> (Int -> Expr -> ExpressionT m Expression) -> [Expression] -> [Var] -> ExpressionT m Expression
+conjunct' _ _ [] []                 = throwError "Empty conjunction"
 conjunct' c f es []                 = if (all ((==) ETrue . expr) es) 
                                         then f c ETrue
                                         else throwError $ "Empty conjunction after lifting: " ++ show es
-conjunct' c f _ ((Var Pos i):[])    = (fmap fromJust) $ lookupExpression c i
+conjunct' c _ _ ((Var Pos i):[])    = (fmap fromJust) $ lookupExpression c i
 conjunct' c f _ ((Var Neg i):[])    = do
     e <- (fmap fromJust) $ lookupExpression c i
     negation' c f e
@@ -667,17 +651,19 @@ conjunctC c es = conjunct' c addExpression es (concatMap liftConjuncts es)
 conjunctTemp :: MonadIO m => Int -> [Expression] -> ExpressionT m Expression
 conjunctTemp mc es = conjunct' mc addTempExpression es (concatMap liftConjuncts es)
 
+liftDisjuncts :: Expression -> [Var]
 liftDisjuncts Expression {expr = (EDisjunct vs)}    = vs
 liftDisjuncts Expression {expr = EFalse}            = []
 liftDisjuncts Expression {expr = ENot (Var Pos i)}  = [Var Neg i]
 liftDisjuncts Expression {expr = ENot (Var Neg i)}  = [Var Pos i]
 liftDisjuncts Expression {eindex = i}               = [Var Pos i]
 
-disjunct' c f [] []                 = throwError $ "Empty disjunction"
+disjunct' :: MonadIO m => Int -> (Int -> Expr -> ExpressionT m Expression) -> [Expression] -> [Var] -> ExpressionT m Expression
+disjunct' _ _ [] []                 = throwError $ "Empty disjunction"
 disjunct' c f es []                 = if (all ((==) EFalse . expr) es) 
                                         then f c EFalse
                                         else throwError $ "Empty disjunction after lifting: " ++ show es
-disjunct' c f _ ((Var Pos i):[])    = (fmap fromJust) $ lookupExpression c i
+disjunct' c _ _ ((Var Pos i):[])    = (fmap fromJust) $ lookupExpression c i
 disjunct' c f _ ((Var Neg i):[])    = do
     e <- (fmap fromJust) $ lookupExpression c i
     negation' c f e
@@ -699,8 +685,8 @@ makeSignsFromValue v sz = map f [0..(sz-1)]
         f b = if testBit v b then Pos else Neg
 
 equalsConstant :: MonadIO m => [ExprVar] -> Int -> ExpressionT m Expression
-equalsConstant es const = do
-    let signs = makeSignsFromValue const (length es)
+equalsConstant es val = do
+    let signs = makeSignsFromValue val (length es)
     lits <- mapM literal es
     addExpression 0 (EConjunct (zipWith Var signs (map eindex lits)))
 
@@ -719,7 +705,8 @@ implicateC c a b = addExpression c (EDisjunct [Var Neg (eindex a), Var Pos (eind
 implicateTemp :: MonadIO m => Int -> Expression -> Expression -> ExpressionT m Expression
 implicateTemp mc a b = addTempExpression mc (EDisjunct [Var Neg (eindex a), Var Pos (eindex b)])
 
-negation' c f (Expression {expr = ENot (Var Pos e)})    = (fmap fromJust) $ lookupExpression c e
+negation' :: MonadIO m => Int -> (Int -> Expr -> ExpressionT m Expression) -> Expression -> ExpressionT m Expression
+negation' c _ (Expression {expr = ENot (Var Pos e)})    = (fmap fromJust) $ lookupExpression c e
 negation' c f (Expression {expr = EFalse})              = f c ETrue
 negation' c f (Expression {expr = ETrue})               = f c EFalse
 negation' c f (Expression {eindex = i})                 = f c (ENot (Var Pos i))
@@ -761,6 +748,7 @@ getChildren e = do
 printExpression :: MonadIO m => Expression -> ExpressionT m String
 printExpression = printExpression' 0 ""
 
+printExpression' :: MonadIO m => Int -> String -> Expression -> ExpressionT m String
 printExpression' tabs s e = do
     cs <- getChildren e
     let signs = map (\c -> if sign c == Pos then "" else "-") (children (expr e))
@@ -833,8 +821,8 @@ getCachedStepDimacs mc e = do
     let cached  = map (lookupDimacs cms) ds
     let (cs, ncs) = partition (isJust . snd) (zip ds cached)
     new <- forM ncs $ \(i, _) -> do
-        (Just (e, c)) <- lookupExpressionAndCopy mc i
-        let v = makeVector e
+        (Just (ex, c)) <- lookupExpressionAndCopy mc i
+        let v = makeVector ex
         when (c >= 0) $ cacheDimacs c i v
         return v
 
@@ -853,7 +841,6 @@ makeVector e = case exprType e of
         i       = fromIntegral $ exprIndex e
         cs      = exprChildren (exprType e)
         (x:_)   = cs
-        (a:b:_) = exprChildren (exprType e)
         litc (Var Pos v) = fromIntegral v
         litc (Var Neg v) = fromIntegral (-v)
 
@@ -861,7 +848,7 @@ analyseManagers :: MonadIO m => ExpressionT m ()
 analyseManagers = do
     ExprManager{..} <- get
     liftIO $ putStrLn $ "Total copy managers: " ++ show (IMap.size copyManagers)
-    forM [0..(IMap.size copyManagers)-1] analyseCopyManager
+    forM_ [0..(IMap.size copyManagers)-1] analyseCopyManager
     return ()
 
 analyseCopyManager :: MonadIO m => Int -> ExpressionT m ()

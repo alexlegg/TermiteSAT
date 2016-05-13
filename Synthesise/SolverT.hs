@@ -1,5 +1,5 @@
 module Synthesise.SolverT (
-      SolverT(..)
+      SolverT
     , LearnedStates(..)
     , LearningType(..)
     , emptyLearnedStates
@@ -13,7 +13,6 @@ import Control.Monad.Trans.Either
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Expression.Expression
-import Synthesise.GameTree (Move)
 import Utils.Logger
 
 type SolverST m = StateT LearnedStates m
@@ -32,6 +31,7 @@ data LearnedStates = LearnedStates {
     , checkedMoves      :: Set.Set (Int, [Assignment], [Assignment])
 }
 
+emptyLearnedStates :: LearningType -> LearnedStates
 emptyLearnedStates t = LearnedStates {
       learningType      = t
     , winningMust       = Set.empty

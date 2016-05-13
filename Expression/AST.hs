@@ -1,7 +1,7 @@
 module Expression.AST (
-      AST(..)
+      AST
     , VarInfo(..)
-    , Slice(..)
+    , Slice
     , Section(..)
     , Assignment(..)
     ) where
