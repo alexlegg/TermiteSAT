@@ -7,6 +7,7 @@ import System.TimeIt
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Either
+import Control.Concurrent
 import Data.String.Utils
 
 import Utils.Logger
@@ -22,6 +23,7 @@ data Option = InputFile String
             | DefaultMovesIt String
             | InitMinimisation String
             | StratShortening (Maybe String)
+            | Portfolio
 
 
 defaultConfig :: Config
@@ -32,16 +34,18 @@ defaultConfig = Config {
     , moveLearning  = MLDefaultMoves 2
     , initMin       = Nothing
     , shortening    = ShortenExistential
+    , portfolio     = False
     }
 
 options :: [OptDescr Option]
 options =
-    [ Option ['k']  ["bound"]   (ReqArg Bound "K")              "Bounded reachability unroll length"
-    , Option ['d']  ["debug"]   (OptArg DebugMode "D")          "Debug mode. 0 = None, 1 = Output at end, 2 = Dump throughout, 3 = Dump after each loop"
-    , Option ['m']  ["moves"]   (ReqArg DefaultMoves "FILE")    "Default moves files"
-    , Option ['e']  ["default"] (ReqArg DefaultMovesIt "E")     "Default moves iterations"
-    , Option ['i']  ["initmin"] (ReqArg InitMinimisation "I")   "Minimise init cube"
-    , Option ['h']  ["shorten"] (OptArg StratShortening "S")    "Strategy Shortening. 0 = None, 1 = Existential, 2 = Universal, 3 = Both"
+    [ Option ['k']  ["bound"]       (ReqArg Bound "K")              "Bounded reachability unroll length"
+    , Option ['d']  ["debug"]       (OptArg DebugMode "D")          "Debug mode. 0 = None, 1 = Output at end, 2 = Dump throughout, 3 = Dump after each loop"
+    , Option ['m']  ["moves"]       (ReqArg DefaultMoves "FILE")    "Default moves files"
+    , Option ['e']  ["default"]     (ReqArg DefaultMovesIt "E")     "Default moves iterations"
+    , Option ['i']  ["initmin"]     (ReqArg InitMinimisation "I")   "Minimise init cube"
+    , Option ['h']  ["shorten"]     (OptArg StratShortening "S")    "Strategy Shortening. 0 = None, 1 = Existential, 2 = Universal, 3 = Both"
+    , Option ['p']  ["portfolio"]   (NoArg Portfolio)               "Portfolio solver"
     ]
 
 addOption :: Option -> Config -> Config
@@ -52,6 +56,7 @@ addOption (DefaultMoves m) c        = c {moveLearning = MLFixedMoves m}
 addOption (DefaultMovesIt i) c      = c {moveLearning = MLDefaultMoves (read i)}
 addOption (InitMinimisation i)  c   = c {initMin = Just (read i)}
 addOption (StratShortening s) c     = maybe c (\x -> c {shortening = toEnum (read x)}) s
+addOption (Portfolio) c             = c {portfolio = True}
 
 main :: IO ()
 main = timeIt $ mainTimed
@@ -73,16 +78,11 @@ mainTimed = do
                 putStrLn $ "Shortening  " ++ show (shortening config)
                 putStrLn $ "Move Learning " ++ show (moveLearning config)
 
-            clearLogDir (debugMode config)
-            f   <- readFile (tslFile config)
-            r   <- printLog (debugMode config) $ runEitherT (run config f)
+            r <- if portfolio config
+                then runPortfolio config
+                else runSolver config
 
             printResult r
-
-printResult :: Either String (Maybe Int) -> IO ()
-printResult (Left err)          = putStrLn err
-printResult (Right (Just _))    = putStrLn "UNREALIZABLE"
-printResult (Right Nothing)     = putStrLn "REALIZABLE"
 
 getConfig :: IO (Either String Config)
 getConfig = do
@@ -96,6 +96,26 @@ getConfig = do
         (o, _, [])  -> return $ (foldr (liftM . addOption) config o)
         _           -> return $ Left "Bad options"
     
+runPortfolio :: Config -> IO (Either String (Maybe Int))
+runPortfolio config = do
+    mv <- newEmptyMVar
+
+    _ <- forkSolver mv $ runSolver config
+    _ <- forkSolver mv $ runSolver (config { initMin = Nothing })
+
+    readMVar mv
+
+forkSolver :: MVar (Either String a) -> (IO (Either String a)) -> IO ThreadId
+forkSolver mv io =
+    forkFinally io $ \case
+        Left e  -> putMVar mv (Left (show e))
+        Right r -> putMVar mv r
+
+runSolver :: Config -> IO (Either String (Maybe Int))
+runSolver config = do
+    clearLogDir (debugMode config)
+    f <- readFile (tslFile config)
+    printLog (debugMode config) $ runEitherT (run config f)
 
 run :: Config -> String -> EitherT String (LoggerT IO) (Maybe Int)
 run config f = do
@@ -108,3 +128,8 @@ parse :: String -> String -> Either String ParsedSpec
 parse fn | endswith ".tsl" fn   = parser fn
          | endswith ".aag" fn   = AIG.parser fn
          | otherwise            = const (Left "Unsupported file type")
+
+printResult :: Either String (Maybe a) -> IO ()
+printResult (Left err)          = putStrLn err
+printResult (Right (Just _))    = putStrLn "UNREALIZABLE"
+printResult (Right Nothing)     = putStrLn "REALIZABLE"

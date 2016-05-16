@@ -18,4 +18,5 @@ data Config = Config { tslFile      :: String
                      , moveLearning :: MoveLearning
                      , initMin      :: Maybe Int
                      , shortening   :: Shortening
+                     , portfolio    :: Bool
                      } deriving (Show, Eq)
