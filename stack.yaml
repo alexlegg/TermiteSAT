@@ -6,6 +6,8 @@ resolver: lts-5.1
 # Local packages, usually specified by relative directory name
 packages:
 - '.'
+- '../syntcomp'
+- '../haskell_cudd'
 
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
 extra-deps:
@@ -13,6 +15,8 @@ extra-deps:
 - bv-0.4.0
 - text-1.2.2.0
 - tuple-0.3.0.2
+- simplebddsolver-0.1.0.0
+- cudd-0.1.0.2
 
 # Override default flag values for local packages and extra-deps
 flags: {}

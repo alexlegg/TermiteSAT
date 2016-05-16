@@ -9,6 +9,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Trans.Either
 import Control.Concurrent
 import Data.String.Utils
+import qualified SimpleBDDSolver.AbsSolver as BDD
 
 import Utils.Logger
 import Expression.Parse
@@ -96,12 +97,12 @@ getConfig = do
         (o, _, [])  -> return $ (foldr (liftM . addOption) config o)
         _           -> return $ Left "Bad options"
     
-runPortfolio :: Config -> IO (Either String (Maybe Int))
+runPortfolio :: Config -> IO (Either String Bool)
 runPortfolio config = do
     mv <- newEmptyMVar
 
     _ <- forkSolver mv $ runSolver config
-    _ <- forkSolver mv $ runSolver (config { initMin = Nothing })
+    _ <- forkSolver mv $ runBDDSolver config
 
     readMVar mv
 
@@ -111,25 +112,41 @@ forkSolver mv io =
         Left e  -> putMVar mv (Left (show e))
         Right r -> putMVar mv r
 
-runSolver :: Config -> IO (Either String (Maybe Int))
+runBDDSolver :: Config -> IO (Either String Bool)
+runBDDSolver config = do
+    let opt = BDD.Options { 
+          quiet                 = True
+        , noReord               = False
+        , noEarly               = False
+        , computeWinUnderApprox = False
+        , noEarlyUnder          = False
+        , filename              = tslFile config }
+
+    BDD.doIt opt
+
+runSolver :: Config -> IO (Either String Bool)
 runSolver config = do
     clearLogDir (debugMode config)
     f <- readFile (tslFile config)
     printLog (debugMode config) $ runEitherT (run config f)
 
-run :: Config -> String -> EitherT String (LoggerT IO) (Maybe Int)
+run :: Config -> String -> EitherT String (LoggerT IO) Bool
 run config f = do
     spec <- hoistEither $ parse (tslFile config) f
     case (solverType config) of
-        Unbounded   -> unboundedSynthesis spec config
-        Bounded k   -> synthesise k spec config
+        Unbounded   -> liftM resultToBool $ unboundedSynthesis spec config
+        Bounded k   -> liftM resultToBool $ synthesise k spec config
+
+resultToBool :: Maybe a -> Bool
+resultToBool (Just _)   = False
+resultToBool Nothing    = True
 
 parse :: String -> String -> Either String ParsedSpec
 parse fn | endswith ".tsl" fn   = parser fn
          | endswith ".aag" fn   = AIG.parser fn
          | otherwise            = const (Left "Unsupported file type")
 
-printResult :: Either String (Maybe a) -> IO ()
-printResult (Left err)          = putStrLn err
-printResult (Right (Just _))    = putStrLn "UNREALIZABLE"
-printResult (Right Nothing)     = putStrLn "REALIZABLE"
+printResult :: Either String Bool -> IO ()
+printResult (Left err)      = putStrLn err
+printResult (Right True)    = putStrLn "REALIZABLE"
+printResult (Right False)   = putStrLn "UNREALIZABLE"
