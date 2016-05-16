@@ -19,6 +19,10 @@ flag profiling
     description:    Build profiling executable
     default:        False
 
+flag static
+    description:    Build statically linked executable
+    default:        False
+
 executable TermiteSAT
   main-is:              Main.hs
 
@@ -78,7 +82,11 @@ executable TermiteSAT
                         , stdc++
                         , gmpxx
                         , gmp
-  ld-options:           -pthread
+
+  if flag(static)
+      ld-options:       -static -pthread
+  else
+      ld-options:       -pthread
 
 executable TermiteSAT-prof
   if flag(profiling)
