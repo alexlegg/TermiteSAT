@@ -8,12 +8,7 @@ INC_PER=-I${BASE_PER}/src/ -I${BASE_PER}/src/api/ -I${BASE_PER}/src/cnfizers/ -I
 all: periplo_wrapper.h periplo_wrapper.cc
 	g++ -std=c++11 -c $(INC_PER) -o periplo_wrapper.o periplo_wrapper.cc -DPRODUCE_PROOF -DPERIPLO_WRAPPER_GHC_ONLY
 	ar x ../periplo/build/src/.libs/libperiplolibrary.a
-	ar x ${BASE_CUDD}/cudd/libcudd.a
-	ar x ${BASE_CUDD}/epd/libepd.a
-	ar x ${BASE_CUDD}/util/libutil.a
-	ar x ${BASE_CUDD}/dddmp/libdddmp.a
-	ar x ${BASE_CUDD}/st/libst.a
-	ar x ${BASE_CUDD}/mtr/libmtr.a
+	ar x ${BASE_CUDD}/cudd/.libs/libcudd.a
 	ar rs libperiplo_wrapper.a *.o
 
 .PHONY: clean
