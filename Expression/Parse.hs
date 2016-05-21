@@ -130,6 +130,7 @@ declToVarInfo sect d = map mk (vars d)
                 , slice     = Nothing
                 , virank    = 0
                 , enum      = enums
+                , aigId     = Nothing
             }
 
 resolveTransLHS :: Show a => Map String (Either (Section, Int, Maybe [(String, Int)]) a) -> (String, VarInfo -> t) -> t
@@ -141,7 +142,8 @@ resolveTransLHS st (s, f) = f v
             section = sect,
             slice = Nothing,
             virank = 0,
-            enum = es }
+            enum = es,
+            aigId = Nothing}
         (sect, sz, es) = case Map.lookup s st of
             Nothing                     -> error "LHS of transition relation not in sym tab"
             Just (Left (se, size, ens)) -> (se, size, ens)
@@ -297,7 +299,7 @@ func :: SymTab -> Either (String, Slice) Int -> Either String (Either VarInfo In
 func mp l = case l of 
     Left (str, slice) -> case Map.lookup str mp of
         Nothing                     -> Left  $ "Var doesn't exist: " ++ str
-        Just (Left (sect, sz, es))  -> Right $ Left $ VarInfo str sz sect slice 1 es
+        Just (Left (sect, sz, es))  -> Right $ Left $ VarInfo str sz sect slice 1 es Nothing
         Just (Right c)              -> Right $ Right $ getBits slice c
     Right x -> Right $ Right x
 
@@ -353,7 +355,8 @@ assignmentToVarInfo st (AssignmentExpr s val) = (v, val)
             section = sect,
             slice = Nothing,
             virank = 0,
-            enum = es }
+            enum = es,
+            aigId = Nothing}
         (sect, sz, es) = case Map.lookup s st of
             Nothing                     -> error "LHS of transition relation not in sym tab"
             Just (Left (se, size, ens)) -> (se, size, ens)

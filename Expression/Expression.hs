@@ -94,6 +94,7 @@ data ExprVar = ExprVar {
     , bit       :: Int
     , rank      :: Int
     , ecopy     :: Int
+    , varAIG    :: Maybe Int
     } deriving (Eq, Ord)
 
 instance Show ExprVar where

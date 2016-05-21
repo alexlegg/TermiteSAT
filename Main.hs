@@ -25,6 +25,7 @@ data Option = InputFile String
             | InitMinimisation String
             | StratShortening (Maybe String)
             | Portfolio
+            | Hybrid
 
 
 defaultConfig :: Config
@@ -36,6 +37,8 @@ defaultConfig = Config {
     , initMin       = Nothing
     , shortening    = ShortenExistential
     , portfolio     = False
+    , hybrid        = False
+    , hybridMVar    = Nothing
     }
 
 options :: [OptDescr Option]
@@ -47,6 +50,7 @@ options =
     , Option ['i']  ["initmin"]     (ReqArg InitMinimisation "I")   "Minimise init cube"
     , Option ['h']  ["shorten"]     (OptArg StratShortening "S")    "Strategy Shortening. 0 = None, 1 = Existential, 2 = Universal, 3 = Both"
     , Option ['p']  ["portfolio"]   (NoArg Portfolio)               "Portfolio solver"
+    , Option ['y']  ["hybrid"]      (NoArg Hybrid)                  "Hybrid solver"
     ]
 
 addOption :: Option -> Config -> Config
@@ -58,6 +62,7 @@ addOption (DefaultMovesIt i) c      = c {moveLearning = MLDefaultMoves (read i)}
 addOption (InitMinimisation i)  c   = c {initMin = Just (read i)}
 addOption (StratShortening s) c     = maybe c (\x -> c {shortening = toEnum (read x)}) s
 addOption (Portfolio) c             = c {portfolio = True}
+addOption (Hybrid) c                = c {portfolio = True, hybrid = True}
 
 main :: IO ()
 main = timeIt $ mainTimed
@@ -101,8 +106,12 @@ runPortfolio :: Config -> IO (Either String Bool)
 runPortfolio config = do
     mv <- newEmptyMVar
 
-    _ <- forkSolver mv $ runSolver config
-    _ <- forkSolver mv $ runBDDSolver config
+    hv <- if hybrid config 
+              then (fmap Just) (newMVar []) 
+              else return Nothing
+
+    _ <- forkSolver mv $ runSolver (config { hybridMVar = hv })
+    _ <- forkSolver mv $ runBDDSolver (config { hybridMVar = hv })
 
     readMVar mv
 
@@ -120,7 +129,8 @@ runBDDSolver config = do
         , noEarly               = False
         , computeWinUnderApprox = False
         , noEarlyUnder          = False
-        , filename              = tslFile config }
+        , filename              = tslFile config
+        , hybridMVar            = hybridMVar config }
 
     BDD.doIt opt
 

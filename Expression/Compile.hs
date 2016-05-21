@@ -69,7 +69,8 @@ makeVar vi bit = ExprVar {
     varsect = section vi,
     bit     = bit,
     rank    = virank vi,
-    ecopy   = 0
+    ecopy   = 0,
+    varAIG  = aigId vi
     }
     
 makeConditions :: MonadIO m => [Expression] -> ExpressionT m [Expression]

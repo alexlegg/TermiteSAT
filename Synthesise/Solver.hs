@@ -14,6 +14,7 @@ import Data.Foldable (foldlM)
 import Control.Monad.State
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import Control.Concurrent
 
 import Expression.Compile
 import Expression.Expression
@@ -171,7 +172,7 @@ solveAbstract :: Player -> CompiledSpec -> Config -> [Assignment] -> GameTree ->
 solveAbstract player spec config s gt short = do
     liftLog $ logSolve gt player []
 
-    cand <- findCandidate player spec s short gt
+    cand <- findCandidate config player spec s short gt
 
     res <- refinementLoop player spec config s short cand gt gt
 
@@ -194,8 +195,8 @@ refinementLoop player spec config s short (Just cand) origGT absGT  = do
             return (Just cand)
     
 
-findCandidate :: Player -> CompiledSpec -> [Assignment] -> Shortening -> GameTree -> SolverT (Maybe GameTree)
-findCandidate player spec s short gt = do
+findCandidate :: Config -> Player -> CompiledSpec -> [Assignment] -> Shortening -> GameTree -> SolverT (Maybe GameTree)
+findCandidate config player spec s short gt = do
     (es, f, gt')    <- makeFml spec player s gt False
     res             <- satSolve (gtMaxCopy gt') Nothing f
 
@@ -213,7 +214,7 @@ findCandidate player spec s short gt = do
         ls <- get
         if (learningType ls == BoundedLearning)
             then mapM_ (learnStates spec player) (gtUnsetNodes gt)
-            else learnWinning spec player s gt
+            else learnWinning config spec player s gt
 
         liftLog $ logCandidate Nothing
         return Nothing
@@ -258,25 +259,25 @@ getLosingStates spec player ogt = do
     else 
         return Nothing
 
-learnWinning :: CompiledSpec -> Player -> [Assignment] -> GameTree -> SolverT ()
-learnWinning spec player s gt@(gtUnsetNodes -> []) = do
+learnWinning :: Config -> CompiledSpec -> Player -> [Assignment] -> GameTree -> SolverT ()
+learnWinning config spec player s gt@(gtUnsetNodes -> []) = do
     -- Learn from the root of the tree
-    interpolateTree spec player [s] True (gtExtend gt)
-learnWinning spec player _ (gtUnsetNodes -> gt:[]) = do
+    interpolateTree config spec player [s] True (gtExtend gt)
+learnWinning config spec player _ (gtUnsetNodes -> gt:[]) = do
     -- Learn from the highest node under the fixed prefix
     core <- getLosingStates spec player gt
     case core of
         Just [] -> liftLog $ putStrLnDbg 1 "empty core"
-        Just c  -> interpolateTree spec player c True (gtExtend (gtRebase 0 gt))
+        Just c  -> interpolateTree config spec player c True (gtExtend (gtRebase 0 gt))
         Nothing -> do
             -- Can't find a core, so we must have lost in the prefix
             liftLog $ logLostInPrefix
-learnWinning spec _ _ gt = do
+learnWinning _ spec _ _ gt = do
     liftIO $ putStrLn (printTree spec gt)
     throwError "Found more than one unset node in learnWinning"
 
-interpolateTree :: CompiledSpec -> Player -> [[Assignment]] -> Bool -> GameTree -> SolverT ()
-interpolateTree spec player s useDefault gt' = do
+interpolateTree :: Config -> CompiledSpec -> Player -> [[Assignment]] -> Bool -> GameTree -> SolverT ()
+interpolateTree config spec player s useDefault gt' = do
     let gt = normaliseCopies gt'
     fmls <- makeSplitFmls spec player s useDefault gt
     when (isJust fmls) $ do
@@ -292,7 +293,7 @@ interpolateTree spec player s useDefault gt' = do
         if (not (satisfiable rA))
         then do
             -- We lose in the prefix, so just keep going
-            interpolateTree spec player s useDefault gtA
+            interpolateTree config spec player s useDefault gtA
         else do
             ir <- interpolate (gtMaxCopy gt) project fmlA fmlB
             if (not (success ir))
@@ -324,11 +325,23 @@ interpolateTree spec player s useDefault gt' = do
                 then put $ ls {
                       winningMay    = alterAll (insertIntoSet (concat minCube)) [1..gtBaseRank gtB] (winningMay ls)
                     }
-                else put $ ls {
+                else do 
+                    put $ ls {
                       winningMust   = foldl insertCube (winningMust ls) (concat minCube)
                     }
+                    liftIO $ sendCubesToHybrid config (concat minCube)
 
-                interpolateTree spec player s useDefault gtA
+                interpolateTree config spec player s useDefault gtA
+
+sendCubesToHybrid :: Config -> [[Assignment]] -> IO ()
+sendCubesToHybrid (hybridMVar -> Just mv) cubes =
+    forM_ (mapM (mapM assignmentToAIG) cubes) $ \aigCubes ->
+        modifyMVar_ mv $ \q -> return (q ++ aigCubes)
+sendCubesToHybrid _ _ = return ()
+
+assignmentToAIG :: Assignment -> Maybe Int
+assignmentToAIG (Assignment Pos v) = varAIG v
+assignmentToAIG (Assignment Neg v) = negate <$> varAIG v
 
 alterAll :: Ord k => (Maybe a -> Maybe a) -> [k] -> Map.Map k a -> Map.Map k a
 alterAll _ [] m     = m

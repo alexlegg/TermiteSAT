@@ -68,8 +68,8 @@ parser fn f = do
     let ts      = map (makeLatch gates') latches
     let o       = makeOutput gates' (head outputs)
 
-    let aigLatches (Latch i x nm)   = (makeVarAST (makeVar (varName "_l" i nm) StateVar 0), x)
-    let aigOutput (Output i n)      = (makeVarAST (makeVar (varName "_o" i n) StateVar 0), i)
+    let aigLatches (Latch i x nm)   = (makeVarAST (makeVar (varName "_l" i nm) StateVar 0 i), x)
+    let aigOutput (Output i n)      = (makeVarAST (makeVar (varName "_o" i n) StateVar 0 i), i)
 
     let spec = ParsedSpec {
           initial   = zip sVars (repeat 0)
@@ -92,25 +92,26 @@ inputVarType (Just nm)
     | otherwise                     = ContVar
 
 makeInputVar :: Input -> VarInfo
-makeInputVar (Input i n) = makeVar (varName "_i" i n) (inputVarType n) 1
+makeInputVar (Input i n) = makeVar (varName "_i" i n) (inputVarType n) 1 i
 
 makeLatchVar :: Latch -> VarInfo
-makeLatchVar (Latch i _ n) = makeVar (varName "_l" i n) StateVar 1
+makeLatchVar (Latch i _ n) = makeVar (varName "_l" i n) StateVar 1 i
 
 makeOutputVar :: Output -> VarInfo
-makeOutputVar (Output i n) = makeVar (varName "_o" i n) StateVar 1
+makeOutputVar (Output i n) = makeVar (varName "_o" i n) StateVar 1 i
 
 varName :: String -> Int -> Maybe String -> String
 varName pre i nm = fromMaybe "" nm ++ pre ++ show i
 
-makeVar :: String -> Section -> Int -> VarInfo
-makeVar nm sect r = VarInfo {
+makeVar :: String -> Section -> Int -> Int -> VarInfo
+makeVar nm sect r aid = VarInfo {
       name      = fromMaybe nm (stripPrefix "controllable_" nm)
     , sz        = 1
     , section   = sect
     , slice     = Nothing
     , virank    = r
     , enum      = Nothing
+    , aigId     = Just aid
     }
 
 makeVarAST :: VarInfo -> HAST.AST VarInfo e c v
@@ -148,13 +149,13 @@ lookupDone done i   = lookup (varId i) done
 makeLatch :: [(Int, HAST.AST VarInfo e c v)] -> Latch -> HAST.AST VarInfo e c v
 makeLatch done (Latch i x nm) = HAST.XNor var (setSign x x')
     where
-        var     = makeVarAST $ makeVar (varName "_l" i nm) StateVar 0
+        var     = makeVarAST $ makeVar (varName "_l" i nm) StateVar 0 i
         Just x' = lookupDone done x
 
 makeOutput :: [(Int, HAST.AST VarInfo e c v)] -> Output -> HAST.AST VarInfo e c v
 makeOutput done (Output i nm) = HAST.XNor var (setSign i x')
     where
-        var     = makeVarAST $ makeVar (varName "_o" i nm) StateVar 0
+        var     = makeVarAST $ makeVar (varName "_o" i nm) StateVar 0 i
         Just x' = lookupDone done i
 
 -- AIG Parsing

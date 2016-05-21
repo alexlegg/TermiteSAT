@@ -22,7 +22,8 @@ data VarInfo = VarInfo {
     section :: Section,
     slice   :: Slice,
     virank  :: Int,
-    enum    :: Maybe [(String, Int)]
+    enum    :: Maybe [(String, Int)],
+    aigId   :: Maybe Int
 } deriving (Eq)
 
 instance Show VarInfo where

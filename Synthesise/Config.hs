@@ -5,6 +5,8 @@ module Synthesise.Config (
     , Shortening(..)
     ) where
 
+import Control.Concurrent
+
 data MoveLearning = MLNone | MLFixedMoves FilePath | MLDefaultMoves Int deriving (Show, Eq)
 
 data Shortening = ShortenNone | ShortenExistential | ShortenUniversal | ShortenBoth
@@ -19,4 +21,6 @@ data Config = Config { tslFile      :: String
                      , initMin      :: Maybe Int
                      , shortening   :: Shortening
                      , portfolio    :: Bool
-                     } deriving (Show, Eq)
+                     , hybrid       :: Bool
+                     , hybridMVar   :: Maybe (MVar [[Int]])
+                     } deriving (Eq)
